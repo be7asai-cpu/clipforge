@@ -6,6 +6,7 @@ services:
     runtime: docker
     plan: free
     healthCheckPath: /api/health
+    # Render injects PORT; app reads process.env.PORT
     envVars:
       - key: NODE_ENV
         value: production

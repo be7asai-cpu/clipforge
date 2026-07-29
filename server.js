@@ -88,9 +88,15 @@ function isLoggedIn(req) {
 }
 
 // ── Entry: always login first ──────────────────────────────────────────
+// Serve login HTML directly on "/" (redirect-only breaks some clients /
+// cold-start proxies that show a bare "Not Found").
 app.get(["/", "/index.html"], (req, res) => {
   if (isLoggedIn(req)) return res.redirect(302, "/studio.html");
-  return res.redirect(302, "/login.html");
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, max-age=0"
+  );
+  return res.sendFile(path.join(__dirname, "public", "login.html"));
 });
 
 app.get(["/studio", "/studio.html"], (req, res) => {
