@@ -553,41 +553,50 @@ function buildPcSetupPs1({ cloud, token, label }) {
       .replace(/'/g, "''")
       // keep payload ASCII-safe for PS 5.1
       .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "?");
-  // Entire script must stay ASCII (no em-dash, no fancy dots)
+  // Entire script must stay ASCII (no em-dash, no fancy dots).
+  // CLOUD-ONLY: never copy from developer disk / Projects / C:\\Users\\...
   const body = `
 $ErrorActionPreference = 'Stop'
 $log = Join-Path $env:TEMP 'clipforge-agent-setup.log'
 function L($m) { $t = (Get-Date).ToString('s') + ' ' + $m; Add-Content -Path $log -Value $t; Write-Host $t }
 
 try {
-  L '=== ClipForge PC Agent setup (setup8-friend) ==='
+  L '=== ClipForge PC Agent (setup9-cloud-only) ==='
   L ("PS version: " + $PSVersionTable.PSVersion)
   L ("User: " + $env:USERNAME + "  PC: " + $env:COMPUTERNAME)
   try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   } catch {}
+
   $cloud = '${psQ(cloud)}'
   $token = '${psQ(token)}'
   $label = '${psQ(label || "Moj PC")}'
+  # ALWAYS per-user folder on THIS machine (not developer disk, not shared path)
   $agentDir = Join-Path $env:LOCALAPPDATA 'ClipForge-Agent'
-  L ("Folder agenta: $agentDir")
+  $authDir = Join-Path $agentDir 'data\\auth'
+
+  Write-Host ''
+  Write-Host ' ========================================'
+  Write-Host '  ClipForge - instalacja TYLKO Z CHMURY'
+  Write-Host ' ========================================'
+  Write-Host ('  Serwer:  ' + $cloud)
+  Write-Host ('  Folder:  ' + $agentDir)
+  Write-Host '  Kod NIE jest brany z dysku kolegi / dev.'
+  Write-Host '  Kazdy uzytkownik: wlasne konto + wlasny plik ⬇ PC.'
+  Write-Host ''
+
   L ("Cloud: $cloud")
+  L ("Agent dir: $agentDir")
   L ("Token prefix: " + $token.Substring(0, [Math]::Min(12, $token.Length)) + "...")
-  Write-Host ''
-  Write-Host ' UWAGA: ten plik dziala TYLKO dla konta, ktore go pobralo.'
-  Write-Host ' Nie wysylaj .cmd znajomemu - kazdy loguje sie i klika ⬇ PC sam.'
-  Write-Host ''
 
   $env:CLIPFORGE_CLOUD_URL = $cloud
   $env:CLIPFORGE_AGENT_TOKEN = $token
   $env:CLIPFORGE_PC_LABEL = $label
 
-  # Persist token so restart works without new .cmd
-  $authDir = Join-Path $agentDir 'data\\auth'
   New-Item -ItemType Directory -Path $authDir -Force | Out-Null
   Set-Content -Path (Join-Path $authDir 'pc-agent.token') -Value $token -Encoding ascii -NoNewline
 
-  # Resolve node.exe by full path (PATH often empty on double-click / friend PCs)
+  # --- Node.js (required runtime on this PC) ---
   $nodeExe = $null
   $nodeCandidates = @(
     (Join-Path $env:ProgramFiles 'nodejs\\node.exe'),
@@ -595,7 +604,6 @@ try {
     (Join-Path $env:LOCALAPPDATA 'Programs\\node\\node.exe'),
     (Join-Path $env:SystemDrive 'nodejs\\node.exe')
   )
-  # ProgramFiles(x86) - escape so JS template literal does not eat it
   $pf86 = \${env:ProgramFiles(x86)}
   if ($pf86) { $nodeCandidates += (Join-Path $pf86 'nodejs\\node.exe') }
   foreach ($c in $nodeCandidates) {
@@ -603,30 +611,19 @@ try {
   }
   if (-not $nodeExe) {
     $cmd = Get-Command node -ErrorAction SilentlyContinue
-    if ($cmd -and $cmd.Source -and (Test-Path -LiteralPath $cmd.Source)) {
-      $nodeExe = $cmd.Source
-    }
+    if ($cmd -and $cmd.Source -and (Test-Path -LiteralPath $cmd.Source)) { $nodeExe = $cmd.Source }
   }
   if (-not $nodeExe) {
-    L '[BLAD] Brak Node.js. Zainstaluj Node LTS: https://nodejs.org (zaznacz Add to PATH), zamknij to okno i odpal .cmd ponownie.'
-    Write-Host 'Pobierz: https://nodejs.org  -> LTS -> Next,Next (Add to PATH) -> Finish'
+    L '[BLAD] Brak Node.js na TYM komputerze.'
+    Write-Host '1) Pobierz Node LTS: https://nodejs.org'
+    Write-Host '2) Zaznacz Add to PATH, zainstaluj'
+    Write-Host '3) Zamknij to okno i odpal .cmd ponownie'
     exit 2
   }
   $nodeDir = Split-Path -Parent $nodeExe
   $env:Path = $nodeDir + ';' + $env:Path
   L ("Node: " + $nodeExe)
   & $nodeExe -v | ForEach-Object { L ("Node version: " + $_) }
-
-  # Optional: local ClipForge project (dev machine only - friends have no local src)
-  $localCandidates = @(
-    (Join-Path $env:USERPROFILE 'Projects\\clips-tv'),
-    (Join-Path $env:USERPROFILE 'Projects\\clipforge'),
-    (Join-Path $env:USERPROFILE 'clipforge')
-  )
-  $localSrc = $null
-  foreach ($c in $localCandidates) {
-    if (Test-Path (Join-Path $c 'scripts\\pc-agent.js')) { $localSrc = $c; break }
-  }
 
   function Expand-AgentZip($zip, $dest) {
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
@@ -635,19 +632,14 @@ try {
       Expand-Archive -LiteralPath $zip -DestinationPath $dest -Force
       $ok = $true
       L 'Rozpakowano: Expand-Archive'
-    } catch {
-      L ('Expand-Archive fail: ' + $_)
-    }
+    } catch { L ('Expand-Archive fail: ' + $_) }
     if (-not $ok) {
       try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem
-        # .NET Framework has no overwrite flag - wipe dest code first
         [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest)
         $ok = $true
-        L 'Rozpakowano: ZipFile.ExtractToDirectory'
-      } catch {
-        L ('ZipFile fail: ' + $_)
-      }
+        L 'Rozpakowano: ZipFile'
+      } catch { L ('ZipFile fail: ' + $_) }
     }
     if (-not $ok) {
       try {
@@ -657,140 +649,92 @@ try {
         $destItem.CopyHere($zipItem.Items(), 16)
         Start-Sleep -Seconds 2
         $ok = $true
-        L 'Rozpakowano: Shell.Application'
-      } catch {
-        L ('Shell unzip fail: ' + $_)
-      }
+        L 'Rozpakowano: Shell'
+      } catch { L ('Shell unzip fail: ' + $_) }
     }
-    if (-not $ok) { throw 'Nie udalo sie rozpakowac ZIP (Expand-Archive/ZipFile/Shell)' }
+    if (-not $ok) { throw 'Nie udalo sie rozpakowac ZIP z chmury' }
   }
 
-  function Install-AgentFromCloud {
-    L 'Pobieram paczke agenta z chmury (ZIP)...'
-    $zip = Join-Path $env:TEMP 'clipforge-agent.zip'
-    if (Test-Path $zip) { Remove-Item $zip -Force -ErrorAction SilentlyContinue }
-    # token in query - some networks strip Authorization headers
-    $uri = $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.zip?token=' + [uri]::EscapeDataString($token)
-    $headers = @{ Authorization = "Bearer $token" }
-    $dlOk = $false
+  # --- ALWAYS download code from cloud (never from developer disk) ---
+  L 'Pobieram paczke agenta Z CHMURY (nie z dysku dev)...'
+  $zip = Join-Path $env:TEMP ('clipforge-agent-' + [guid]::NewGuid().ToString('n').Substring(0,8) + '.zip')
+  $uri = $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.zip?token=' + [uri]::EscapeDataString($token)
+  L ("URL: " + $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.zip?token=***')
+  $dlOk = $false
+  try {
+    Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Bearer $token" } -OutFile $zip -UseBasicParsing -TimeoutSec 180
+    $dlOk = $true
+  } catch { L ('IWR+auth fail: ' + $_) }
+  if (-not $dlOk) {
     try {
-      Invoke-WebRequest -Uri $uri -Headers $headers -OutFile $zip -UseBasicParsing
+      Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing -TimeoutSec 180
       $dlOk = $true
-    } catch {
-      L ('IWR z naglowkiem nieudane: ' + $_)
-    }
-    if (-not $dlOk) {
-      try {
-        Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing
-        $dlOk = $true
-      } catch {
-        L ('IWR URL nieudane: ' + $_)
-      }
-    }
-    if (-not $dlOk) {
-      try {
-        curl.exe -L --fail -o $zip $uri
-        if ((Test-Path $zip) -and (Get-Item $zip).Length -gt 100) { $dlOk = $true; L 'Pobrano przez curl.exe' }
-      } catch {
-        L ('curl fail: ' + $_)
-      }
-    }
-    if (-not $dlOk -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 100) {
-      throw 'Pobrany ZIP jest pusty lub download nieudany (token/deploy/internet)'
-    }
-    # Detect HTML error page saved as zip
-    $head = Get-Content -LiteralPath $zip -Encoding Byte -TotalCount 4 -ErrorAction SilentlyContinue
-    if ($head -and $head[0] -eq 0x3C) { throw 'Zamiast ZIP serwer zwrocil HTML (401/404). Zaloguj sie i pobierz SWIEZY .cmd ze strony.' }
-    L ("ZIP OK: " + (Get-Item $zip).Length + " bajtow")
-    if (Test-Path $agentDir) {
-      # keep data/auth token; wipe code only
-      Get-ChildItem $agentDir -Force | Where-Object { $_.Name -ne 'data' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
-    Expand-AgentZip $zip $agentDir
-    if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
-      $sub = Get-ChildItem $agentDir -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
-      if ($sub -and (Test-Path (Join-Path $sub.FullName 'package.json'))) {
-        L "Paczka ma folder glowny: $($sub.Name) - przenosze pliki"
-        Get-ChildItem $sub.FullName -Force | ForEach-Object {
-          Move-Item $_.FullName -Destination $agentDir -Force
-        }
-        Remove-Item $sub.FullName -Recurse -Force -ErrorAction SilentlyContinue
-      }
-    }
-    if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
-      L 'Zawartosc folderu agenta po rozpakowaniu:'
-      Get-ChildItem $agentDir -Recurse -ErrorAction SilentlyContinue | Select-Object -First 30 FullName | ForEach-Object { L $_.FullName }
-      throw 'Paczka z chmury jest pusta lub uszkodzona (brak package.json)'
-    }
-    if (-not (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js'))) {
-      throw 'Brak scripts/pc-agent.js w paczce'
-    }
-    L 'Kod agenta z chmury gotowy'
+    } catch { L ('IWR fail: ' + $_) }
   }
-
-  function Install-AgentFromLocal($src) {
-    L "Kopiuje lokalny projekt: $src"
-    New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
-    foreach ($name in @('package.json','package-lock.json','lib','scripts')) {
-      $s = Join-Path $src $name
-      $d = Join-Path $agentDir $name
-      if (Test-Path $s) {
-        if (Test-Path $s -PathType Container) { Copy-Item $s $d -Recurse -Force }
-        else { Copy-Item $s $d -Force }
-      }
-    }
-    if (-not (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js'))) {
-      throw 'Lokalny projekt nie ma scripts/pc-agent.js'
-    }
-  }
-
-  # Always prefer cloud package for friends (local copy only as offline fallback)
-  $hasAgent = (Test-Path (Join-Path $agentDir 'package.json')) -and (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js'))
-  $forceCloud = $true
-  if ($forceCloud -or -not $hasAgent) {
-    L 'Instalacja / odswiezenie agenta Z CHMURY...'
+  if (-not $dlOk) {
     try {
-      Install-AgentFromCloud
-    } catch {
-      L ('Chmura nieudana: ' + $_)
-      if ($localSrc) {
-        L 'Fallback: kopia lokalnego projektu (dev)'
-        Install-AgentFromLocal $localSrc
-      } else {
-        throw $_
-      }
+      curl.exe -L --fail --connect-timeout 30 --max-time 180 -o $zip $uri
+      if ((Test-Path $zip) -and (Get-Item $zip).Length -gt 1000) { $dlOk = $true; L 'Pobrano: curl.exe' }
+    } catch { L ('curl fail: ' + $_) }
+  }
+  if (-not $dlOk -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 1000) {
+    throw 'Download z chmury nieudany. Sprawdz internet / czy Render dziala / zaloguj sie i pobierz SWIEZY .cmd.'
+  }
+  $head = Get-Content -LiteralPath $zip -Encoding Byte -TotalCount 4 -ErrorAction SilentlyContinue
+  if ($head -and $head[0] -eq 0x3C) {
+    throw 'Serwer zwrocil HTML zamiast ZIP (zly token). Zaloguj sie na stronie i kliknij ⬇ PC ponownie.'
+  }
+  L ("ZIP z chmury OK: " + (Get-Item $zip).Length + " B")
+
+  # Wipe old code; keep only data/ (token, local work folders)
+  if (Test-Path $agentDir) {
+    Get-ChildItem $agentDir -Force | Where-Object { $_.Name -ne 'data' } |
+      Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
+  Expand-AgentZip $zip $agentDir
+  try { Remove-Item $zip -Force -ErrorAction SilentlyContinue } catch {}
+
+  if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
+    $sub = Get-ChildItem $agentDir -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($sub -and (Test-Path (Join-Path $sub.FullName 'package.json'))) {
+      L ("Paczka ma podfolder: " + $sub.Name + " - przenosze")
+      Get-ChildItem $sub.FullName -Force | ForEach-Object { Move-Item $_.FullName -Destination $agentDir -Force }
+      Remove-Item $sub.FullName -Recurse -Force -ErrorAction SilentlyContinue
     }
   }
+  if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
+    Get-ChildItem $agentDir -Recurse -ErrorAction SilentlyContinue | Select-Object -First 25 FullName | ForEach-Object { L $_.FullName }
+    throw 'Paczka z chmury uszkodzona (brak package.json)'
+  }
+  if (-not (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js'))) {
+    throw 'Paczka z chmury uszkodzona (brak scripts/pc-agent.js)'
+  }
+  L 'Kod agenta Z CHMURY gotowy (zero sciezek z dysku dev)'
 
+  # --- npm install dependencies from internet (npm registry), not from local project ---
   $ffBin = Join-Path $agentDir 'node_modules\\ffmpeg-static\\ffmpeg.exe'
-  $needNpm = $false
-  if (-not (Test-Path (Join-Path $agentDir 'node_modules'))) { $needNpm = $true; L 'Brak node_modules' }
-  elseif (-not (Test-Path (Join-Path $agentDir 'node_modules\\express'))) { $needNpm = $true; L 'node_modules niekompletne' }
-  elseif (-not (Test-Path $ffBin)) { $needNpm = $true; L 'Brak ffmpeg-static - doinstaluje' }
-  if ($needNpm) {
-    L 'npm install (raz, moze potrwac 2-5 min - potrzebny internet)...'
-    Push-Location $agentDir
-    & npm.cmd install --omit=dev
-    $npmCode = $LASTEXITCODE
-    if ($npmCode -ne 0) {
-      L 'npm.cmd fail - proboje npm przez node...'
-      & $nodeExe (Join-Path $nodeDir 'node_modules\\npm\\bin\\npm-cli.js') install --omit=dev
+  L 'npm install (paczki z internetu, 2-5 min)...'
+  Push-Location $agentDir
+  & npm.cmd install --omit=dev
+  $npmCode = $LASTEXITCODE
+  if ($npmCode -ne 0) {
+    L 'npm.cmd fail - proboje npm-cli.js...'
+    $npmCli = Join-Path $nodeDir 'node_modules\\npm\\bin\\npm-cli.js'
+    if (Test-Path $npmCli) {
+      & $nodeExe $npmCli install --omit=dev
       $npmCode = $LASTEXITCODE
     }
-    Pop-Location
-    if ($npmCode -ne 0) {
-      throw "npm install failed: $npmCode (internet / antywirus / zablokowany npm?)"
-    }
-    L 'npm install OK'
-  } else {
-    L 'node_modules OK - pomijam npm install'
   }
+  Pop-Location
+  if ($npmCode -ne 0) {
+    throw "npm install failed: $npmCode (internet / antywirus?)"
+  }
+  L 'npm install OK'
 
-  # Re-write token after possible wipe
+  # restore token after wipe
   New-Item -ItemType Directory -Path $authDir -Force | Out-Null
   Set-Content -Path (Join-Path $authDir 'pc-agent.token') -Value $token -Encoding ascii -NoNewline
-  L ("Token zapisany w: " + (Join-Path $authDir 'pc-agent.token'))
 
   function Test-Ffmpeg($bin) {
     if (-not $bin -or -not (Test-Path $bin)) { return $false }
@@ -802,98 +746,81 @@ try {
     return ($proc.ExitCode -eq 0)
   }
   if (-not (Test-Ffmpeg $ffBin)) {
-    L 'FFmpeg agenta nie dziala - proboje naprawic...'
-    $fixed = $false
-    if ($localSrc) {
-      $g = Join-Path $localSrc 'node_modules\\ffmpeg-static\\ffmpeg.exe'
-      if (Test-Path $g) {
-        $destDir = Split-Path $ffBin -Parent
-        if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-        Copy-Item $g $ffBin -Force
-        try { Unblock-File -Path $ffBin -ErrorAction SilentlyContinue } catch {}
-        if (Test-Ffmpeg $ffBin) { L "Skopiowano dzialajacy FFmpeg z: $g"; $fixed = $true }
-      }
+    L 'FFmpeg - ponowna instalacja z npm...'
+    Push-Location $agentDir
+    & npm.cmd install ffmpeg-static@5.3.0 --force
+    Pop-Location
+    try { Unblock-File -Path $ffBin -ErrorAction SilentlyContinue } catch {}
+    if (-not (Test-Ffmpeg $ffBin)) {
+      throw 'FFmpeg zablokowany (antywirus). Wyjatek na folder: %LOCALAPPDATA%\\ClipForge-Agent'
     }
-    if (-not $fixed) {
-      L 'Proboje ponownie zainstalowac ffmpeg-static...'
-      Push-Location $agentDir
-      & npm.cmd install ffmpeg-static@5.3.0 --force
-      Pop-Location
-      try { Unblock-File -Path $ffBin -ErrorAction SilentlyContinue } catch {}
-      $fixed = Test-Ffmpeg $ffBin
-    }
-    if (-not $fixed) {
-      throw 'FFmpeg nie dziala na tym PC (antywirus czesto blokuje ffmpeg.exe). Dodaj wyjatek dla %LOCALAPPDATA%\\ClipForge-Agent i odpal .cmd ponownie.'
-    }
-  } else {
-    L 'FFmpeg OK'
   }
+  L 'FFmpeg OK'
 
-  # Friend-proof restart helper
+  # RUN-AGENT.bat — only this PC + cloud URL (no other user paths)
   $runBat = Join-Path $agentDir 'RUN-AGENT.bat'
-  $batBody = @"
-@echo off
-cd /d "%~dp0"
-set "PATH=$nodeDir;%PATH%"
-set "CLIPFORGE_CLOUD_URL=$cloud"
-set "CLIPFORGE_PC_LABEL=$label"
-if exist "data\\auth\\pc-agent.token" set /p CLIPFORGE_AGENT_TOKEN=<"data\\auth\\pc-agent.token"
-echo ClipForge PC Agent - NIE ZAMYKAJ tego okna
-echo Strona: $cloud/studio.html
-echo Zaloguj sie na TO SAMO konto, ktore pobralo agenta.
-"$nodeExe" scripts\\pc-agent.js
-echo.
-echo Agent sie zakonczyl. Kod: %ERRORLEVEL%
-pause
-"@
-  Set-Content -Path $runBat -Value $batBody -Encoding ascii
-  L ("RUN-AGENT.bat: $runBat")
+  $batLines = @(
+    '@echo off',
+    'cd /d "%~dp0"',
+    ('set "PATH=' + $nodeDir + ';%PATH%"'),
+    ('set "CLIPFORGE_CLOUD_URL=' + $cloud + '"'),
+    ('set "CLIPFORGE_PC_LABEL=' + $label + '"'),
+    'if exist "data\\auth\\pc-agent.token" set /p CLIPFORGE_AGENT_TOKEN=<"data\\auth\\pc-agent.token"',
+    'echo ClipForge PC Agent - NIE ZAMYKAJ',
+    ('echo Strona: ' + $cloud + '/studio.html'),
+    'echo Zaloguj sie na TO SAMO konto co przy ⬇ PC.',
+    ('"' + $nodeExe + '" scripts\\pc-agent.js'),
+    'echo Kod: %ERRORLEVEL%',
+    'pause'
+  )
+  Set-Content -Path $runBat -Value ($batLines -join ([char]13+[char]10)) -Encoding ascii
+  L ("RUN-AGENT: $runBat")
 
   $help = Join-Path $agentDir 'CZYTAJ-MNIE.txt'
-  Set-Content -Path $help -Value @"
-ClipForge PC Agent
-==================
-1. Zostaw RUN-AGENT.bat / to okno OTWARTE.
-2. Wejdz na: $cloud/studio.html
-3. Zaloguj sie na TO SAMO konto co przy pobraniu .cmd
-4. Chip PC powinno byc ON (zielone).
+  $helpLines = @(
+    'ClipForge PC Agent - TYLKO Z CHMURY',
+    '================================',
+    ('Cloud: ' + $cloud),
+    ('Folder na TYM PC: ' + $agentDir),
+    '',
+    '1. Zostaw agent OTWARTY (to okno albo RUN-AGENT.bat)',
+    '2. Wejdz na strone w chmurze (powyzej)',
+    '3. Zaloguj sie na TO SAMO konto, ktore pobralo PC',
+    '4. Chip: PC ON',
+    '',
+    'Kazdy uzytkownik = wlasne konto + wlasny PC agent.',
+    'Nie dawaj .cmd znajomemu (ma TWOJ token).',
+    ('Log: ' + $log)
+  )
+  Set-Content -Path $help -Value ($helpLines -join ([char]13+[char]10)) -Encoding ascii
 
-NIE wysylaj .cmd znajomemu - kazdy klika ⬇ PC po zalogowaniu.
-Log bledow: %TEMP%\\clipforge-agent-setup.log
-Restart: $runBat
-"@ -Encoding ascii
-
-  # Quick connectivity check
   try {
     $hbUri = $cloud.TrimEnd('/') + '/api/studio/agent/heartbeat'
-    $hb = Invoke-RestMethod -Uri $hbUri -Method POST -Headers @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' } -Body '{"label":"setup"}' -TimeoutSec 30
-    L ("Heartbeat OK userId=" + $hb.userId + " email=" + $hb.email + " online=" + $hb.online)
+    $hb = Invoke-RestMethod -Uri $hbUri -Method POST -Headers @{ Authorization = ("Bearer " + $token); 'Content-Type' = 'application/json' } -Body '{"label":"setup"}' -TimeoutSec 45
+    L ("Heartbeat OK userId=" + $hb.userId + " email=" + $hb.email)
   } catch {
-    L ('[OSTRZEZENIE] Heartbeat nieudany (serwer spi / siec): ' + $_)
-    L 'Agent i tak wystartuje - Render free czasem budzi sie 30-60s.'
+    L ('[OSTRZEZENIE] Heartbeat: ' + $_ + ' (Render free moze spic 30-60s)')
   }
 
-  L 'Startuje agent - wroc do strony (PC ON). Nie zamykaj okna.'
+  L 'Start agenta. UI = chmura, liczenie = TEN PC. Nie zamykaj okna.'
   Write-Host ''
-  Write-Host "  Strona: $cloud/studio.html"
-  Write-Host '  Zaloguj sie na TO SAMO konto. Nie zamykaj tego okna.'
+  Write-Host ('  Strona: ' + $cloud + '/studio.html')
+  Write-Host ('  Kod z chmury w: ' + $agentDir)
   Write-Host ''
   Set-Location $agentDir
   & $nodeExe .\\scripts\\pc-agent.js
-  L ("Agent zakonczyl, kod=" + $LASTEXITCODE)
+  L ("Agent exit=" + $LASTEXITCODE)
   exit $LASTEXITCODE
 } catch {
   L ('[BLAD] ' + $_)
   if ($_.ScriptStackTrace) { L $_.ScriptStackTrace }
   Write-Host ''
-  Write-Host '===== BLAD INSTALACJI ====='
+  Write-Host '===== BLAD ====='
   Write-Host ('Log: ' + $log)
-  Write-Host 'Wyslij ten log (lub zrzut okna) osobie od ClipForge.'
-  Write-Host '==========================='
+  Write-Host '================'
   exit 1
 }
 `.trim();
-  // Hard guarantee: no non-ASCII that breaks Windows PowerShell 5.1
   return body.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "-");
 }
 
@@ -1011,15 +938,16 @@ function sendPcSetupCmd(req, res) {
     "set \"CF_CMD=%~f0\"",
     "echo.",
     "echo  ========================================",
-    "echo   ClipForge PC Agent  (setup8-friend)",
+    "echo   ClipForge PC Agent  (setup9-cloud-only)",
     "echo  ========================================",
     "echo.",
     "echo  Plik: %~f0",
     "echo  Log:  %TEMP%\\clipforge-agent-setup.log",
-    "echo  Folder: %LOCALAPPDATA%\\ClipForge-Agent",
+    "echo  Instalacja: %LOCALAPPDATA%\\ClipForge-Agent",
     "echo.",
-    "echo  Ten plik = TYLKO Twoje konto. Nie dawaj go koledze.",
-    "echo  Kolega: loguje sie sam i klika ⬇ PC na stronie.",
+    "echo  Kod sciaga sie Z CHMURY na TEN komputer.",
+    "echo  Nie uzywa dysku kolegi / dewelopera.",
+    "echo  Kazdy: wlasne konto + wlasny ⬇ PC (nie dawaj .cmd).",
     "echo.",
     "REM Find node.exe by full path (double-click .cmd often has empty/stale PATH).",
     "REM Avoid if exist ...ProgramFiles(x86)... — the ) breaks batch IF parsing.",

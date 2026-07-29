@@ -882,6 +882,14 @@
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(obj), 2000);
+      alert(
+        "Pobrano ClipForge-PC-Agent.cmd\n\n" +
+          "• Kod agenta ściąga się Z CHMURY na TEN komputer\n" +
+          "  (folder %LOCALAPPDATA%\\ClipForge-Agent) — nie z dysku kolegi.\n" +
+          "• Odpal pobrany .cmd i zostaw okno otwarte.\n" +
+          "• Potrzebny Node.js LTS: https://nodejs.org\n\n" +
+          "Każda osoba loguje się sama i klika ⬇ PC (nie wysyłaj swojego .cmd)."
+      );
     } catch (err) {
       alert(
         "Błąd pobierania agenta: " +
