@@ -108,14 +108,28 @@ function isLoggedIn(req) {
   );
 }
 
-// ── Health first (Render probes this) ──────────────────────────────────
-app.get("/api/health", (_req, res) => {
+// ── Health first (Render probes this + cloud page probes localhost) ────
+// CORS * so https://….onrender.com can detect local Studio and switch.
+app.options("/api/health", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
+  res.setHeader("Access-Control-Max-Age", "86400");
+  return res.status(204).end();
+});
+
+app.get("/api/health", (req, res) => {
   noStore(res);
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
   res.json({
     ok: true,
     service: "clipforge",
     studio: true,
-    v: "2026-07-29r2",
+    local: !behindProxy,
+    host: req.hostname || null,
+    v: "2026-07-29local-switch",
   });
 });
 
