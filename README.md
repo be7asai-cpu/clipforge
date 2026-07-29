@@ -3,6 +3,13 @@
 **Tylko Studio** — lokalna kuźnia klipów (delogo, HD, lektor).  
 **Nie hostujemy** biblioteki cudzych filmików. Upload = tymczasowa obróbka, pliki auto-usuwane (~2 h).
 
+## Publikacja (darmowy host)
+
+- **Stały free host (Render):** zobacz [`DEPLOY.md`](./DEPLOY.md) — Docker + free plan  
+- **Szybki link HTTPS (PC włączony):** `start-public-tunnel.bat` albo  
+  `npx cloudflared tunnel --url http://127.0.0.1:3847`  
+  → adres `https://….trycloudflare.com` (tymczasowy)
+
 ## Model (na razie): każdy na swoim PC
 
 - ClipForge **uruchamiasz u siebie** (`localhost:3847`).
