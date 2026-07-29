@@ -398,8 +398,98 @@ app.post("/api/studio/pc-token", auth.requireAuthIfEnabled, (req, res) => {
     ok: true,
     token: tok.token,
     label: tok.label,
-    hint: "Ustaw CLIPFORGE_AGENT_TOKEN w .env i odpal start-pc-agent.bat",
+    cloudUrl: auth.baseUrl() || `${req.protocol}://${req.get("host")}`,
+    hint: "Pobierz gotowy plik: /api/studio/pc-setup.cmd",
   });
+});
+
+/**
+ * One-click PC agent for everyone — same auto config:
+ * downloads a .cmd with cloud URL + personal token baked in.
+ * First run: clones repo to %LOCALAPPDATA%\ClipForge-Agent, npm install, starts agent.
+ */
+app.get("/api/studio/pc-setup.cmd", auth.requireAuthIfEnabled, (req, res) => {
+  if (!req.user?.id) {
+    return res.status(401).type("text").send("Zaloguj sie w przegladarce i sprobuj ponownie.");
+  }
+  const label = String(req.query.label || "Moj PC").slice(0, 40);
+  const tok = pcAgent.issueToken(req.user.id, label);
+  const cloud = (
+    auth.baseUrl() ||
+    process.env.RENDER_EXTERNAL_URL ||
+    `${req.protocol}://${req.get("host")}`
+  ).replace(/\/$/, "");
+  const repo =
+    process.env.CLIPFORGE_GIT_REPO ||
+    "https://github.com/be7asai-cpu/clipforge.git";
+
+  // Pure CMD — no manual env for the user
+  const cmd = [
+    "@echo off",
+    "chcp 65001 >nul",
+    "title ClipForge PC Agent",
+    "setlocal EnableExtensions",
+    `set "CLIPFORGE_CLOUD_URL=${cloud}"`,
+    `set "CLIPFORGE_AGENT_TOKEN=${tok.token}"`,
+    `set "CLIPFORGE_PC_LABEL=${label.replace(/"/g, "")}"`,
+    'set "AGENT_DIR=%LOCALAPPDATA%\\ClipForge-Agent"',
+    "echo.",
+    "echo  ClipForge PC Agent — automatyczna konfiguracja",
+    "echo  Strona w przegladarce zostaje w chmurze; liczenie na TYM PC.",
+    "echo  Cloud: %CLIPFORGE_CLOUD_URL%",
+    "echo.",
+    "where node >nul 2>&1",
+    "if errorlevel 1 (",
+    "  echo [BLAD] Brak Node.js — zainstaluj LTS z https://nodejs.org i uruchom ten plik ponownie.",
+    "  pause",
+    "  exit /b 1",
+    ")",
+    "where git >nul 2>&1",
+    "if errorlevel 1 (",
+    "  echo [BLAD] Brak Git — zainstaluj z https://git-scm.com i uruchom ten plik ponownie.",
+    "  pause",
+    "  exit /b 1",
+    ")",
+    'if not exist "%AGENT_DIR%\\package.json" (',
+    "  echo Pobieram ClipForge do %AGENT_DIR% ...",
+    `  git clone --depth 1 "${repo}" "%AGENT_DIR%"`,
+    "  if errorlevel 1 (",
+    "    echo [BLAD] git clone nieudany",
+    "    pause",
+    "    exit /b 1",
+    "  )",
+    '  cd /d "%AGENT_DIR%"',
+    "  echo Instaluje zaleznosci npm (raz)...",
+    "  call npm install --omit=dev",
+    "  if errorlevel 1 (",
+    "    echo [BLAD] npm install nieudany",
+    "    pause",
+    "    exit /b 1",
+    "  )",
+    ") else (",
+    '  cd /d "%AGENT_DIR%"',
+    "  echo Aktualizacja kodu...",
+    "  git pull --ff-only >nul 2>&1",
+    ")",
+    'cd /d "%AGENT_DIR%"',
+    "echo.",
+    "echo  Agent startuje. Mozesz wrocic do strony w przegladarce — chip PC·ON.",
+    "echo  Nie zamykaj tego okna podczas obróbki.",
+    "echo.",
+    "node scripts\\pc-agent.js",
+    "echo.",
+    "echo  Agent zakonczyl dzialanie.",
+    "pause",
+    "",
+  ].join("\r\n");
+
+  res.setHeader("Content-Type", "application/octet-stream; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="ClipForge-PC-Agent.cmd"'
+  );
+  res.setHeader("Cache-Control", "no-store");
+  res.send(cmd);
 });
 
 app.post("/api/studio/agent/heartbeat", (req, res) => {

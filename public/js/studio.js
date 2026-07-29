@@ -841,6 +841,115 @@
     return true;
   }
 
+  /** One-click: same setup for every user (URL + token baked into .cmd) */
+  function downloadPcAgentSetup() {
+    // Must be top-level navigation so cookie session is sent
+    const a = document.createElement("a");
+    a.href = "/api/studio/pc-setup.cmd?label=" + encodeURIComponent("Moj PC");
+    a.download = "ClipForge-PC-Agent.cmd";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    try {
+      sessionStorage.setItem("clipforge_pc_setup_offered", "1");
+    } catch (_) {}
+  }
+
+  function ensurePcAgentUi(pcOnline) {
+    const head = document.querySelector(".panel-progress-actions") ||
+      document.querySelector(".panel-progress-head");
+    if (!head) return;
+
+    let chip = document.getElementById("pc-agent-chip");
+    if (!chip) {
+      chip = document.createElement("span");
+      chip.id = "pc-agent-chip";
+      chip.style.cssText =
+        "font:600 0.65rem Orbitron,sans-serif;letter-spacing:0.06em;padding:4px 8px;border-radius:999px;border:1px solid rgba(0,240,255,0.35);margin-right:8px;cursor:default;";
+      head.prepend(chip);
+    }
+    let btn = document.getElementById("btn-pc-setup");
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.id = "btn-pc-setup";
+      btn.textContent = "⬇ PC";
+      btn.title =
+        "Pobierz gotowy agent na TEN komputer (automatyczna konfiguracja dla Twojego konta)";
+      btn.style.cssText =
+        "font:700 0.62rem Orbitron,sans-serif;letter-spacing:0.08em;padding:5px 10px;margin-right:8px;cursor:pointer;border:1px solid rgba(0,240,255,0.45);background:rgba(0,229,255,0.12);color:#7df9ff;clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);";
+      btn.addEventListener("click", () => {
+        downloadPcAgentSetup();
+        alert(
+          "Pobrano ClipForge-PC-Agent.cmd\n\n" +
+            "1. Otwórz plik (Pobrane)\n" +
+            "2. Jeśli Windows zapyta — Więcej informacji → Uruchom mimo to\n" +
+            "3. Zostaw okno otwarte\n" +
+            "4. Wróć tu — chip PC·ON\n\n" +
+            "Potrzebne raz: Node.js + Git (przy pierwszym uruchomieniu)."
+        );
+      });
+      head.prepend(btn);
+    }
+
+    if (pcOnline) {
+      chip.textContent = "PC · ON";
+      chip.style.color = "#00ff9d";
+      chip.style.borderColor = "rgba(0,255,157,0.5)";
+      chip.title =
+        "Twój PC połączony — joby liczone u Ciebie, strona zostaje w chmurze";
+      btn.style.opacity = "0.55";
+    } else {
+      chip.textContent = "PC · OFF";
+      chip.style.color = "#7eb8c9";
+      chip.style.borderColor = "rgba(0,240,255,0.25)";
+      chip.title = "Kliknij ⬇ PC — jeden plik, ta sama konfiguracja dla każdego";
+      btn.style.opacity = "1";
+    }
+
+    // Soft auto-offer once per browser session when offline
+    try {
+      if (
+        !pcOnline &&
+        !sessionStorage.getItem("clipforge_pc_setup_offered") &&
+        !sessionStorage.getItem("clipforge_pc_banner")
+      ) {
+        sessionStorage.setItem("clipforge_pc_banner", "1");
+        const bar = document.createElement("div");
+        bar.id = "pc-setup-banner";
+        bar.style.cssText =
+          "margin:0 0 12px;padding:10px 12px;border:1px solid rgba(0,240,255,0.35);background:rgba(0,40,60,0.5);font:0.85rem Exo 2,sans-serif;color:#e0f7ff;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;";
+        bar.innerHTML =
+          "<span><strong>Twój PC</strong> — żeby każdy liczył u siebie (bez kolejki w chmurze), pobierz raz gotowy agent. Strona zostaje tutaj.</span>";
+        const go = document.createElement("button");
+        go.type = "button";
+        go.textContent = "Pobierz agent PC";
+        go.className = "btn-go";
+        go.style.cssText =
+          "width:auto;margin:0;padding:8px 14px;font-size:0.7rem;";
+        go.addEventListener("click", () => {
+          downloadPcAgentSetup();
+          bar.remove();
+        });
+        const dismiss = document.createElement("button");
+        dismiss.type = "button";
+        dismiss.textContent = "Później";
+        dismiss.style.cssText =
+          "background:transparent;border:none;color:#7eb8c9;cursor:pointer;font:inherit;";
+        dismiss.addEventListener("click", () => bar.remove());
+        const actions = document.createElement("div");
+        actions.style.cssText = "display:flex;gap:8px;align-items:center;";
+        actions.appendChild(go);
+        actions.appendChild(dismiss);
+        bar.appendChild(actions);
+        const idle = document.getElementById("idle-state");
+        const panel = document.querySelector(".panel-progress");
+        if (idle && idle.parentNode) idle.parentNode.insertBefore(bar, idle);
+        else if (panel) panel.insertBefore(bar, panel.firstChild);
+      }
+    } catch (_) {}
+  }
+
   /** Busy = only MY job (multi-user: other people don't block Start) */
   async function isStudioBusy() {
     try {
@@ -850,36 +959,7 @@
       });
       if (!res.ok) return false;
       const data = await res.json();
-      // Discreet PC-agent chip (processing on your machine, UI stays on cloud)
-      try {
-        let chip = document.getElementById("pc-agent-chip");
-        if (!chip) {
-          const head = document.querySelector(".panel-progress-head");
-          if (head) {
-            chip = document.createElement("span");
-            chip.id = "pc-agent-chip";
-            chip.style.cssText =
-              "font:600 0.65rem Orbitron,sans-serif;letter-spacing:0.06em;padding:4px 8px;border-radius:999px;border:1px solid rgba(0,240,255,0.35);margin-right:8px;";
-            head.querySelector(".panel-progress-actions")?.prepend(chip) ||
-              head.appendChild(chip);
-          }
-        }
-        if (chip) {
-          if (data.pcAgent && data.pcAgent.online) {
-            chip.textContent = "PC · ON";
-            chip.style.color = "#00ff9d";
-            chip.style.borderColor = "rgba(0,255,157,0.5)";
-            chip.title =
-              "Agent na Twoim PC połączony — joby liczone lokalnie (strona bez przekierowania)";
-          } else {
-            chip.textContent = "PC · OFF";
-            chip.style.color = "#7eb8c9";
-            chip.style.borderColor = "rgba(0,240,255,0.25)";
-            chip.title =
-              "Brak agenta PC — joby na serwerze w chmurze. Odpal start-pc-agent.bat";
-          }
-        }
-      } catch (_) {}
+      ensurePcAgentUi(!!(data.pcAgent && data.pcAgent.online));
       // Prefer myBusy (per-user). Fallback busy for older servers.
       if (typeof data.myBusy === "boolean") return data.myBusy;
       return !!data.busy;
