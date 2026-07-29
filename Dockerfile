@@ -25,7 +25,8 @@ ENV PORT=10000
 ENV TRUST_PROXY=1
 ENV COOKIE_SECURE=1
 ENV AUTH_REQUIRED=true
-ENV EMAIL_DEV_LINKS=false
+# Show activation link in UI when SMTP is missing/fails (safe for private apps)
+ENV EMAIL_DEV_LINKS=true
 
 # Prefer system ffmpeg (linux) over windows binary from npm if present
 ENV FFMPEG_PATH=/usr/bin/ffmpeg
