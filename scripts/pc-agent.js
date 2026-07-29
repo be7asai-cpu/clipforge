@@ -41,15 +41,15 @@ function log(...a) {
   console.log("[PC-Agent]", ...a);
 }
 
-function request(method, urlPath, { body, token, formData, raw } = {}) {
+function request(method, urlPath, { body, token, formData, raw, maxRedirects = 5 } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(urlPath.startsWith("http") ? urlPath : CLOUD + urlPath);
     const lib = u.protocol === "https:" ? https : http;
-    const headers = { Accept: "application/json" };
+    const headers = {};
+    if (!raw) headers.Accept = "application/json";
     if (token) headers.Authorization = "Bearer " + token;
     let payload = null;
     if (formData) {
-      // formData is { body: Buffer, headers }
       Object.assign(headers, formData.headers);
       payload = formData.body;
     } else if (body != null) {
@@ -66,12 +66,35 @@ function request(method, urlPath, { body, token, formData, raw } = {}) {
         headers,
       },
       (res) => {
+        // Follow redirects (Render / CDN)
+        if (
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          res.headers.location &&
+          maxRedirects > 0
+        ) {
+          const next = new URL(res.headers.location, u).href;
+          res.resume();
+          return resolve(
+            request(method, next, {
+              body,
+              token,
+              formData,
+              raw,
+              maxRedirects: maxRedirects - 1,
+            })
+          );
+        }
         const chunks = [];
         res.on("data", (c) => chunks.push(c));
         res.on("end", () => {
           const buf = Buffer.concat(chunks);
           if (raw) {
-            return resolve({ status: res.statusCode, buf, headers: res.headers });
+            return resolve({
+              status: res.statusCode,
+              buf,
+              headers: res.headers,
+            });
           }
           let data = null;
           try {
@@ -151,7 +174,29 @@ async function downloadInput(job, destPath) {
     raw: true,
   });
   if (res.status >= 400) {
-    throw new Error("Pobieranie input nieudane HTTP " + res.status);
+    const hint = res.buf
+      ? res.buf.toString("utf8").slice(0, 180)
+      : "";
+    throw new Error(
+      "Pobieranie input nieudane HTTP " + res.status + " " + hint
+    );
+  }
+  if (!res.buf || res.buf.length < 64) {
+    throw new Error(
+      "Pobrany input jest pusty (" + (res.buf ? res.buf.length : 0) + " B)"
+    );
+  }
+  // Detect HTML/JSON error pages saved as "video"
+  const head = res.buf.slice(0, 32).toString("utf8");
+  if (
+    /^\s*</.test(head) ||
+    head.startsWith("{") ||
+    head.startsWith("Not Found")
+  ) {
+    throw new Error(
+      "Pobrany input nie jest wideo (wygląda na HTML/JSON): " +
+        head.replace(/\s+/g, " ").slice(0, 80)
+    );
   }
   fs.mkdirSync(path.dirname(destPath), { recursive: true });
   fs.writeFileSync(destPath, res.buf);
@@ -215,9 +260,12 @@ function multipartComplete(jobId, files, result) {
 
 async function runJob(job) {
   log("Start job", job.id, job.originalName);
+  // Short ASCII path — avoids Windows path/encoding issues in FFmpeg
   const workDir = path.join(ROOT, "data", "studio", "work", "pc_" + job.id);
   fs.mkdirSync(workDir, { recursive: true });
-  const inputPath = path.join(workDir, "input" + path.extname(job.originalName || ".mp4"));
+  const ext = (path.extname(job.originalName || "") || ".mp4").toLowerCase();
+  const safeExt = /^\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(ext) ? ext : ".mp4";
+  const inputPath = path.join(workDir, "input" + safeExt);
 
   await downloadInput(job, inputPath);
   let inputSize = 0;
@@ -229,42 +277,64 @@ async function runJob(job) {
   log("Input saved", inputPath, inputSize, "bytes");
   if (inputSize < 64) {
     throw new Error(
-      "Pobrany plik jest pusty/uszkodzony (" + inputSize + " B). Sprawdź upload na chmurze."
+      "Pobrany plik jest pusty/uszkodzony (" +
+        inputSize +
+        " B). Sprawdź upload na chmurze."
     );
   }
-  // Quick preflight: ffmpeg must run before pipeline (clearer error than generic probe fail)
+
+  // Resolve ffmpeg and preflight probe BEFORE full pipeline
+  let ff;
   try {
-    const ff = require("ffmpeg-static");
-    if (!ff || !fs.existsSync(ff)) throw new Error("brak ffmpeg-static");
-    const { spawnSync } = require("child_process");
-    const chk = spawnSync(ff, ["-version"], {
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 15000,
-    });
+    ff = require("ffmpeg-static");
+  } catch {
+    ff = null;
+  }
+  if (!ff || !fs.existsSync(ff)) {
+    throw new Error(
+      "Brak ffmpeg-static w agentcie. Usuń %LOCALAPPDATA%\\ClipForge-Agent i pobierz agenta ponownie."
+    );
+  }
+  const { spawnSync } = require("child_process");
+  const chk = spawnSync(ff, ["-hide_banner", "-i", inputPath], {
+    encoding: "utf8",
+    windowsHide: true,
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  const probeOut = String((chk.stderr || "") + (chk.stdout || ""));
+  if (!/Video:/i.test(probeOut) || !/(\d{2,5})x(\d{2,5})/.test(probeOut)) {
     if (chk.error) {
       throw new Error(
-        "FFmpeg nie startuje: " + (chk.error.code || chk.error.message || chk.error)
+        "FFmpeg nie startuje: " +
+          (chk.error.code || chk.error.message || chk.error) +
+          " [" +
+          ff +
+          "]"
       );
     }
-  } catch (e) {
     throw new Error(
-      "FFmpeg na PC nie działa — " +
-        (e.message || e) +
-        ". Usuń %LOCALAPPDATA%\\ClipForge-Agent i pobierz agenta ponownie ze strony."
+      "FFmpeg nie widzi wideo w pobranym pliku (" +
+        inputSize +
+        " B). " +
+        probeOut.replace(/\s+/g, " ").slice(-280)
     );
   }
+  log("Preflight OK", probeOut.match(/(\d{2,5})x(\d{2,5})/)?.[0] || "?");
 
   await reportProgress(job.id, {
     progress: 5,
     stage: "Na Twoim PC…",
-    log: "Pobrano plik (" + Math.round(inputSize / 1024) + " KB) — start pipeline lokalnie",
+    log:
+      "Pobrano plik (" +
+      Math.round(inputSize / 1024) +
+      " KB) — start pipeline lokalnie",
   });
 
+  // Prefer agent-local pipeline (same folder as this script's install)
   const { runPipeline } = require(path.join(ROOT, "lib", "studio-pipeline.js"));
   const localJob = {
     id: job.id,
-    originalName: job.originalName,
+    originalName: job.originalName || "input" + safeExt,
     inputPath,
     options: job.options || {},
     outputPath: null,

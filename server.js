@@ -978,9 +978,22 @@ app.get("/api/studio/agent/jobs/:id/input", (req, res) => {
     return res.status(404).json({ error: "Job not found" });
   }
   if (!job.inputPath || !fs.existsSync(job.inputPath)) {
-    return res.status(404).json({ error: "Brak pliku źródłowego" });
+    return res.status(404).json({ error: "Brak pliku źródłowego na serwerze" });
   }
-  res.download(job.inputPath, job.originalName || "input.mp4");
+  const st = fs.statSync(job.inputPath);
+  if (st.size < 64) {
+    return res.status(404).json({ error: "Plik źródłowy pusty na serwerze" });
+  }
+  // sendFile is more reliable for agents than res.download (Content-Disposition)
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader("Content-Length", String(st.size));
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="input' +
+      (path.extname(job.originalName || "") || ".mp4") +
+      '"'
+  );
+  res.sendFile(path.resolve(job.inputPath));
 });
 
 app.post("/api/studio/agent/jobs/:id/progress", (req, res) => {
