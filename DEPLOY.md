@@ -12,11 +12,45 @@
 |--|--|
 | Plan | Free (usypia po ~15 min bez ruchu) |
 | RAM | ~512 MB — lekkie joby OK, ciężkie AI mogą paść |
-| Dysk | tymczasowy — pliki znikają po restarcie |
+| Dysk | tymczasowy — **bez Postgres konta znikają po restarcie** |
 | Real-ESRGAN | **nie** w obrazie Docker (brak GPU / binarek Windows) — użyj **Szybki HD** / lektor |
 | Pierwszy start | 1–3 min (cold start) |
 
 To jest **demo / test w chmurze**. Na co dzień lepiej nadal lokalny PC.
+
+---
+
+## Trwałe konta: darmowy Postgres (Neon lub Supabase)
+
+Bez `DATABASE_URL` ClipForge trzyma użytkowników w pliku na dysku kontenera — po redeploy Render **konta i sesje giną**.
+
+### Opcja A — Neon (zalecane, proste)
+
+1. https://neon.tech → sign up (GitHub)  
+2. **New Project** → region blisko Ciebie  
+3. **Dashboard → Connection details → Connection string** (URI)  
+4. Skopiuj np.  
+   `postgresql://user:pass@ep-….aws.neon.tech/neondb?sslmode=require`
+
+### Opcja B — Supabase
+
+1. https://supabase.com → New project  
+2. **Project Settings → Database**  
+3. **Connection string → URI** (hasło z setupu projektu)  
+4. Preferuj **Transaction pooler** (port 6543) na free tier
+
+### Podłącz do Render
+
+1. Render → Twoja usługa → **Environment**  
+2. Dodaj:  
+   - `DATABASE_URL` = wklejony URI  
+3. **Save** → Manual Deploy (albo poczekaj na auto)  
+4. Sprawdź: `https://TWOJ-URL.onrender.com/api/health`  
+   - `"authStore":"postgres"`  
+   - `"users": N` (po rejestracji rośnie i **zostaje** po redeploy)
+
+Tabele `clipforge_users` i `clipforge_sessions` tworzą się **same** przy starcie.  
+Jeśli wcześniej miałeś `users.json` lokalnie, przy pierwszym starcie z pustą bazą zostanie **zmigrowany** do Postgres (jeśli plik jest w kontenerze — na Render zwykle startuje pusto, więc zarejestrujcie się raz od nowa).
 
 ---
 

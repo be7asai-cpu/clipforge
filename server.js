@@ -79,9 +79,23 @@ const cookieSecure =
   (behindProxy && process.env.COOKIE_SECURE !== "0");
 
 const { FileSessionStore } = require("./lib/file-session-store");
+const { PgSessionStore } = require("./lib/pg-session-store");
+const db = require("./lib/db");
 const sessionTtlMs = 30 * 24 * 60 * 60 * 1000; // 30 days
 const authDataDir =
   process.env.AUTH_DATA_DIR || path.join(__dirname, "data", "auth");
+
+function createSessionStore() {
+  if (db.usingPostgres()) {
+    console.log("[session] store=postgres (Neon/Supabase)");
+    return new PgSessionStore({ ttlMs: sessionTtlMs });
+  }
+  console.log("[session] store=file", path.join(authDataDir, "sessions"));
+  return new FileSessionStore({
+    dir: path.join(authDataDir, "sessions"),
+    ttlMs: sessionTtlMs,
+  });
+}
 
 app.use(
   session({
@@ -90,10 +104,7 @@ app.use(
     resave: false,
     saveUninitialized: false,
     rolling: true, // refresh cookie on each request while active
-    store: new FileSessionStore({
-      dir: path.join(authDataDir, "sessions"),
-      ttlMs: sessionTtlMs,
-    }),
+    store: createSessionStore(),
     cookie: {
       httpOnly: true,
       sameSite: "lax",
@@ -119,11 +130,11 @@ function isLoggedIn(req) {
 }
 
 // ── Health first (Render probes this) ──────────────────────────────────
-app.get("/api/health", (_req, res) => {
+app.get("/api/health", async (_req, res) => {
   noStore(res);
   let users = 0;
   try {
-    users = auth.userCount();
+    users = await auth.userCount();
   } catch {
     users = -1;
   }
@@ -131,8 +142,9 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     service: "clipforge",
     studio: true,
-    v: "2026-07-29auth3",
+    v: "2026-07-29pg1",
     users,
+    authStore: db.usingPostgres() ? "postgres" : "file",
   });
 });
 
@@ -373,7 +385,7 @@ app.post("/api/studio/agent/login", async (req, res) => {
       return res.status(400).json({ error: "Podaj e-mail i hasło" });
     }
     const bcrypt = require("bcryptjs");
-    const u = auth.findByEmail(email);
+    const u = await auth.findByEmail(email);
     if (!u || !u.passwordHash) {
       return res.status(401).json({ error: "Złe e-mail lub hasło" });
     }
@@ -1367,25 +1379,49 @@ app.get("*", (req, res) => {
 const HOST =
   process.env.HOST ||
   (isProd || behindProxy ? "0.0.0.0" : "127.0.0.1");
-app.listen(PORT, HOST, () => {
-  console.log("");
-  console.log("  ClipForge ONLINE  (Studio only — no video hosting library)");
-  console.log(`  Studio:  http://127.0.0.1:${PORT}/studio.html`);
-  if (process.env.BASE_URL) {
-    console.log(`  Public:  ${process.env.BASE_URL}`);
+
+async function start() {
+  try {
+    const repo = require("./lib/user-repo");
+    await repo.initUserRepo();
+  } catch (err) {
+    console.error("[boot] auth store init failed:", err.message || err);
+    if (db.usingPostgres()) {
+      console.error(
+        "[boot] Sprawdź DATABASE_URL (Neon/Supabase). Konta nie będą działać."
+      );
+      process.exit(1);
+    }
   }
-  if (HOST === "0.0.0.0" || HOST === "::") {
-    const os = require("os");
-    const nets = os.networkInterfaces();
-    for (const name of Object.keys(nets || {})) {
-      for (const n of nets[name] || []) {
-        if (n.family === "IPv4" && !n.internal) {
-          console.log(`  LAN:     http://${n.address}:${PORT}/studio.html`);
+
+  app.listen(PORT, HOST, () => {
+    console.log("");
+    console.log("  ClipForge ONLINE  (Studio only — no video hosting library)");
+    console.log(`  Studio:  http://127.0.0.1:${PORT}/studio.html`);
+    console.log(
+      `  Auth:    ${db.usingPostgres() ? "Postgres (trwałe konta)" : "plik users.json (znika po redeploy)"}`
+    );
+    if (process.env.BASE_URL) {
+      console.log(`  Public:  ${process.env.BASE_URL}`);
+    }
+    if (HOST === "0.0.0.0" || HOST === "::") {
+      const os = require("os");
+      const nets = os.networkInterfaces();
+      for (const name of Object.keys(nets || {})) {
+        for (const n of nets[name] || []) {
+          if (n.family === "IPv4" && !n.internal) {
+            console.log(`  LAN:     http://${n.address}:${PORT}/studio.html`);
+          }
         }
       }
     }
-  }
-  console.log("  Polityka: filmy tylko tymczasowo do obróbki, auto-usuwanie.");
-  console.log("");
+    console.log("  Polityka: filmy tylko tymczasowo do obróbki, auto-usuwanie.");
+    console.log("");
+  });
+}
+
+start().catch((err) => {
+  console.error("[boot] fatal:", err);
+  process.exit(1);
 });
 

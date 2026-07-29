@@ -22,6 +22,9 @@ services:
         value: "false"
       - key: SESSION_SECRET
         generateValue: true
+      # Neon or Supabase connection string — keeps users across redeploys
+      - key: DATABASE_URL
+        sync: false
       - key: BASE_URL
         # After first deploy, set to https://YOUR-SERVICE.onrender.com
         sync: false
