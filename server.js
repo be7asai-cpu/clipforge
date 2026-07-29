@@ -467,28 +467,12 @@ app.get("/api/studio/pc-agent-bundle.tgz", (req, res) => {
 });
 
 /**
- * One-click PC agent — .cmd downloads bundle from cloud (not private GitHub).
+ * Full PC-agent setup PowerShell (can be long).
+ * Must NOT be inlined into a .cmd -Command line (Windows ~8191 char limit → broken $p).
  */
-function sendPcSetupCmd(req, res) {
-  if (!req.user?.id) {
-    return res
-      .status(401)
-      .type("text")
-      .send("Zaloguj sie w przegladarce i sprobuj ponownie.");
-  }
-  const label = String(req.query.label || "Moj PC")
-    .slice(0, 40)
-    .replace(/[^\w\s.-]/g, "");
-  const tok = pcAgent.issueToken(req.user.id, label || "Moj PC");
-  const cloud = (
-    auth.baseUrl() ||
-    process.env.RENDER_EXTERNAL_URL ||
-    `${req.protocol}://${req.get("host")}`
-  ).replace(/\/$/, "");
-
+function buildPcSetupPs1({ cloud, token, label }) {
   const psQ = (s) => String(s).replace(/'/g, "''");
-
-  const ps1 = `
+  return `
 $ErrorActionPreference = 'Stop'
 $log = Join-Path $env:TEMP 'clipforge-agent-setup.log'
 function L($m) { $t = (Get-Date).ToString('s') + ' ' + $m; Add-Content -Path $log -Value $t; Write-Host $t }
@@ -496,7 +480,7 @@ function L($m) { $t = (Get-Date).ToString('s') + ' ' + $m; Add-Content -Path $lo
 try {
   L '=== ClipForge PC Agent setup ==='
   $cloud = '${psQ(cloud)}'
-  $token = '${psQ(tok.token)}'
+  $token = '${psQ(token)}'
   $label = '${psQ(label || "Moj PC")}'
   $agentDir = Join-Path $env:LOCALAPPDATA 'ClipForge-Agent'
 
@@ -509,8 +493,8 @@ try {
     (Join-Path \${env:ProgramFiles(x86)} 'nodejs'),
     (Join-Path $env:LOCALAPPDATA 'Programs\\node')
   )
-  foreach ($p in $nodePaths) {
-    if (Test-Path (Join-Path $p 'node.exe')) { $env:Path = "$p;" + $env:Path }
+  foreach ($np in $nodePaths) {
+    if (Test-Path (Join-Path $np 'node.exe')) { $env:Path = "$np;" + $env:Path }
   }
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     L '[BLAD] Brak Node.js. Zainstaluj LTS: https://nodejs.org (Add to PATH).'
@@ -602,14 +586,13 @@ try {
   function Test-Ffmpeg($bin) {
     if (-not $bin -or -not (Test-Path $bin)) { return $false }
     try { Unblock-File -Path $bin -ErrorAction SilentlyContinue } catch {}
-    $p = Start-Process -FilePath $bin -ArgumentList '-version' -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:TEMP 'cf-ff-out.txt') -RedirectStandardError (Join-Path $env:TEMP 'cf-ff-err.txt') -ErrorAction SilentlyContinue
-    if (-not $p) { return $false }
-    return ($p.ExitCode -eq 0)
+    $proc = Start-Process -FilePath $bin -ArgumentList '-version' -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:TEMP 'cf-ff-out.txt') -RedirectStandardError (Join-Path $env:TEMP 'cf-ff-err.txt') -ErrorAction SilentlyContinue
+    if (-not $proc) { return $false }
+    return ($proc.ExitCode -eq 0)
   }
   $ffBin = Join-Path $agentDir 'node_modules\\ffmpeg-static\\ffmpeg.exe'
   if (-not (Test-Ffmpeg $ffBin)) {
     L 'FFmpeg agenta nie dziala — proboje naprawic...'
-    # Prefer known-good binary from local ClipForge install
     $goodCandidates = @()
     if ($localSrc) { $goodCandidates += (Join-Path $localSrc 'node_modules\\ffmpeg-static\\ffmpeg.exe') }
     $goodCandidates += (Join-Path $env:USERPROFILE 'Projects\\clips-tv\\node_modules\\ffmpeg-static\\ffmpeg.exe')
@@ -649,10 +632,85 @@ try {
   exit 1
 }
 `.trim();
+}
 
+function resolvePcSetupCloud(req) {
+  return (
+    auth.baseUrl() ||
+    process.env.RENDER_EXTERNAL_URL ||
+    `${req.protocol}://${req.get("host")}`
+  ).replace(/\/$/, "");
+}
+
+/**
+ * Full setup .ps1 — session cookie OR agent Bearer token.
+ * Short .cmd downloads this (avoids Windows 8191-char CMD limit).
+ */
+function sendPcSetupPs1(req, res) {
+  const bearer = agentBearer(req) || String(req.query.token || "").trim();
+  const row = bearer ? pcAgent.resolveToken(bearer) : null;
+  const sessionUser = req.user?.id ? req.user : null;
+
+  let token = bearer;
+  let label = String(req.query.label || "Moj PC")
+    .slice(0, 40)
+    .replace(/[^\w\s.-]/g, "");
+
+  if (row) {
+    token = row.token;
+    label = row.label || label || "Moj PC";
+  } else if (sessionUser) {
+    const tok = pcAgent.issueToken(sessionUser.id, label || "Moj PC");
+    token = tok.token;
+    label = tok.label || label;
+  } else {
+    return res
+      .status(401)
+      .type("text")
+      .send("Zaloguj sie albo podaj token agenta.");
+  }
+
+  const cloud = resolvePcSetupCloud(req);
+  const ps1 = buildPcSetupPs1({ cloud, token, label });
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="ClipForge-PC-Agent.setup.ps1"'
+  );
+  res.setHeader("Cache-Control", "no-store");
+  res.send(ps1.replace(/\n/g, "\r\n"));
+}
+
+/**
+ * One-click PC agent — short .cmd that downloads .ps1 (never embeds long base64).
+ */
+function sendPcSetupCmd(req, res) {
+  if (!req.user?.id) {
+    return res
+      .status(401)
+      .type("text")
+      .send("Zaloguj sie w przegladarce i sprobuj ponownie.");
+  }
+  const label = String(req.query.label || "Moj PC")
+    .slice(0, 40)
+    .replace(/[^\w\s.-]/g, "");
+  const tok = pcAgent.issueToken(req.user.id, label || "Moj PC");
+  const cloud = resolvePcSetupCloud(req);
+
+  // Escape for batch SET "VAR=..."
+  const batSafe = (s) =>
+    String(s)
+      .replace(/%/g, "%%")
+      .replace(/"/g, "")
+      .replace(/[&|<>^]/g, (ch) => "^" + ch);
+  const cloudBat = batSafe(cloud);
+  const tokenBat = batSafe(tok.token);
+
+  // Short launcher: download full setup.ps1 then run with -File (no 8191 overflow)
   const launcher = [
     "@echo off",
     "chcp 65001 >nul",
+    "setlocal EnableExtensions",
     "title ClipForge PC Agent",
     "cd /d \"%~dp0\"",
     "echo.",
@@ -662,7 +720,10 @@ try {
     "echo.",
     "echo  Trwa przygotowanie... (log: %TEMP%\\clipforge-agent-setup.log)",
     "echo.",
-    `powershell -NoProfile -ExecutionPolicy Bypass -Command "$b='${Buffer.from(ps1, "utf8").toString("base64")}'; $p=Join-Path $env:TEMP 'ClipForge-PC-Agent.setup.ps1'; [IO.File]::WriteAllBytes($p,[Convert]::FromBase64String($b)); & $p; exit $LASTEXITCODE"`,
+    `set "CF_CLOUD=${cloudBat}"`,
+    `set "CF_TOKEN=${tokenBat}"`,
+    "set \"CF_PS1=%TEMP%\\ClipForge-PC-Agent.setup.ps1\"",
+    "powershell -NoProfile -ExecutionPolicy Bypass -Command \"try { $u = $env:CF_CLOUD.TrimEnd('/') + '/api/studio/pc-setup.ps1'; $h = @{ Authorization = 'Bearer ' + $env:CF_TOKEN }; Invoke-WebRequest -Uri $u -Headers $h -OutFile $env:CF_PS1 -UseBasicParsing; if (-not (Test-Path $env:CF_PS1)) { throw 'Brak pliku setup' }; & $env:CF_PS1; exit $LASTEXITCODE } catch { Write-Host ('[BLAD] ' + $_); exit 1 }\"",
     "set ERR=%ERRORLEVEL%",
     "echo.",
     "if not \"%ERR%\"==\"0\" (",
@@ -679,6 +740,15 @@ try {
     "",
   ].join("\r\n");
 
+  // Sanity: keep under Windows CMD limit with margin
+  if (launcher.length > 7000) {
+    console.warn(
+      "[pc-setup] launcher length",
+      launcher.length,
+      "(still under 8191?)"
+    );
+  }
+
   res.setHeader("Content-Type", "application/octet-stream; charset=utf-8");
   res.setHeader(
     "Content-Disposition",
@@ -691,6 +761,7 @@ try {
 // Both URLs (some proxies choke on ".cmd" in path)
 app.get("/api/studio/pc-setup", auth.requireAuthIfEnabled, sendPcSetupCmd);
 app.get("/api/studio/pc-setup.cmd", auth.requireAuthIfEnabled, sendPcSetupCmd);
+app.get("/api/studio/pc-setup.ps1", sendPcSetupPs1);
 
 app.post("/api/studio/agent/heartbeat", (req, res) => {
   const row = pcAgent.resolveToken(agentBearer(req));
