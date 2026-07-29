@@ -560,9 +560,12 @@ $log = Join-Path $env:TEMP 'clipforge-agent-setup.log'
 function L($m) { $t = (Get-Date).ToString('s') + ' ' + $m; Add-Content -Path $log -Value $t; Write-Host $t }
 
 try {
-  L '=== ClipForge PC Agent setup (setup7-cloud) ==='
+  L '=== ClipForge PC Agent setup (setup8-friend) ==='
   L ("PS version: " + $PSVersionTable.PSVersion)
   L ("User: " + $env:USERNAME + "  PC: " + $env:COMPUTERNAME)
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  } catch {}
   $cloud = '${psQ(cloud)}'
   $token = '${psQ(token)}'
   $label = '${psQ(label || "Moj PC")}'
@@ -570,6 +573,10 @@ try {
   L ("Folder agenta: $agentDir")
   L ("Cloud: $cloud")
   L ("Token prefix: " + $token.Substring(0, [Math]::Min(12, $token.Length)) + "...")
+  Write-Host ''
+  Write-Host ' UWAGA: ten plik dziala TYLKO dla konta, ktore go pobralo.'
+  Write-Host ' Nie wysylaj .cmd znajomemu - kazdy loguje sie i klika ⬇ PC sam.'
+  Write-Host ''
 
   $env:CLIPFORGE_CLOUD_URL = $cloud
   $env:CLIPFORGE_AGENT_TOKEN = $token
@@ -580,26 +587,41 @@ try {
   New-Item -ItemType Directory -Path $authDir -Force | Out-Null
   Set-Content -Path (Join-Path $authDir 'pc-agent.token') -Value $token -Encoding ascii -NoNewline
 
-  $nodePaths = @(
-    (Join-Path $env:ProgramFiles 'nodejs'),
-    (Join-Path \${env:ProgramFiles(x86)} 'nodejs'),
-    (Join-Path $env:LOCALAPPDATA 'Programs\\node')
+  # Resolve node.exe by full path (PATH often empty on double-click / friend PCs)
+  $nodeExe = $null
+  $nodeCandidates = @(
+    (Join-Path $env:ProgramFiles 'nodejs\\node.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\\nodejs\\node.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\\node\\node.exe'),
+    (Join-Path $env:SystemDrive 'nodejs\\node.exe')
   )
-  foreach ($np in $nodePaths) {
-    if (Test-Path (Join-Path $np 'node.exe')) { $env:Path = "$np;" + $env:Path }
+  # ProgramFiles(x86) - escape so JS template literal does not eat it
+  $pf86 = \${env:ProgramFiles(x86)}
+  if ($pf86) { $nodeCandidates += (Join-Path $pf86 'nodejs\\node.exe') }
+  foreach ($c in $nodeCandidates) {
+    if ($c -and (Test-Path -LiteralPath $c)) { $nodeExe = $c; break }
   }
-  if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    L '[BLAD] Brak Node.js. Zainstaluj Node LTS: https://nodejs.org (Add to PATH), potem uruchom ten plik ponownie.'
+  if (-not $nodeExe) {
+    $cmd = Get-Command node -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source -and (Test-Path -LiteralPath $cmd.Source)) {
+      $nodeExe = $cmd.Source
+    }
+  }
+  if (-not $nodeExe) {
+    L '[BLAD] Brak Node.js. Zainstaluj Node LTS: https://nodejs.org (zaznacz Add to PATH), zamknij to okno i odpal .cmd ponownie.'
+    Write-Host 'Pobierz: https://nodejs.org  -> LTS -> Next,Next (Add to PATH) -> Finish'
     exit 2
   }
-  L ("Node: " + (node -v))
+  $nodeDir = Split-Path -Parent $nodeExe
+  $env:Path = $nodeDir + ';' + $env:Path
+  L ("Node: " + $nodeExe)
+  & $nodeExe -v | ForEach-Object { L ("Node version: " + $_) }
 
-  # Optional: local ClipForge project (dev machine only)
+  # Optional: local ClipForge project (dev machine only - friends have no local src)
   $localCandidates = @(
     (Join-Path $env:USERPROFILE 'Projects\\clips-tv'),
     (Join-Path $env:USERPROFILE 'Projects\\clipforge'),
-    (Join-Path $env:USERPROFILE 'clipforge'),
-    'C:\\Users\\londy\\Projects\\clips-tv'
+    (Join-Path $env:USERPROFILE 'clipforge')
   )
   $localSrc = $null
   foreach ($c in $localCandidates) {
@@ -741,18 +763,28 @@ try {
     }
   }
 
-  if (-not (Test-Path (Join-Path $agentDir 'node_modules'))) {
-    L 'npm install (raz, moze potrwac kilka minut - potrzebny internet)...'
+  $ffBin = Join-Path $agentDir 'node_modules\\ffmpeg-static\\ffmpeg.exe'
+  $needNpm = $false
+  if (-not (Test-Path (Join-Path $agentDir 'node_modules'))) { $needNpm = $true; L 'Brak node_modules' }
+  elseif (-not (Test-Path (Join-Path $agentDir 'node_modules\\express'))) { $needNpm = $true; L 'node_modules niekompletne' }
+  elseif (-not (Test-Path $ffBin)) { $needNpm = $true; L 'Brak ffmpeg-static - doinstaluje' }
+  if ($needNpm) {
+    L 'npm install (raz, moze potrwac 2-5 min - potrzebny internet)...'
     Push-Location $agentDir
-    npm install --omit=dev
-    if ($LASTEXITCODE -ne 0) {
-      Pop-Location
-      throw "npm install failed: $LASTEXITCODE (sprawdz internet / antywirus)"
+    & npm.cmd install --omit=dev
+    $npmCode = $LASTEXITCODE
+    if ($npmCode -ne 0) {
+      L 'npm.cmd fail - proboje npm przez node...'
+      & $nodeExe (Join-Path $nodeDir 'node_modules\\npm\\bin\\npm-cli.js') install --omit=dev
+      $npmCode = $LASTEXITCODE
     }
     Pop-Location
+    if ($npmCode -ne 0) {
+      throw "npm install failed: $npmCode (internet / antywirus / zablokowany npm?)"
+    }
     L 'npm install OK'
   } else {
-    L 'node_modules juz jest - pomijam npm install'
+    L 'node_modules OK - pomijam npm install'
   }
 
   # Re-write token after possible wipe
@@ -763,49 +795,101 @@ try {
   function Test-Ffmpeg($bin) {
     if (-not $bin -or -not (Test-Path $bin)) { return $false }
     try { Unblock-File -Path $bin -ErrorAction SilentlyContinue } catch {}
-    $proc = Start-Process -FilePath $bin -ArgumentList '-version' -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:TEMP 'cf-ff-out.txt') -RedirectStandardError (Join-Path $env:TEMP 'cf-ff-err.txt') -ErrorAction SilentlyContinue
+    $outF = Join-Path $env:TEMP 'cf-ff-out.txt'
+    $errF = Join-Path $env:TEMP 'cf-ff-err.txt'
+    $proc = Start-Process -FilePath $bin -ArgumentList '-version' -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $outF -RedirectStandardError $errF -ErrorAction SilentlyContinue
     if (-not $proc) { return $false }
     return ($proc.ExitCode -eq 0)
   }
-  $ffBin = Join-Path $agentDir 'node_modules\\ffmpeg-static\\ffmpeg.exe'
   if (-not (Test-Ffmpeg $ffBin)) {
     L 'FFmpeg agenta nie dziala - proboje naprawic...'
-    $goodCandidates = @()
-    if ($localSrc) { $goodCandidates += (Join-Path $localSrc 'node_modules\\ffmpeg-static\\ffmpeg.exe') }
-    $goodCandidates += (Join-Path $env:USERPROFILE 'Projects\\clips-tv\\node_modules\\ffmpeg-static\\ffmpeg.exe')
     $fixed = $false
-    foreach ($g in $goodCandidates) {
+    if ($localSrc) {
+      $g = Join-Path $localSrc 'node_modules\\ffmpeg-static\\ffmpeg.exe'
       if (Test-Path $g) {
         $destDir = Split-Path $ffBin -Parent
         if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
         Copy-Item $g $ffBin -Force
         try { Unblock-File -Path $ffBin -ErrorAction SilentlyContinue } catch {}
-        if (Test-Ffmpeg $ffBin) { L "Skopiowano dzialajacy FFmpeg z: $g"; $fixed = $true; break }
+        if (Test-Ffmpeg $ffBin) { L "Skopiowano dzialajacy FFmpeg z: $g"; $fixed = $true }
       }
     }
     if (-not $fixed) {
       L 'Proboje ponownie zainstalowac ffmpeg-static...'
       Push-Location $agentDir
-      npm install ffmpeg-static@5.3.0 --force
+      & npm.cmd install ffmpeg-static@5.3.0 --force
       Pop-Location
       try { Unblock-File -Path $ffBin -ErrorAction SilentlyContinue } catch {}
       $fixed = Test-Ffmpeg $ffBin
     }
     if (-not $fixed) {
-      throw 'FFmpeg nie dziala na tym PC. Zainstaluj FFmpeg albo skopiuj dzialajacy ffmpeg.exe do %LOCALAPPDATA%\\ClipForge-Agent\\node_modules\\ffmpeg-static\\'
+      throw 'FFmpeg nie dziala na tym PC (antywirus czesto blokuje ffmpeg.exe). Dodaj wyjatek dla %LOCALAPPDATA%\\ClipForge-Agent i odpal .cmd ponownie.'
     }
   } else {
     L 'FFmpeg OK'
   }
 
+  # Friend-proof restart helper
+  $runBat = Join-Path $agentDir 'RUN-AGENT.bat'
+  $batBody = @"
+@echo off
+cd /d "%~dp0"
+set "PATH=$nodeDir;%PATH%"
+set "CLIPFORGE_CLOUD_URL=$cloud"
+set "CLIPFORGE_PC_LABEL=$label"
+if exist "data\\auth\\pc-agent.token" set /p CLIPFORGE_AGENT_TOKEN=<"data\\auth\\pc-agent.token"
+echo ClipForge PC Agent - NIE ZAMYKAJ tego okna
+echo Strona: $cloud/studio.html
+echo Zaloguj sie na TO SAMO konto, ktore pobralo agenta.
+"$nodeExe" scripts\\pc-agent.js
+echo.
+echo Agent sie zakonczyl. Kod: %ERRORLEVEL%
+pause
+"@
+  Set-Content -Path $runBat -Value $batBody -Encoding ascii
+  L ("RUN-AGENT.bat: $runBat")
+
+  $help = Join-Path $agentDir 'CZYTAJ-MNIE.txt'
+  Set-Content -Path $help -Value @"
+ClipForge PC Agent
+==================
+1. Zostaw RUN-AGENT.bat / to okno OTWARTE.
+2. Wejdz na: $cloud/studio.html
+3. Zaloguj sie na TO SAMO konto co przy pobraniu .cmd
+4. Chip PC powinno byc ON (zielone).
+
+NIE wysylaj .cmd znajomemu - kazdy klika ⬇ PC po zalogowaniu.
+Log bledow: %TEMP%\\clipforge-agent-setup.log
+Restart: $runBat
+"@ -Encoding ascii
+
+  # Quick connectivity check
+  try {
+    $hbUri = $cloud.TrimEnd('/') + '/api/studio/agent/heartbeat'
+    $hb = Invoke-RestMethod -Uri $hbUri -Method POST -Headers @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' } -Body '{"label":"setup"}' -TimeoutSec 30
+    L ("Heartbeat OK userId=" + $hb.userId + " email=" + $hb.email + " online=" + $hb.online)
+  } catch {
+    L ('[OSTRZEZENIE] Heartbeat nieudany (serwer spi / siec): ' + $_)
+    L 'Agent i tak wystartuje - Render free czasem budzi sie 30-60s.'
+  }
+
   L 'Startuje agent - wroc do strony (PC ON). Nie zamykaj okna.'
+  Write-Host ''
+  Write-Host "  Strona: $cloud/studio.html"
+  Write-Host '  Zaloguj sie na TO SAMO konto. Nie zamykaj tego okna.'
+  Write-Host ''
   Set-Location $agentDir
-  node .\\scripts\\pc-agent.js
+  & $nodeExe .\\scripts\\pc-agent.js
   L ("Agent zakonczyl, kod=" + $LASTEXITCODE)
   exit $LASTEXITCODE
 } catch {
   L ('[BLAD] ' + $_)
   if ($_.ScriptStackTrace) { L $_.ScriptStackTrace }
+  Write-Host ''
+  Write-Host '===== BLAD INSTALACJI ====='
+  Write-Host ('Log: ' + $log)
+  Write-Host 'Wyslij ten log (lub zrzut okna) osobie od ClipForge.'
+  Write-Host '==========================='
   exit 1
 }
 `.trim();
@@ -927,12 +1011,15 @@ function sendPcSetupCmd(req, res) {
     "set \"CF_CMD=%~f0\"",
     "echo.",
     "echo  ========================================",
-    "echo   ClipForge PC Agent  (setup7-cloud)",
+    "echo   ClipForge PC Agent  (setup8-friend)",
     "echo  ========================================",
     "echo.",
     "echo  Plik: %~f0",
     "echo  Log:  %TEMP%\\clipforge-agent-setup.log",
-    "echo  Folder docelowy: %LOCALAPPDATA%\\ClipForge-Agent",
+    "echo  Folder: %LOCALAPPDATA%\\ClipForge-Agent",
+    "echo.",
+    "echo  Ten plik = TYLKO Twoje konto. Nie dawaj go koledze.",
+    "echo  Kolega: loguje sie sam i klika ⬇ PC na stronie.",
     "echo.",
     "REM Find node.exe by full path (double-click .cmd often has empty/stale PATH).",
     "REM Avoid if exist ...ProgramFiles(x86)... — the ) breaks batch IF parsing.",

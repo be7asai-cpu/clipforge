@@ -856,7 +856,7 @@
       });
       if (res.status === 401 || res.status === 403) {
         alert(
-          "Musisz być zalogowany, żeby pobrać agenta.\nZaloguj się i kliknij ⬇ PC ponownie."
+          "Musisz być zalogowany, żeby pobrać agenta.\nZaloguj się i kliknij ⬇ PC ponownie.\n\nKażda osoba pobiera SWÓJ plik po zalogowaniu — nie wysyłaj .cmd koledze."
         );
         location.href =
           "/login.html?next=" + encodeURIComponent("/studio.html");
