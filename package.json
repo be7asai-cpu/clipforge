@@ -1,0 +1,47 @@
+{
+  "name": "clipwave",
+  "version": "1.0.0",
+  "description": "Modern English clip portal — viral internet videos with voice narrator",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "export": "node scripts/export-catalog.js",
+    "export:sample": "node scripts/export-catalog.js --max 2000",
+    "export:balanced": "node scripts/export-balanced.js --per 80",
+    "export:full": "node scripts/export-catalog.js --delay 100",
+    "export:resume": "node scripts/export-catalog.js --resume",
+    "download:thumbs": "node scripts/download-assets.js --thumbs",
+    "download:videos": "node scripts/download-assets.js --videos --selfhosted-only",
+    "download:urls": "node scripts/download-assets.js --youtube-urls --all-urls",
+    "extract:thumbs": "node scripts/extract-thumbs.js",
+    "analyze": "node scripts/ai-baseline.js",
+    "sample": "node scripts/build-offline-sample.js",
+    "probe": "node scripts/probe-api.js",
+    "hd": "node scripts/second-life-hd.js --all",
+    "hd:fast": "node scripts/second-life-hd.js --all --mode fast",
+    "hd:one": "node scripts/second-life-hd.js --mode ai",
+    "studio": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "express-session": "^1.19.0",
+    "ffmpeg-static": "^5.3.0",
+    "multer": "^1.4.5-lts.2",
+    "nodemailer": "^9.0.3",
+    "passport": "^0.7.0",
+    "passport-facebook": "^3.0.0",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-local": "^1.0.0"
+  },
+  "allowScripts": {
+    "ffmpeg-static@5.3.0": true
+  }
+}

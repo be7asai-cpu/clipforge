@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#02060f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ClipForge" />
+    <title>ClipForge Studio — FacePub HUD</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&family=Exo+2:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <link rel="stylesheet" href="/css/studio.css?v=20260728narronly" />
+    <link rel="stylesheet" href="/css/auth.css?v=20260728narronly" />
+    <link rel="icon" href="/assets/clipforge-192.png" />
+    <link rel="apple-touch-icon" href="/assets/clipforge-192.png" />
+  </head>
+  <body class="clipforge-only">
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="scanlines" aria-hidden="true"></div>
+    <div class="glow-orb orb1" aria-hidden="true"></div>
+    <div class="glow-orb orb2" aria-hidden="true"></div>
+    <div class="corner c-tl" aria-hidden="true"></div>
+    <div class="corner c-tr" aria-hidden="true"></div>
+    <div class="corner c-bl" aria-hidden="true"></div>
+    <div class="corner c-br" aria-hidden="true"></div>
+
+    <header class="top">
+      <div class="top-inner">
+        <a class="brand" href="/studio.html">
+          <img src="/assets/clipforge_logo.jpg" alt="ClipForge" />
+          <span class="brand-text">
+            <span class="brand-name">CLIPFORGE</span>
+            <span class="brand-sub">FACEPUB · VIDEO FORGE</span>
+          </span>
+          <span class="badge">STUDIO</span>
+        </a>
+        <nav class="nav" id="studio-nav" data-nav-version="3">
+          <div id="ui-lang-slot" class="ui-lang-slot"></div>
+          <button type="button" class="nav-app-btn" id="btn-install-app" data-i18n="nav.install" title="App">
+            ⬇ Aplikacja
+          </button>
+          <div class="nav-user" id="nav-user">
+            <a class="nav-login-link" id="nav-login-btn" href="/login.html?next=/studio.html" data-i18n="nav.login">Zaloguj</a>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Full-screen login gate (shown until session is valid when AUTH_REQUIRED) -->
+    <div id="auth-gate" class="auth-gate" hidden>
+      <div class="auth-gate-card">
+        <img class="auth-gate-logo" src="/assets/clipforge_logo.jpg" alt="ClipForge" />
+        <h2 data-i18n="login.gateTitle">Zaloguj się do Studio</h2>
+        <p class="auth-gate-sub" data-i18n="login.gateSub">E-mail i hasło · Google · Facebook</p>
+        <div id="auth-gate-error" class="auth-error hidden" role="alert"></div>
+        <div class="auth-oauth" id="auth-gate-oauth">
+          <a class="oauth-btn oauth-google disabled" id="gate-google" href="#" data-i18n="login.google">Kontynuuj z Google</a>
+          <a class="oauth-btn oauth-facebook disabled" id="gate-facebook" href="#" data-i18n="login.facebook">Kontynuuj z Facebook</a>
+        </div>
+        <div class="auth-divider"><span>lub e-mail</span></div>
+        <form id="auth-gate-form" class="auth-form" novalidate>
+          <label class="auth-field" id="gate-name-field" hidden>
+            <span data-i18n="login.name">Imię / nazwa</span>
+            <input type="text" id="gate-name" autocomplete="name" />
+          </label>
+          <label class="auth-field">
+            <span data-i18n="login.email">E-mail</span>
+            <input type="email" id="gate-email" required autocomplete="email" placeholder="you@email.com" />
+          </label>
+          <label class="auth-field">
+            <span data-i18n="login.password">Hasło</span>
+            <input type="password" id="gate-password" required minlength="8" autocomplete="current-password" data-i18n-placeholder="login.passPh" placeholder="min. 8 znaków" />
+          </label>
+          <button type="submit" class="auth-submit" id="gate-submit" data-i18n="login.submit">Zaloguj</button>
+        </form>
+        <p class="auth-switch">
+          <span id="gate-switch-text" data-i18n="login.noAccount">Nie masz konta?</span>
+          <button type="button" class="link-btn" id="gate-toggle" data-i18n="gate.toggleReg">Zarejestruj się</button>
+        </p>
+        <p class="auth-hint" id="gate-oauth-hint"></p>
+        <p class="auth-gate-alt">
+          <span data-i18n="login.altPage">Albo otwórz osobną stronę:</span>
+          <a href="/login.html?next=/studio.html">/login.html</a>
+        </p>
+      </div>
+    </div>
+
+    <main class="wrap hud-frame">
+      <!-- Digital title — exact HUD mockup style -->
+      <section class="digital-hero" aria-label="ClipForge Studio">
+        <div class="digital-hero-tags">
+          <span data-i18n="hero.tagLocal">LOCAL PC</span>
+          <span data-i18n="hero.tagRender">SMART RENDER</span>
+          <span data-i18n="hero.tagPrivate">YOUR DISK</span>
+        </div>
+        <div class="digital-hero-core">
+          <div class="digital-hero-side left" aria-hidden="true">
+            SYS.STATUS // OK<br />RENDER.CORE // 2.4<br />UPSCALE.ENG // ESRGAN<br />LATENCY // 12ms
+          </div>
+          <h1>CLIPFORGE<br /><span class="studio-line">STUDIO</span></h1>
+          <div class="digital-hero-side right" aria-hidden="true">
+            NODE // LOCAL<br />SECURE // ON<br />CACHE // 0.0GB<br />QUEUE // 1
+          </div>
+        </div>
+        <p class="hero-tagline" data-i18n="hero.tagline">
+          Zwykły filmik w minutę staje się contentem gotowym do sieci.
+        </p>
+        <p class="hero-pitch" data-i18n="hero.pitch">
+          Usuń logo i znaki wodne, podkręć jakość do ostrego HD, dodaj lektora
+          w wielu językach i napisy — potem pobierz i wrzuć na FacePub, Reels czy TikTok.
+          Działa u Ciebie lokalnie: szybko, bez chmury i bez trzymania Twoich filmów na serwerze.
+        </p>
+      </section>
+
+      <section class="features" aria-label="Features">
+        <div class="feature-card">
+          <div class="feature-title" data-i18n="hero.b1t">Czysty obraz</div>
+          <div class="feature-desc">— <span data-i18n="hero.b1d">retusz logo w kilka klików</span></div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-title" data-i18n="hero.b2t">Szybki HD</div>
+          <div class="feature-desc">— <span data-i18n="hero.b2d">ostre ujęcia bez długiego czekania</span></div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-title" data-i18n="hero.b3t">Głos i napisy</div>
+          <div class="feature-desc">— <span data-i18n="hero.b3d">lektor + napisy pod publikację</span></div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-title" data-i18n="hero.b4t">Prywatność</div>
+          <div class="feature-desc">— <span data-i18n="hero.b4d">obróbka tymczasowa, wynik u Ciebie na dysku</span></div>
+        </div>
+      </section>
+
+      <div class="layout workspace layout-3col">
+        <!-- KOLUMNA 1: film + opcje wideo pod wrzutnią -->
+        <section class="card panel panel-filmik">
+          <h2><span class="num">1</span> <span data-i18n="s1.title">Filmik</span></h2>
+          <div
+            id="dropzone"
+            class="dropzone"
+            tabindex="0"
+            role="button"
+            data-i18n-aria="drop.aria"
+            aria-label="Upuść plik wideo lub kliknij"
+          >
+            <input
+              type="file"
+              id="file-input"
+              accept="video/*,.mp4,.mov,.webm,.mkv,.avi,.m4v,.mpeg,.mpg,.wmv,.flv,.3gp,.ts,.mts,.m2ts"
+              hidden
+            />
+            <div class="dz-icon">＋</div>
+            <div class="dz-title" data-i18n="drop.title">Upuść wideo tutaj albo kliknij</div>
+            <div class="dz-sub" id="file-label" data-i18n="drop.sub">max ~500&nbsp;MB · tymczasowa obróbka · wiele formatów → wynik MP4</div>
+          </div>
+
+          <div class="video-opts-block">
+            <div class="opt-block-title" data-i18n="quality.title">Opcje wideo</div>
+            <div class="opts">
+              <label class="opt">
+                <input type="checkbox" id="opt-delogo" checked />
+                <span>
+                  <strong data-i18n="delogo.title">Usuń logo / znak wodny</strong>
+                  <small data-i18n="delogo.hint">Najlepiej zaznacz ręcznie na klatce poniżej</small>
+                </span>
+              </label>
+
+              <div class="sub-opts" id="delogo-opts">
+                <div class="opt-block-title" data-i18n="delogo.area">Obszar retuszu</div>
+                <div class="seg" role="radiogroup">
+                  <label
+                    ><input type="radio" name="delogo-mode" value="manual" checked />
+                    <span data-i18n="delogo.manual">Ręcznie (zaznacz)</span></label
+                  >
+                  <label
+                    ><input type="radio" name="delogo-mode" value="auto" />
+                    <span data-i18n="delogo.auto">Auto (dół)</span></label
+                  >
+                </div>
+                <label class="inline mt-sm">
+                  <span data-i18n="delogo.method">Metoda</span>
+                  <select id="opt-delogo-method">
+                    <option value="delogo" selected data-i18n="delogo.natural">Delogo (naturalne)</option>
+                    <option value="box" data-i18n="delogo.box">Czarny pasek (gwarantuje ukrycie)</option>
+                    <option value="blur" data-i18n="delogo.blur">Delogo + mocniejsze krycie</option>
+                  </select>
+                </label>
+
+                <div id="logo-picker" class="logo-picker hidden">
+                  <p class="hint" data-i18n="delogo.pickerFull">
+                    Przeciągnij prostokąt po logo (jak w edytorze). Możesz dodać kilka obszarów.
+                  </p>
+                  <div class="canvas-wrap">
+                    <canvas id="logo-canvas"></canvas>
+                  </div>
+                  <div class="logo-actions">
+                    <button type="button" class="btn ghost sm" id="btn-logo-clear" data-i18n="delogo.clear">
+                      Wyczyść zaznaczenia
+                    </button>
+                    <button type="button" class="btn ghost sm" id="btn-logo-undo" data-i18n="delogo.undo">
+                      Cofnij
+                    </button>
+                    <span class="logo-coords" id="logo-coords" data-i18n="delogo.none">brak obszaru</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="opt-block">
+                <div class="opt-block-title" data-i18n="quality.title">Jakość i rozdzielczość</div>
+                <div class="seg" role="radiogroup">
+                  <label
+                    ><input type="radio" name="upscale" value="fast" checked />
+                    <span data-i18n="quality.fast">Szybki HD</span></label
+                  >
+                  <label
+                    ><input type="radio" name="upscale" value="ai" />
+                    <span data-i18n="quality.ai">AI (Real-ESRGAN)</span></label
+                  >
+                  <label
+                    ><input type="radio" name="upscale" value="off" />
+                    <span data-i18n="quality.off">Bez skalowania</span></label
+                  >
+                </div>
+                <label class="stack mt-sm">
+                  <span data-i18n="quality.speedLab">Profil szybkości</span>
+                  <select id="opt-speed">
+                    <option value="auto" selected data-i18n="quality.speedAuto">
+                      Auto (długie klipy → turbo)
+                    </option>
+                    <option value="turbo" data-i18n="quality.turbo">Turbo — max prędkość</option>
+                    <option value="balanced" data-i18n="quality.balanced">Zbalansowany</option>
+                    <option value="quality" data-i18n="quality.quality">Jakość — wolniej, ładniej</option>
+                  </select>
+                </label>
+                <div class="grid2 mt-sm">
+                  <label class="stack">
+                    <span data-i18n="quality.heightLab">Docelowa wysokość</span>
+                    <select id="opt-height">
+                      <option value="720">720p</option>
+                      <option value="1080" selected>1080p</option>
+                      <option value="1440">1440p (QHD)</option>
+                      <option value="2160">2160p (4K)</option>
+                    </select>
+                  </label>
+                  <label class="stack">
+                    <span data-i18n="quality.aiScaleLab">AI skala</span>
+                    <select id="opt-ai-scale">
+                      <option value="2" selected data-i18n="quality.scale2">×2 (szybko)</option>
+                      <option value="3" data-i18n="quality.scale3">×3 (mocniej)</option>
+                      <option value="4" data-i18n="quality.scale4">×4 (max, wolno)</option>
+                    </select>
+                  </label>
+                  <label class="stack">
+                    <span data-i18n="quality.colorLab">Preset koloru/ostrości</span>
+                    <select id="opt-quality-preset">
+                      <option value="soft" data-i18n="quality.soft">Miękki / mniej szumu</option>
+                      <option value="balanced" selected data-i18n="quality.balanced">Zbalansowany</option>
+                      <option value="sharp" data-i18n="quality.sharpP">Ostry</option>
+                      <option value="punch" data-i18n="quality.punch">Punch (mocny kontrast)</option>
+                    </select>
+                  </label>
+                  <label class="stack">
+                    <span data-i18n="quality.crfLab">Jakość kodowania (CRF)</span>
+                    <select id="opt-crf">
+                      <option value="20" data-i18n="quality.crf20">20 · mniejszy plik</option>
+                      <option value="17" data-i18n="quality.crf17">17 · dobra</option>
+                      <option value="15" selected data-i18n="quality.crf15">15 · wysoka</option>
+                      <option value="13" data-i18n="quality.crf13">13 · prawie bezstratna</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="inline mt-sm">
+                  <input type="checkbox" id="opt-polish" checked />
+                  <span data-i18n="quality.polish">Korekcja kolorów / ostrość / denoise</span>
+                </label>
+                <div class="sub-opts" id="polish-opts">
+                  <div class="opt-block-title" data-i18n="quality.polishMode">Tryb korekcji</div>
+                  <div class="seg" role="radiogroup" aria-label="Polish mode">
+                    <label>
+                      <input type="radio" name="polish-mode" value="manual" />
+                      <span data-i18n="quality.polishManual">Ręczna</span>
+                    </label>
+                    <label>
+                      <input type="radio" name="polish-mode" value="auto" checked />
+                      <span data-i18n="quality.polishAuto">Automatyczna (analiza wideo)</span>
+                    </label>
+                  </div>
+                  <p class="hint" id="polish-auto-hint" data-i18n="quality.polishAutoHint">
+                    Aplikacja sama zbada jasność, kontrast i nasycenie klatek i ustawi najlepszą korekcję.
+                  </p>
+                  <p class="hint polish-auto-result hidden" id="polish-auto-result" aria-live="polite"></p>
+                  <div class="sliders" id="quality-sliders">
+                    <label class="inline">
+                      <span data-i18n="quality.sharpen">Ostrość</span>
+                      <input type="range" id="opt-sharpen" min="0" max="100" value="45" />
+                      <span id="opt-sharpen-val">45</span>
+                    </label>
+                    <label class="inline">
+                      <span data-i18n="quality.contrast">Kontrast</span>
+                      <input type="range" id="opt-contrast" min="0" max="100" value="50" />
+                      <span id="opt-contrast-val">50</span>
+                    </label>
+                    <label class="inline">
+                      <span data-i18n="quality.sat">Saturacja</span>
+                      <input type="range" id="opt-sat" min="0" max="100" value="55" />
+                      <span id="opt-sat-val">55</span>
+                    </label>
+                    <label class="inline">
+                      <span data-i18n="quality.denoise">Denoise</span>
+                      <input type="range" id="opt-denoise" min="0" max="100" value="15" />
+                      <span id="opt-denoise-val">15</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- KOLUMNA 2: lektor + napisy + start -->
+        <section class="card panel panel-narrator">
+          <h2><span class="num">2</span> <span data-i18n="narrator.title">Lektor</span></h2>
+          <div class="opts">
+            <!-- One-click: skip all video improve → STT + lektor only -->
+            <label class="opt opt-narrator-only" id="opt-narrator-only-wrap">
+              <input type="checkbox" id="opt-narrator-only" />
+              <span>
+                <strong data-i18n="narrator.only">⚡ Tylko lektor</strong>
+                <small data-i18n="narrator.onlyHint">Pomiń poprawę wideo (delogo / HD / AI) — sam głos + napisy</small>
+              </span>
+            </label>
+
+            <label class="opt">
+              <input type="checkbox" id="opt-narrator" checked />
+              <span>
+                <strong data-i18n="narrator.title">Lektor (głos neuralny)</strong>
+                <small data-i18n="narrator.hint">Tłumaczy na wybrany język + Edge TTS</small>
+              </span>
+            </label>
+
+            <div class="sub-opts" id="narrator-opts">
+              <div class="opt-block-title" data-i18n="narrator.modeTitle">Tryb lektora</div>
+              <div class="seg" role="radiogroup">
+                <label>
+                  <input type="radio" name="narrator-mode" value="translate" checked />
+                  <span data-i18n="narrator.translate">Dokładne tłumaczenie (na żywo)</span>
+                </label>
+                <label>
+                  <input type="radio" name="narrator-mode" value="describe" />
+                  <span data-i18n="narrator.describe">Opis sytuacji (pełny)</span>
+                </label>
+              </div>
+              <p class="hint mode-hint" id="mode-hint" data-i18n="narrator.modeHintT">
+                Dokładne: 1) wyodrębnij tekst z audio → 2) tłumacz na żywo 1:1 (lektor + napisy).
+              </p>
+
+              <div class="grid2">
+                <label class="stack">
+                  <span data-i18n="narrator.src">Język źródłowy</span>
+                  <select id="opt-source-lang">
+                    <option value="auto" selected data-i18n="narrator.auto">🌐 Auto-wykrywanie</option>
+                    <option value="en" data-i18n="lang.en">Angielski</option>
+                    <option value="zh" data-i18n="lang.zh">Chiński</option>
+                    <option value="hi" data-i18n="lang.hi">Hindi</option>
+                    <option value="es" data-i18n="lang.es">Hiszpański</option>
+                    <option value="fr" data-i18n="lang.fr">Francuski</option>
+                    <option value="ar" data-i18n="lang.ar">Arabski</option>
+                    <option value="it" data-i18n="lang.it">Włoski</option>
+                    <option value="pt" data-i18n="lang.pt">Portugalski</option>
+                    <option value="ru" data-i18n="lang.ru">Rosyjski</option>
+                    <option value="de" data-i18n="lang.de">Niemiecki</option>
+                    <option value="pl" data-i18n="lang.pl">Polski</option>
+                  </select>
+                </label>
+                <label class="stack">
+                  <span data-i18n="narrator.tgt">Język docelowy (tłumacz NA)</span>
+                  <select id="opt-target-lang">
+                    <option value="pl" selected data-i18n="lang.pl">Polski</option>
+                    <option value="en" data-i18n="lang.en">Angielski</option>
+                    <option value="zh" data-i18n="lang.zh">Chiński</option>
+                    <option value="hi" data-i18n="lang.hi">Hindi</option>
+                    <option value="es" data-i18n="lang.es">Hiszpański</option>
+                    <option value="fr" data-i18n="lang.fr">Francuski</option>
+                    <option value="ar" data-i18n="lang.ar">Arabski</option>
+                    <option value="it" data-i18n="lang.it">Włoski</option>
+                    <option value="pt" data-i18n="lang.pt">Portugalski</option>
+                    <option value="ru" data-i18n="lang.ru">Rosyjski</option>
+                    <option value="de" data-i18n="lang.de">Niemiecki</option>
+                  </select>
+                </label>
+              </div>
+              <div class="model-badge" id="model-badge">model: nmt-google-auto-pl</div>
+
+              <label class="inline">
+                <input type="checkbox" id="opt-auto-translate" checked />
+                <span data-i18n="narrator.autoTrLab">Tłumacz na język docelowy (wyłącz = oryginał)</span>
+              </label>
+              <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
+
+              <label class="inline">
+                <span data-i18n="narrator.voiceLab">Głos</span>
+                <select id="opt-voice">
+                  <option value="female" data-i18n="narrator.female">Żeński (neural)</option>
+                  <option value="male" data-i18n="narrator.male">Męski (neural)</option>
+                </select>
+              </label>
+              <label class="stack">
+                <span data-i18n="narrator.titleLab">Tytuł (opcjonalnie)</span>
+                <input
+                  type="text"
+                  id="opt-title"
+                  data-i18n-placeholder="narrator.titlePh"
+                  placeholder="Zostaw puste = weźmie z nazwy pliku"
+                />
+              </label>
+              <label class="stack">
+                <span data-i18n="narrator.scriptLab">Tekst do tłumaczenia / lektora (opcjonalnie)</span>
+                <textarea
+                  id="opt-script"
+                  rows="4"
+                  data-i18n-placeholder="narrator.scriptPh"
+                  placeholder="Zostaw puste = system wyodrębni mowę z wideo (STT), potem przetłumaczy."
+                ></textarea>
+              </label>
+              <p class="hint" data-i18n="narrator.scriptHint">
+                Dokładne tłumaczenie: puste pole → STT z wideo → tłumaczenie na żywo.
+              </p>
+              <label class="inline">
+                <span data-i18n="narrator.bg">Głośność tła (ciszej = lepiej słychać lektora)</span>
+                <input type="range" id="opt-bg" min="0" max="40" value="12" />
+                <span id="opt-bg-val">12%</span>
+              </label>
+            </div>
+
+            <label class="opt">
+              <input type="checkbox" id="opt-subs" />
+              <span>
+                <strong data-i18n="subs.title">Napisy (język docelowy)</strong>
+                <small data-i18n="subs.hint">Z przetłumaczonego skryptu · SRT + burn-in</small>
+              </span>
+            </label>
+            <label class="opt sub-check" id="burn-wrap">
+              <input type="checkbox" id="opt-burn" checked />
+              <span>
+                <strong data-i18n="burn.title">Wklej napisy w obraz</strong>
+                <small data-i18n="burn.hint">Wyłącz = tylko plik .srt obok</small>
+              </span>
+            </label>
+          </div>
+
+          <button type="button" class="btn-go" id="btn-start" disabled data-i18n="btn.start">
+            Start obróbki
+          </button>
+        </section>
+
+        <!-- KOLUMNA 3: POSTĘP -->
+        <section class="card panel panel-progress">
+          <div class="panel-progress-head">
+            <h2><span class="num">3</span> <span data-i18n="s3.title">Postęp</span></h2>
+            <div class="panel-progress-actions">
+              <button
+                type="button"
+                class="btn-reset"
+                id="btn-reset"
+                title="Anuluj bieżący job i wróć do startu"
+                data-i18n="btn.reset"
+                data-i18n-title="btn.resetTitle"
+              >
+                ⟲ Nowy
+              </button>
+              <div class="status-live">NA ŻYWO</div>
+            </div>
+          </div>
+
+          <div id="idle-state" class="idle">
+            <p data-i18n="idle.text">Wrzuć filmik i odpal job — tu zobaczysz procent i etapy.</p>
+          </div>
+
+          <div id="job-state" class="job hidden">
+            <div class="job-head">
+              <div>
+                <div class="job-name" id="job-name">—</div>
+                <div class="job-meta" id="job-meta">—</div>
+              </div>
+              <div class="pct" id="job-pct">0%</div>
+            </div>
+
+            <div class="bar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div class="bar-fill" id="bar-fill" style="width: 0%"></div>
+            </div>
+            <div class="stage" id="job-stage">—</div>
+
+            <div class="live-translate" id="live-translate">
+              <div class="live-title">
+                <span class="dot" aria-hidden="true"></span>
+                <span data-i18n="live.title">Na żywo: wyodrębnianie → tłumaczenie</span>
+              </div>
+              <div class="live-grid">
+                <div>
+                  <div class="live-label" data-i18n="live.src">Źródło (z wideo / STT)</div>
+                  <!-- content set by studio.js (i18n placeholders + live STT) — no data-i18n so apply() won't wipe transcript -->
+                  <pre id="live-original" class="live-box" data-i18n-empty="live.wait">— wrzuć film i start —</pre>
+                </div>
+                <div>
+                  <div class="live-label" data-i18n="live.tgt">Tłumaczenie na żywo (lektor + napisy)</div>
+                  <pre id="live-script" class="live-box live-script" data-i18n-empty="live.wait2">— czekam na wyodrębnienie i tłumaczenie… —</pre>
+                </div>
+              </div>
+              <div class="live-phase" id="live-phase"></div>
+            </div>
+
+            <ul class="stages" id="stages-list"></ul>
+
+            <div class="logs" id="job-logs"></div>
+
+            <div id="error-box" class="error hidden"></div>
+            <div class="job-actions">
+              <button type="button" class="btn-cancel hidden" id="btn-cancel" data-i18n="btn.cancel">
+                ■ Anuluj proces
+              </button>
+              <button type="button" class="btn-go retry-btn hidden" id="btn-retry" data-i18n="btn.retry">
+                Uruchom ponownie
+              </button>
+              <button type="button" class="btn-new-process hidden" id="btn-new-process" data-i18n="btn.newProcess">
+                ⟲ Nowy proces (od startu)
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- WYNIK — pełna szerokość pod wszystkimi 3 kolumnami -->
+        <section id="result-box" class="card panel result-span result hidden" aria-live="polite">
+          <div class="result-span-head">
+            <h2><span class="num">✓</span> <span data-i18n="result.ready">Gotowe</span></h2>
+          </div>
+          <div class="result-grid">
+            <img id="result-preview" alt="Preview" />
+            <div class="result-main">
+              <p id="result-info"></p>
+              <div class="result-actions">
+                <a class="btn primary" id="btn-download" href="#" download data-i18n="result.download">Pobierz MP4</a>
+                <a class="btn ghost" id="btn-open" href="#" target="_blank" data-i18n="result.open">Otwórz w przeglądarce</a>
+              </div>
+              <details class="script-box">
+                <summary data-i18n="result.script">Tekst lektora</summary>
+                <pre id="result-script"></pre>
+              </details>
+            </div>
+          </div>
+
+          <div class="share-panel" id="share-panel">
+            <div class="share-title">
+              <span class="dot" aria-hidden="true"></span>
+              <span data-i18n="share.title">Udostępnianie</span>
+            </div>
+            <p class="share-hint" data-i18n="share.hint">
+              Wyślij gotowy klip dalej — lokalnie, schowek, system Windows albo FacePub.
+            </p>
+            <div class="share-grid" id="share-actions">
+              <button type="button" class="share-btn" data-share="folder">
+                <span class="share-ico">📂</span>
+                <span data-i18n="share.folder">Folder z plikiem</span>
+              </button>
+              <button type="button" class="share-btn" data-share="native">
+                <span class="share-ico">▶</span>
+                <span data-i18n="share.play">Odtwórz w Windows</span>
+              </button>
+              <button type="button" class="share-btn" data-share="copy-path">
+                <span class="share-ico">📋</span>
+                <span data-i18n="share.copyPath">Kopiuj ścieżkę</span>
+              </button>
+              <button type="button" class="share-btn" data-share="copy-url">
+                <span class="share-ico">🔗</span>
+                <span data-i18n="share.copyUrl">Kopiuj link</span>
+              </button>
+              <button type="button" class="share-btn" data-share="copy-script">
+                <span class="share-ico">✍</span>
+                <span data-i18n="share.copyScript">Kopiuj tekst lektora</span>
+              </button>
+              <button type="button" class="share-btn" data-share="copy-pack">
+                <span class="share-ico">📦</span>
+                <span data-i18n="share.copyPack">Kopiuj pakiet</span>
+              </button>
+              <button type="button" class="share-btn" data-share="windows">
+                <span class="share-ico">⬆</span>
+                <span data-i18n="share.windows">Share (Windows)</span>
+              </button>
+              <button type="button" class="share-btn" data-share="webshare">
+                <span class="share-ico">☁</span>
+                <span data-i18n="share.web">Udostępnij…</span>
+              </button>
+              <a class="share-btn" id="share-srt" href="#" download hidden>
+                <span class="share-ico">SRT</span>
+                <span data-i18n="share.srt">Pobierz napisy SRT</span>
+              </a>
+            </div>
+            <div class="share-status" id="share-status" aria-live="polite"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="foot">
+      <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
+    </footer>
+
+    <script src="/js/i18n.js?v=20260728narronly"></script>
+    <script src="/js/auth-ui.js?v=20260728narronly"></script>
+    <script src="/js/studio.js?v=20260728narronly"></script>
+    <script>
+      (function () {
+        const I = window.ClipForgeI18n;
+        if (!I) return;
+        I.mountSwitcher(document.getElementById("ui-lang-slot"));
+        I.apply();
+        window.addEventListener("clipforge:lang", () => I.apply());
+      })();
+    </script>
+  </body>
+</html>
+

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="pl"><head><meta charset="UTF-8"><title>ClipForge cache clear</title></head>
+<body style="font-family:sans-serif;background:#0e1924;color:#e0f7ff;padding:2rem">
+<h1>Czyszczenie cache ClipForge…</h1>
+<script>
+(async () => {
+  if (navigator.serviceWorker) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (const r of regs) await r.unregister();
+  }
+  if (window.caches) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+  }
+  document.body.innerHTML += '<p>OK. Przekierowanie do logowania…</p>';
+  setTimeout(() => location.replace('/login.html?v=20260728b'), 600);
+})();
+</script>
+</body></html>

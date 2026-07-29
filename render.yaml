@@ -1,0 +1,47 @@
+# Render free web service — https://render.com
+# Dashboard: New → Blueprint → connect this repo
+services:
+  - type: web
+    name: clipforge-studio
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: "0.0.0.0"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: COOKIE_SECURE
+        value: "1"
+      - key: AUTH_REQUIRED
+        value: "true"
+      - key: EMAIL_DEV_LINKS
+        value: "false"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: BASE_URL
+        # After first deploy, set to https://YOUR-SERVICE.onrender.com
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      # Google / Facebook — fill after domain is live
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: FACEBOOK_APP_ID
+        sync: false
+      - key: FACEBOOK_APP_SECRET
+        sync: false

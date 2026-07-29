@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClipForge — Google &amp; Facebook login</title>
+    <link rel="stylesheet" href="/css/studio.css" />
+    <link rel="stylesheet" href="/css/auth.css" />
+    <link rel="icon" href="/assets/clipforge-192.png" />
+    <style>
+      .setup-wrap {
+        max-width: 720px;
+        margin: 40px auto;
+        padding: 0 16px 48px;
+      }
+      .setup-card {
+        background: rgba(0, 20, 40, 0.75);
+        border: 1px solid rgba(0, 240, 255, 0.25);
+        border-radius: 12px;
+        padding: 28px 24px;
+        color: #e0f7ff;
+        font-family: "Exo 2", system-ui, sans-serif;
+      }
+      .setup-card h1 {
+        font-family: Orbitron, sans-serif;
+        font-size: 1.25rem;
+        margin: 0 0 8px;
+        color: #7df9ff;
+      }
+      .setup-card h2 {
+        font-family: Orbitron, sans-serif;
+        font-size: 0.95rem;
+        margin: 28px 0 10px;
+        color: #00e5c0;
+      }
+      .setup-card p,
+      .setup-card li {
+        line-height: 1.55;
+        color: #b8d4e0;
+        font-size: 0.95rem;
+      }
+      .setup-card ol {
+        padding-left: 1.3rem;
+      }
+      .setup-card code,
+      .uri-box {
+        font-family: "Share Tech Mono", monospace;
+        font-size: 0.82rem;
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(0, 240, 255, 0.2);
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: #7df9ff;
+        word-break: break-all;
+      }
+      .uri-box {
+        display: block;
+        padding: 10px 12px;
+        margin: 8px 0 12px;
+      }
+      .status {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 16px 0;
+      }
+      .pill {
+        font-family: "Share Tech Mono", monospace;
+        font-size: 0.75rem;
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid;
+      }
+      .pill.ok {
+        color: #00ff9d;
+        border-color: rgba(0, 255, 157, 0.5);
+        background: rgba(0, 255, 157, 0.08);
+      }
+      .pill.bad {
+        color: #ff7a92;
+        border-color: rgba(255, 59, 92, 0.45);
+        background: rgba(255, 59, 92, 0.08);
+      }
+      .setup-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      .setup-actions a {
+        display: inline-block;
+        padding: 10px 16px;
+        background: linear-gradient(135deg, #00e5ff, #00b8d4);
+        color: #001018;
+        font-family: Orbitron, sans-serif;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-decoration: none;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+      }
+      .setup-actions a.ghost {
+        background: transparent;
+        color: #7df9ff;
+        border: 1px solid rgba(0, 240, 255, 0.4);
+      }
+      .note {
+        margin-top: 18px;
+        padding: 12px;
+        border-left: 3px solid #00e5c0;
+        background: rgba(0, 229, 192, 0.06);
+        font-size: 0.88rem;
+      }
+    </style>
+  </head>
+  <body class="auth-body">
+    <div class="bg-grid" aria-hidden="true"></div>
+    <main class="setup-wrap">
+      <div class="setup-card">
+        <h1>Logowanie Google + Facebook</h1>
+        <p>
+          Kod w ClipForge jest gotowy. Ty tylko wklejasz klucze z konsoli Google i Meta do pliku
+          <code>.env</code>, potem restartujesz serwer.
+        </p>
+
+        <div class="status" id="status">
+          <span class="pill bad">Sprawdzam…</span>
+        </div>
+
+        <h2>1. BASE_URL (musi być identyczny w .env i w przeglądarce)</h2>
+        <code class="uri-box" id="base-url">http://localhost:3847</code>
+        <p>
+          Otwieraj Studio pod tym samym adresem (np. <code>localhost</code>, nie mieszaj z
+          <code>127.0.0.1</code> — cookie sesji i OAuth się gubią).
+        </p>
+
+        <h2>2. Google — redirect URI (wklej 1:1 w konsoli Google)</h2>
+        <code class="uri-box" id="google-uri">…</code>
+
+        <ol>
+          <li>
+            Wejdź:
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener"
+              >Google Cloud → Credentials</a
+            >
+          </li>
+          <li>Utwórz projekt (np. <strong>ClipForge</strong>).</li>
+          <li>
+            <strong>OAuth consent screen</strong> → External → App name: ClipForge → dodaj swój e-mail jako
+            test user.
+          </li>
+          <li>
+            <strong>Credentials → Create credentials → OAuth client ID → Web application</strong>
+          </li>
+          <li>
+            Authorized JavaScript origins:
+            <code id="origin-uri">http://localhost:3847</code>
+          </li>
+          <li>Authorized redirect URIs: wklej URI Google z góry.</li>
+          <li>Skopiuj <strong>Client ID</strong> i <strong>Client secret</strong>.</li>
+        </ol>
+
+        <h2>3. Facebook — redirect URI</h2>
+        <code class="uri-box" id="fb-uri">…</code>
+
+        <ol>
+          <li>
+            Wejdź:
+            <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener"
+              >Meta for Developers → My Apps</a
+            >
+          </li>
+          <li>Create App → typ <strong>Consumer</strong> / <strong>Authenticate and request data</strong>.</li>
+          <li>Dodaj produkt <strong>Facebook Login → Web</strong>.</li>
+          <li>
+            Settings → Basic: skopiuj <strong>App ID</strong> i <strong>App Secret</strong>.
+          </li>
+          <li>
+            Facebook Login → Settings → <strong>Valid OAuth Redirect URIs</strong>: wklej URI Facebook z góry.
+          </li>
+          <li>
+            W trybie <strong>Development</strong> logują się tylko role (Admin/Developer/Tester) —
+            dodaj siebie w Roles. Na produkcję trzeba App Review (public).
+          </li>
+          <li>Permissions: <code>email</code>, <code>public_profile</code> (standard).</li>
+        </ol>
+
+        <h2>4. Wklej do pliku <code>.env</code></h2>
+        <pre class="uri-box" style="white-space: pre-wrap; margin: 0">
+BASE_URL=http://localhost:3847
+
+GOOGLE_CLIENT_ID=wklej-tutaj
+GOOGLE_CLIENT_SECRET=wklej-tutaj
+
+FACEBOOK_APP_ID=wklej-tutaj
+FACEBOOK_APP_SECRET=wklej-tutaj
+</pre>
+        <p>
+          Plik: <code>C:\Users\londy\Projects\clips-tv\.env</code> — zapisz, potem
+          <strong>zrestartuj ClipForge</strong>.
+        </p>
+
+        <div class="note">
+          <strong>Test:</strong> odśwież
+          <a href="/login.html">login</a> → przyciski Google/Facebook mają być aktywne (nie szare) → kliknij
+          → po zgodzie wracasz do Studio zalogowany.
+        </div>
+
+        <div class="setup-actions">
+          <a href="/login.html">Strona logowania</a>
+          <a class="ghost" href="/studio.html">Studio</a>
+          <a class="ghost" href="/api/auth/providers" target="_blank">Status API (JSON)</a>
+        </div>
+      </div>
+    </main>
+    <script>
+      fetch("/api/auth/providers")
+        .then((r) => r.json())
+        .then((data) => {
+          const p = data.providers || {};
+          const r = data.oauthRedirects || {};
+          const st = document.getElementById("status");
+          st.innerHTML =
+            '<span class="pill ' +
+            (p.google ? "ok" : "bad") +
+            '">Google: ' +
+            (p.google ? "OK" : "brak kluczy") +
+            "</span>" +
+            '<span class="pill ' +
+            (p.facebook ? "ok" : "bad") +
+            '">Facebook: ' +
+            (p.facebook ? "OK" : "brak kluczy") +
+            "</span>" +
+            '<span class="pill ' +
+            (p.email ? "ok" : "bad") +
+            '">E-mail: ' +
+            (p.email ? "OK" : "—") +
+            "</span>";
+          if (r.baseUrl) {
+            document.getElementById("base-url").textContent = r.baseUrl;
+            document.getElementById("origin-uri").textContent = r.baseUrl;
+          }
+          if (r.google) document.getElementById("google-uri").textContent = r.google;
+          if (r.facebook) document.getElementById("fb-uri").textContent = r.facebook;
+        })
+        .catch(() => {
+          document.getElementById("status").innerHTML =
+            '<span class="pill bad">Serwer nie odpowiada — odpal ClipForge</span>';
+        });
+    </script>
+  </body>
+</html>
