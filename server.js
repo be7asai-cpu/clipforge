@@ -32,6 +32,27 @@ if (behindProxy) {
   app.set("trust proxy", 1);
 }
 
+const PUBLIC_DIR = path.join(__dirname, "public");
+
+/** Stop CDN/browser from caching 404s + HTML (fixes "refresh = different page") */
+function noStore(res) {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, max-age=0, private"
+  );
+  res.setHeader("CDN-Cache-Control", "no-store");
+  res.setHeader("Cloudflare-CDN-Cache-Control", "no-store");
+  res.setHeader("Surrogate-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+}
+
+app.use((req, res, next) => {
+  // Default: never cache app responses on free host / Cloudflare edge
+  if (behindProxy || isProd) noStore(res);
+  next();
+});
+
 app.use(
   cors({
     origin: true,
@@ -87,68 +108,89 @@ function isLoggedIn(req) {
   );
 }
 
-// ── Entry: always login first ──────────────────────────────────────────
-// Serve login HTML directly on "/" (redirect-only breaks some clients /
-// cold-start proxies that show a bare "Not Found").
-app.get(["/", "/index.html"], (req, res) => {
+// ── Health first (Render probes this) ──────────────────────────────────
+app.get("/api/health", (_req, res) => {
+  noStore(res);
+  res.json({
+    ok: true,
+    service: "clipforge",
+    studio: true,
+    v: "2026-07-29r2",
+  });
+});
+
+function sendPublic(res, relPath) {
+  noStore(res);
+  const full = path.join(PUBLIC_DIR, relPath);
+  if (!fs.existsSync(full)) {
+    return res.status(404).type("text").send("Missing: " + relPath);
+  }
+  return res.sendFile(full);
+}
+
+// ── Entry: always the same login page (no flip-flop) ───────────────────
+app.get(["/", "/index.html", "/login.html"], (req, res) => {
   if (isLoggedIn(req)) return res.redirect(302, "/studio.html");
-  res.setHeader(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, max-age=0"
-  );
-  return res.sendFile(path.join(__dirname, "public", "login.html"));
+  return sendPublic(res, "login.html");
 });
 
 app.get(["/studio", "/studio.html"], (req, res) => {
   if (!isLoggedIn(req)) {
+    noStore(res);
     return res.redirect(
       302,
       "/login.html?next=" + encodeURIComponent("/studio.html")
     );
   }
-  return res.sendFile(path.join(__dirname, "public", "studio.html"));
+  return sendPublic(res, "studio.html");
 });
 
-// Old portal URLs → login (not the ClipWave catalog)
+// Old portal URLs → login
 app.get(
   ["/second-life.html", "/portal", "/portal.html", "/clips", "/clips.html"],
   (_req, res) => {
+    noStore(res);
     res.redirect(302, "/login.html");
   }
 );
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "clipforge", studio: true });
-});
-
-// Never cache HTML (stops Edge/app showing old "Portal" nav)
-app.use((req, res, next) => {
-  if (/\.html?$/i.test(req.path) || req.path === "/" || req.path === "") {
-    res.setHeader(
-      "Cache-Control",
-      "no-store, no-cache, must-revalidate, max-age=0"
-    );
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
+// Explicit public assets (avoid static 404 cache races on free tier)
+app.get(
+  [
+    "/css/:file",
+    "/js/:file",
+    "/assets/:file",
+    "/manifest.webmanifest",
+    "/oauth-setup.html",
+    "/clear-cache.html",
+  ],
+  (req, res, next) => {
+    let rel;
+    if (req.params.file) {
+      // block path traversal
+      const base = path.basename(req.params.file);
+      if (req.path.startsWith("/css/")) rel = path.join("css", base);
+      else if (req.path.startsWith("/js/")) rel = path.join("js", base);
+      else if (req.path.startsWith("/assets/")) rel = path.join("assets", base);
+      else return next();
+    } else {
+      rel = path.basename(req.path);
+    }
+    const full = path.join(PUBLIC_DIR, rel);
+    if (!fs.existsSync(full)) return next();
+    noStore(res);
+    return res.sendFile(full);
   }
-  next();
-});
+);
 
-// Static assets (login, css, js) — studio.html is gated above, not via static
+// Fallback static (other files under public/)
 app.use(
-  express.static(path.join(__dirname, "public"), {
+  express.static(PUBLIC_DIR, {
     index: false,
     etag: false,
     lastModified: false,
-    setHeaders(res, filePath) {
-      if (/\.html?$/i.test(filePath)) {
-        res.setHeader(
-          "Cache-Control",
-          "no-store, no-cache, must-revalidate, max-age=0"
-        );
-      } else if (/\.(js|css)$/i.test(filePath)) {
-        res.setHeader("Cache-Control", "no-cache");
-      }
+    setHeaders(res) {
+      noStore(res);
     },
   })
 );
@@ -563,10 +605,12 @@ app.get("/api/studio/jobs/:id/share", (req, res) => {
 
 // Unknown pages → login (not portal)
 app.get("*", (req, res) => {
+  noStore(res);
   if (req.path.startsWith("/api/") || req.path.startsWith("/local/")) {
     return res.status(404).json({ error: "Not found" });
   }
-  res.redirect(302, "/login.html");
+  // Always same destination — never bare platform 404 for unknown HTML paths
+  return sendPublic(res, "login.html");
 });
 
 // Local default 127.0.0.1; free PaaS / Docker → 0.0.0.0
