@@ -579,6 +579,63 @@ try {
     Pop-Location
   } else {
     L "Folder agenta juz istnieje: $agentDir"
+    # Refresh code from local project if available (pipeline fixes)
+    if ($localSrc) {
+      foreach ($name in @('lib','scripts/pc-agent.js')) {
+        $src = Join-Path $localSrc $name
+        $dst = Join-Path $agentDir $name
+        if (Test-Path $src) {
+          if (Test-Path $src -PathType Container) {
+            Copy-Item $src $dst -Recurse -Force
+          } else {
+            $dstDir = Split-Path $dst -Parent
+            if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
+            Copy-Item $src $dst -Force
+          }
+        }
+      }
+      L 'Odswiezono lib/ i pc-agent.js z lokalnego projektu'
+    }
+  }
+
+  # FFmpeg must actually run (npm ffmpeg-static sometimes blocked / broken on Windows)
+  function Test-Ffmpeg($bin) {
+    if (-not $bin -or -not (Test-Path $bin)) { return $false }
+    try { Unblock-File -Path $bin -ErrorAction SilentlyContinue } catch {}
+    $p = Start-Process -FilePath $bin -ArgumentList '-version' -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:TEMP 'cf-ff-out.txt') -RedirectStandardError (Join-Path $env:TEMP 'cf-ff-err.txt') -ErrorAction SilentlyContinue
+    if (-not $p) { return $false }
+    return ($p.ExitCode -eq 0)
+  }
+  $ffBin = Join-Path $agentDir 'node_modules\\ffmpeg-static\\ffmpeg.exe'
+  if (-not (Test-Ffmpeg $ffBin)) {
+    L 'FFmpeg agenta nie dziala — proboje naprawic...'
+    # Prefer known-good binary from local ClipForge install
+    $goodCandidates = @()
+    if ($localSrc) { $goodCandidates += (Join-Path $localSrc 'node_modules\\ffmpeg-static\\ffmpeg.exe') }
+    $goodCandidates += (Join-Path $env:USERPROFILE 'Projects\\clips-tv\\node_modules\\ffmpeg-static\\ffmpeg.exe')
+    $fixed = $false
+    foreach ($g in $goodCandidates) {
+      if (Test-Path $g) {
+        $destDir = Split-Path $ffBin -Parent
+        if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+        Copy-Item $g $ffBin -Force
+        try { Unblock-File -Path $ffBin -ErrorAction SilentlyContinue } catch {}
+        if (Test-Ffmpeg $ffBin) { L "Skopiowano dzialajacy FFmpeg z: $g"; $fixed = $true; break }
+      }
+    }
+    if (-not $fixed) {
+      L 'Proboje ponownie zainstalowac ffmpeg-static...'
+      Push-Location $agentDir
+      npm install ffmpeg-static@5.3.0 --force
+      Pop-Location
+      try { Unblock-File -Path $ffBin -ErrorAction SilentlyContinue } catch {}
+      $fixed = Test-Ffmpeg $ffBin
+    }
+    if (-not $fixed) {
+      throw 'FFmpeg nie dziala na tym PC (Windows blokuje plik albo uszkodzony binary). Zainstaluj FFmpeg systemowo albo skopiuj dzialajacy ffmpeg.exe do %LOCALAPPDATA%\\ClipForge-Agent\\node_modules\\ffmpeg-static\\'
+    }
+  } else {
+    L 'FFmpeg OK'
   }
 
   L 'Startuje agent — wroc do strony (PC · ON). Nie zamykaj okna.'

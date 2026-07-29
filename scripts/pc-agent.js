@@ -220,10 +220,45 @@ async function runJob(job) {
   const inputPath = path.join(workDir, "input" + path.extname(job.originalName || ".mp4"));
 
   await downloadInput(job, inputPath);
+  let inputSize = 0;
+  try {
+    inputSize = fs.statSync(inputPath).size;
+  } catch {
+    inputSize = 0;
+  }
+  log("Input saved", inputPath, inputSize, "bytes");
+  if (inputSize < 64) {
+    throw new Error(
+      "Pobrany plik jest pusty/uszkodzony (" + inputSize + " B). Sprawdź upload na chmurze."
+    );
+  }
+  // Quick preflight: ffmpeg must run before pipeline (clearer error than generic probe fail)
+  try {
+    const ff = require("ffmpeg-static");
+    if (!ff || !fs.existsSync(ff)) throw new Error("brak ffmpeg-static");
+    const { spawnSync } = require("child_process");
+    const chk = spawnSync(ff, ["-version"], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 15000,
+    });
+    if (chk.error) {
+      throw new Error(
+        "FFmpeg nie startuje: " + (chk.error.code || chk.error.message || chk.error)
+      );
+    }
+  } catch (e) {
+    throw new Error(
+      "FFmpeg na PC nie działa — " +
+        (e.message || e) +
+        ". Usuń %LOCALAPPDATA%\\ClipForge-Agent i pobierz agenta ponownie ze strony."
+    );
+  }
+
   await reportProgress(job.id, {
     progress: 5,
     stage: "Na Twoim PC…",
-    log: "Pobrano plik — start pipeline lokalnie",
+    log: "Pobrano plik (" + Math.round(inputSize / 1024) + " KB) — start pipeline lokalnie",
   });
 
   const { runPipeline } = require(path.join(ROOT, "lib", "studio-pipeline.js"));
