@@ -357,15 +357,26 @@ const pcAgent = require("./lib/pc-agent-hub");
 app.get("/api/studio/health", (req, res) => {
   // Lightweight — never touch pipeline/ffmpeg here (must stay instant)
   // Optional session: if logged in, "busy" = only MY jobs (multi-user safe)
-  const uid =
-    req.isAuthenticated && req.isAuthenticated() && req.user?.id
-      ? String(req.user.id)
-      : !auth.isAuthRequired()
-        ? "local"
-        : null;
+  const loggedIn =
+    req.isAuthenticated && req.isAuthenticated() && req.user?.id;
+  const uid = loggedIn
+    ? String(req.user.id)
+    : !auth.isAuthRequired()
+      ? "local"
+      : null;
+  const email = loggedIn ? req.user.email || null : null;
   const serverBusy = studioJobs.isServerBusy();
   const myBusy = uid ? studioJobs.isUserBusy(uid) : serverBusy;
-  const pc = uid ? pcAgent.statusFor(uid) : { online: false };
+  // Match by userId OR email (token may predate re-register / file-auth wipe)
+  const pc = pcAgent.statusFor(uid, email);
+  if (!uid && !email) {
+    // Not logged in: still report if *any* agent is online (UI can say "zaloguj się")
+    const any = pcAgent.listOnline();
+    pc.online = false;
+    pc.anyOnline = any.length > 0;
+    pc.agentsOnline = any.length;
+    pc.needLogin = true;
+  }
   res.json({
     ok: true,
     studio: true,
@@ -373,6 +384,7 @@ app.get("/api/studio/health", (req, res) => {
     myBusy,
     serverBusy,
     multiUser: true,
+    auth: !!loggedIn,
     pcAgent: pc,
     uptime: Math.round(process.uptime()),
     pid: process.pid,
@@ -386,13 +398,41 @@ function agentBearer(req) {
   return m ? m[1].trim() : String(req.body?.token || req.query?.token || "").trim();
 }
 
-function requireAgent(req, res) {
+/**
+ * Resolve agent token and remap userId via email when account was recreated.
+ * Async — email lookup against current user store.
+ */
+async function resolveAgentSession(req) {
   const row = pcAgent.resolveToken(agentBearer(req));
+  if (!row) return null;
+  let userId = String(row.userId);
+  let email = row.email || null;
+  if (email) {
+    try {
+      const u = await auth.findByEmail(email);
+      if (u?.id) userId = String(u.id);
+    } catch {
+      /* keep token userId */
+    }
+  }
+  return {
+    ...row,
+    userId,
+    email,
+    tokenUserId: String(row.userId),
+  };
+}
+
+async function requireAgent(req, res) {
+  const row = await resolveAgentSession(req);
   if (!row) {
     res.status(401).json({ error: "Nieprawidłowy token agenta" });
     return null;
   }
-  pcAgent.heartbeat(row.token, row.label);
+  pcAgent.heartbeat(row.token, row.label, {
+    userId: row.userId,
+    email: row.email,
+  });
   return row;
 }
 
@@ -414,8 +454,8 @@ app.post("/api/studio/agent/login", async (req, res) => {
     }
     const ok = await bcrypt.compare(password, u.passwordHash);
     if (!ok) return res.status(401).json({ error: "Złe e-mail lub hasło" });
-    const tok = pcAgent.issueToken(u.id, label);
-    pcAgent.heartbeat(tok.token, label);
+    const tok = pcAgent.issueToken(u.id, label, email);
+    pcAgent.heartbeat(tok.token, label, { userId: u.id, email });
     res.json({
       ok: true,
       token: tok.token,
@@ -439,7 +479,7 @@ app.post("/api/studio/agent/token", (req, res) => {
     return res.status(401).json({ error: "Zaloguj się" });
   }
   const label = String(req.body?.label || "Mój PC").slice(0, 40);
-  const tok = pcAgent.issueToken(req.user.id, label);
+  const tok = pcAgent.issueToken(req.user.id, label, req.user.email || null);
   res.json({ ok: true, token: tok.token, label: tok.label });
 });
 
@@ -448,7 +488,7 @@ app.post("/api/studio/agent/token", (req, res) => {
 app.post("/api/studio/pc-token", auth.requireAuthIfEnabled, (req, res) => {
   if (!req.user?.id) return res.status(401).json({ error: "Zaloguj się" });
   const label = String(req.body?.label || "Mój PC").slice(0, 40);
-  const tok = pcAgent.issueToken(req.user.id, label);
+  const tok = pcAgent.issueToken(req.user.id, label, req.user.email || null);
   res.json({
     ok: true,
     token: tok.token,
@@ -799,7 +839,11 @@ function sendPcSetupPs1(req, res) {
     token = row.token;
     label = row.label || label || "Moj PC";
   } else if (sessionUser) {
-    const tok = pcAgent.issueToken(sessionUser.id, label || "Moj PC");
+    const tok = pcAgent.issueToken(
+      sessionUser.id,
+      label || "Moj PC",
+      sessionUser.email || null
+    );
     token = tok.token;
     label = tok.label || label;
   } else {
@@ -837,7 +881,11 @@ function sendPcSetupCmd(req, res) {
   const label = String(req.query.label || "Moj PC")
     .slice(0, 40)
     .replace(/[^\w\s.-]/g, "");
-  const tok = pcAgent.issueToken(req.user.id, label || "Moj PC");
+  const tok = pcAgent.issueToken(
+    req.user.id,
+    label || "Moj PC",
+    req.user.email || null
+  );
   const cloud = resolvePcSetupCloud(req);
   const ps1 = buildPcSetupPs1({
     cloud,
@@ -945,18 +993,29 @@ app.get("/api/studio/pc-setup", auth.requireAuthIfEnabled, sendPcSetupCmd);
 app.get("/api/studio/pc-setup.cmd", auth.requireAuthIfEnabled, sendPcSetupCmd);
 app.get("/api/studio/pc-setup.ps1", sendPcSetupPs1);
 
-app.post("/api/studio/agent/heartbeat", (req, res) => {
-  const row = pcAgent.resolveToken(agentBearer(req));
-  if (!row) return res.status(401).json({ error: "Zły token" });
-  const label = String(req.body?.label || row.label || "PC");
-  const st = pcAgent.heartbeat(row.token, label);
-  res.json({ ok: true, ...st });
+app.post("/api/studio/agent/heartbeat", async (req, res) => {
+  try {
+    const row = await resolveAgentSession(req);
+    if (!row) return res.status(401).json({ error: "Zły token" });
+    const label = String(req.body?.label || row.label || "PC");
+    const st = pcAgent.heartbeat(row.token, label, {
+      userId: row.userId,
+      email: row.email,
+    });
+    res.json({ ok: true, ...st });
+  } catch (err) {
+    res.status(500).json({ error: err.message || "heartbeat" });
+  }
 });
 
-app.post("/api/studio/agent/claim", (req, res) => {
-  const row = requireAgent(req, res);
+app.post("/api/studio/agent/claim", async (req, res) => {
+  const row = await requireAgent(req, res);
   if (!row) return;
-  const job = studioJobs.claimPcJob(row.userId);
+  // Prefer jobs for live account; also try original token userId
+  let job = studioJobs.claimPcJob(row.userId);
+  if (!job && row.tokenUserId && row.tokenUserId !== row.userId) {
+    job = studioJobs.claimPcJob(row.tokenUserId);
+  }
   if (!job) return res.json({ ok: true, job: null });
   res.json({
     ok: true,
@@ -969,11 +1028,18 @@ app.post("/api/studio/agent/claim", (req, res) => {
   });
 });
 
-app.get("/api/studio/agent/jobs/:id/input", (req, res) => {
-  const row = requireAgent(req, res);
+function agentOwnsJob(job, row) {
+  if (!job || !row) return false;
+  if (studioJobs.ownsJob(job, row.userId)) return true;
+  if (row.tokenUserId && studioJobs.ownsJob(job, row.tokenUserId)) return true;
+  return false;
+}
+
+app.get("/api/studio/agent/jobs/:id/input", async (req, res) => {
+  const row = await requireAgent(req, res);
   if (!row) return;
   const job = studioJobs.getJob(req.params.id);
-  if (!job || !studioJobs.ownsJob(job, row.userId)) {
+  if (!job || !agentOwnsJob(job, row)) {
     return res.status(404).json({ error: "Job not found" });
   }
   if (!job.inputPath || !fs.existsSync(job.inputPath)) {
@@ -995,11 +1061,11 @@ app.get("/api/studio/agent/jobs/:id/input", (req, res) => {
   res.sendFile(path.resolve(job.inputPath));
 });
 
-app.post("/api/studio/agent/jobs/:id/progress", (req, res) => {
-  const row = requireAgent(req, res);
+app.post("/api/studio/agent/jobs/:id/progress", async (req, res) => {
+  const row = await requireAgent(req, res);
   if (!row) return;
   const job = studioJobs.getJob(req.params.id);
-  if (!job || !studioJobs.ownsJob(job, row.userId)) {
+  if (!job || !agentOwnsJob(job, row)) {
     return res.status(404).json({ error: "Job not found" });
   }
   if (job.executor !== "pc") {
@@ -1017,11 +1083,11 @@ app.post("/api/studio/agent/jobs/:id/progress", (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/studio/agent/jobs/:id/fail", (req, res) => {
-  const row = requireAgent(req, res);
+app.post("/api/studio/agent/jobs/:id/fail", async (req, res) => {
+  const row = await requireAgent(req, res);
   if (!row) return;
   const job = studioJobs.getJob(req.params.id);
-  if (!job || !studioJobs.ownsJob(job, row.userId)) {
+  if (!job || !agentOwnsJob(job, row)) {
     return res.status(404).json({ error: "Job not found" });
   }
   studioJobs.updateJob(job.id, {
@@ -1060,11 +1126,11 @@ app.post(
       { name: "srt", maxCount: 1 },
     ])(req, res, next);
   },
-  (req, res) => {
-    const row = requireAgent(req, res);
+  async (req, res) => {
+    const row = await requireAgent(req, res);
     if (!row) return;
     const job = studioJobs.getJob(req.params.id);
-    if (!job || !studioJobs.ownsJob(job, row.userId)) {
+    if (!job || !agentOwnsJob(job, row)) {
       return res.status(404).json({ error: "Job not found" });
     }
     const video = req.files?.video?.[0];
@@ -1198,6 +1264,7 @@ app.post("/api/studio/jobs", (req, res) => {
       inputPath: req.file.path,
       options,
       userId: uid || "local",
+      email: req.user?.email || null,
     });
     studioJobs.enqueuePump();
     res.status(201).json({ job: studioJobs.publicJob(job) });

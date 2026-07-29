@@ -891,10 +891,18 @@
     }
   }
 
-  function ensurePcAgentUi(pcOnline) {
+  /**
+   * @param {boolean|object} pcState - true/false or health.pcAgent object
+   */
+  function ensurePcAgentUi(pcState) {
     const head = document.querySelector(".panel-progress-actions") ||
       document.querySelector(".panel-progress-head");
     if (!head) return;
+
+    const pc =
+      pcState && typeof pcState === "object"
+        ? pcState
+        : { online: !!pcState };
 
     let chip = document.getElementById("pc-agent-chip");
     if (!chip) {
@@ -912,19 +920,36 @@
       });
     }
 
+    const pcOnline = !!pc.online;
     if (pcOnline) {
       chip.textContent = "PC · ON";
       chip.style.color = "#00ff9d";
       chip.style.borderColor = "rgba(0,255,157,0.5)";
       chip.title =
-        "Twój PC połączony — joby liczone u Ciebie, strona zostaje w chmurze";
-      btn.style.opacity = "0.55";
+        "Twój PC połączony — joby liczone u Ciebie, strona zostaje w chmurze" +
+        (pc.label ? " (" + pc.label + ")" : "");
+      if (btn) btn.style.opacity = "0.55";
+    } else if (pc.needLogin && pc.anyOnline) {
+      chip.textContent = "PC · ?";
+      chip.style.color = "#ffcc66";
+      chip.style.borderColor = "rgba(255,200,80,0.5)";
+      chip.title =
+        "Agent działa, ale nie jesteś zalogowany w przeglądarce — zaloguj się tym samym kontem";
+      if (btn) btn.style.opacity = "1";
+    } else if (pc.otherAccount) {
+      chip.textContent = "PC · INNE";
+      chip.style.color = "#ffcc66";
+      chip.style.borderColor = "rgba(255,200,80,0.5)";
+      chip.title =
+        "Agent online jest pod innym kontem. Zaloguj się na to samo konto co przy ⬇ PC, albo pobierz agenta ponownie.";
+      if (btn) btn.style.opacity = "1";
     } else {
       chip.textContent = "PC · OFF";
       chip.style.color = "#7eb8c9";
       chip.style.borderColor = "rgba(0,240,255,0.25)";
-      chip.title = "Kliknij ⬇ PC — jeden plik, ta sama konfiguracja dla każdego";
-      btn.style.opacity = "1";
+      chip.title =
+        "Agent offline. Kliknij ⬇ PC, uruchom RUN-AGENT.bat i zostań zalogowany w przeglądarce.";
+      if (btn) btn.style.opacity = "1";
     }
 
     // Soft auto-offer once per browser session when offline
@@ -979,7 +1004,7 @@
       });
       if (!res.ok) return false;
       const data = await res.json();
-      ensurePcAgentUi(!!(data.pcAgent && data.pcAgent.online));
+      ensurePcAgentUi(data.pcAgent || { online: false });
       // Prefer myBusy (per-user). Fallback busy for older servers.
       if (typeof data.myBusy === "boolean") return data.myBusy;
       return !!data.busy;
@@ -993,11 +1018,11 @@
     }
   }
 
-  // Refresh PC-agent status periodically
+  // Refresh PC-agent status periodically (faster so chip tracks 120s heartbeat window)
   setInterval(() => {
     isStudioBusy().catch(() => {});
-  }, 8000);
-  setTimeout(() => isStudioBusy().catch(() => {}), 500);
+  }, 4000);
+  setTimeout(() => isStudioBusy().catch(() => {}), 400);
 
   btnStart.addEventListener("click", async () => {
     if (!selectedFile) return;
