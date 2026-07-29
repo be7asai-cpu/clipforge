@@ -19,7 +19,14 @@ data/studio/outputs
 data/studio/work
 data/studio/*.log
 data/studio/jobs.json
-tools
+# Real-ESRGAN Windows bins ARE needed in image (packed into PC-agent ZIP only).
+# Ignore bulky extras, keep animevideov3 models + exe + dll.
+tools/realesrgan-windows.zip
+tools/realesrgan/input.jpg
+tools/realesrgan/input2.jpg
+tools/realesrgan/onepiece_demo.mp4
+tools/realesrgan/models/realesrgan-x4plus*
+tools/realesrgan/models/realesrgan-x4plus-anime*
 *.mp4
 *.part
 .DS_Store

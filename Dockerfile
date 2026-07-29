@@ -17,6 +17,16 @@ COPY lib ./lib
 COPY public ./public
 # Whole scripts dir (pc-agent.js required for /api/studio/pc-agent-bundle.zip)
 COPY scripts ./scripts
+# Real-ESRGAN Windows binaries — only packed into PC-agent ZIP (not run in Linux container)
+COPY tools/realesrgan/realesrgan-ncnn-vulkan.exe tools/realesrgan/
+COPY tools/realesrgan/vcomp140.dll tools/realesrgan/
+COPY tools/realesrgan/vcomp140d.dll tools/realesrgan/
+COPY tools/realesrgan/models/realesr-animevideov3-x2.bin tools/realesrgan/models/
+COPY tools/realesrgan/models/realesr-animevideov3-x2.param tools/realesrgan/models/
+COPY tools/realesrgan/models/realesr-animevideov3-x3.bin tools/realesrgan/models/
+COPY tools/realesrgan/models/realesr-animevideov3-x3.param tools/realesrgan/models/
+COPY tools/realesrgan/models/realesr-animevideov3-x4.bin tools/realesrgan/models/
+COPY tools/realesrgan/models/realesr-animevideov3-x4.param tools/realesrgan/models/
 
 RUN mkdir -p data/auth data/studio/uploads data/studio/outputs data/studio/work \
   && chown -R node:node /app

@@ -712,6 +712,43 @@ try {
   }
   L 'Kod agenta Z CHMURY gotowy (zero sciezek z dysku dev)'
 
+  # --- Real-ESRGAN (AI upscale) for this PC ---
+  $esrganExe = Join-Path $agentDir 'tools\\realesrgan\\realesrgan-ncnn-vulkan.exe'
+  $esrganModel = Join-Path $agentDir 'tools\\realesrgan\\models\\realesr-animevideov3-x2.bin'
+  if (-not (Test-Path $esrganExe) -or -not (Test-Path $esrganModel)) {
+    L 'Real-ESRGAN brak w paczce - pobieram oficjalny build (Windows)...'
+    $esrZip = Join-Path $env:TEMP 'realesrgan-ncnn-windows.zip'
+    $esrUrl = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip'
+    try {
+      Invoke-WebRequest -Uri $esrUrl -OutFile $esrZip -UseBasicParsing -TimeoutSec 300
+      $esrTmp = Join-Path $env:TEMP ('cf-esrgan-' + [guid]::NewGuid().ToString('n').Substring(0,8))
+      New-Item -ItemType Directory -Path $esrTmp -Force | Out-Null
+      Expand-Archive -LiteralPath $esrZip -DestinationPath $esrTmp -Force
+      $found = Get-ChildItem -Path $esrTmp -Recurse -Filter 'realesrgan-ncnn-vulkan.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+      if (-not $found) { throw 'Brak exe w ZIP Real-ESRGAN' }
+      $srcRoot = $found.Directory.FullName
+      $dest = Join-Path $agentDir 'tools\\realesrgan'
+      New-Item -ItemType Directory -Path (Join-Path $dest 'models') -Force | Out-Null
+      Copy-Item (Join-Path $srcRoot 'realesrgan-ncnn-vulkan.exe') $dest -Force
+      if (Test-Path (Join-Path $srcRoot 'vcomp140.dll')) { Copy-Item (Join-Path $srcRoot 'vcomp140.dll') $dest -Force }
+      if (Test-Path (Join-Path $srcRoot 'vcomp140d.dll')) { Copy-Item (Join-Path $srcRoot 'vcomp140d.dll') $dest -Force }
+      $modelsSrc = Join-Path $srcRoot 'models'
+      if (Test-Path $modelsSrc) {
+        Get-ChildItem $modelsSrc -File | Where-Object { $_.Name -like 'realesr-animevideov3*' } | ForEach-Object {
+          Copy-Item $_.FullName (Join-Path $dest 'models') -Force
+        }
+      }
+      try { Unblock-File -Path (Join-Path $dest 'realesrgan-ncnn-vulkan.exe') -ErrorAction SilentlyContinue } catch {}
+      Remove-Item $esrTmp -Recurse -Force -ErrorAction SilentlyContinue
+      Remove-Item $esrZip -Force -ErrorAction SilentlyContinue
+      L 'Real-ESRGAN zainstalowany (AI upscale gotowy)'
+    } catch {
+      L ('[OSTRZEZENIE] Real-ESRGAN nie zainstalowany: ' + $_ + ' - joby AI pojda w Szybki HD')
+    }
+  } else {
+    L 'Real-ESRGAN OK (AI upscale)'
+  }
+
   # --- npm install dependencies from internet (npm registry), not from local project ---
   $ffBin = Join-Path $agentDir 'node_modules\\ffmpeg-static\\ffmpeg.exe'
   L 'npm install (paczki z internetu, 2-5 min)...'
