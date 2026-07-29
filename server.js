@@ -407,12 +407,11 @@ app.post("/api/studio/pc-token", auth.requireAuthIfEnabled, (req, res) => {
 });
 
 /**
- * Source tarball for PC agent (private GitHub → download from THIS server instead).
- * Auth: agent Bearer token OR logged-in session.
+ * PC agent source bundle (ZIP, pure Node — works on every PC, no tar required).
+ * Auth: signed agent token (Bearer or ?token=) OR logged-in session.
  */
-app.get("/api/studio/pc-agent-bundle.tgz", (req, res) => {
-  const token =
-    agentBearer(req) || String(req.query.token || "").trim();
+function authorizeAgentBundle(req, res) {
+  const token = agentBearer(req) || String(req.query.token || "").trim();
   const row = token ? pcAgent.resolveToken(token) : null;
   const sessionOk =
     req.isAuthenticated &&
@@ -420,51 +419,36 @@ app.get("/api/studio/pc-agent-bundle.tgz", (req, res) => {
     req.user &&
     req.user.id;
   if (!row && !sessionOk) {
-    return res.status(401).json({ error: "Zaloguj sie lub podaj token agenta" });
+    res.status(401).json({ error: "Zaloguj sie lub podaj token agenta" });
+    return false;
   }
+  return true;
+}
 
-  const { spawn } = require("child_process");
-  const root = __dirname;
-  res.setHeader("Content-Type", "application/gzip");
-  res.setHeader(
-    "Content-Disposition",
-    'attachment; filename="clipforge-agent.tgz"'
-  );
-  res.setHeader("Cache-Control", "no-store");
+function sendAgentZipBundle(req, res) {
+  if (!authorizeAgentBundle(req, res)) return;
+  try {
+    const { createAgentZip } = require("./lib/zip-pack");
+    const buf = createAgentZip(__dirname);
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="clipforge-agent.zip"'
+    );
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Content-Length", String(buf.length));
+    res.send(buf);
+  } catch (e) {
+    res.status(500).json({
+      error: "Nie udalo sie spakowac agenta",
+      detail: String(e && e.message ? e.message : e).slice(0, 300),
+    });
+  }
+}
 
-  // Portable: package.json + lock + lib + agent script (npm install on PC)
-  const args = [
-    "-czf",
-    "-",
-    "package.json",
-    "package-lock.json",
-    "lib",
-    "scripts/pc-agent.js",
-  ];
-  const child = spawn("tar", args, {
-    cwd: root,
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-  });
-  let err = "";
-  child.stderr.on("data", (d) => {
-    err += d.toString();
-  });
-  child.on("error", (e) => {
-    if (!res.headersSent) {
-      res.status(500).json({ error: "tar: " + (e.message || e) });
-    }
-  });
-  child.on("close", (code) => {
-    if (code !== 0 && !res.headersSent) {
-      res.status(500).json({
-        error: "Nie udalo sie spakowac agenta",
-        detail: err.slice(-300),
-      });
-    }
-  });
-  child.stdout.pipe(res);
-});
+app.get("/api/studio/pc-agent-bundle.zip", sendAgentZipBundle);
+// Keep old URL as alias (now ZIP bytes; setup prefers .zip)
+app.get("/api/studio/pc-agent-bundle.tgz", sendAgentZipBundle);
 
 /**
  * Full PC-agent setup PowerShell (can be long).
@@ -483,10 +467,17 @@ try {
   $token = '${psQ(token)}'
   $label = '${psQ(label || "Moj PC")}'
   $agentDir = Join-Path $env:LOCALAPPDATA 'ClipForge-Agent'
+  L ("Folder agenta: $agentDir")
+  L ("Cloud: $cloud")
 
   $env:CLIPFORGE_CLOUD_URL = $cloud
   $env:CLIPFORGE_AGENT_TOKEN = $token
   $env:CLIPFORGE_PC_LABEL = $label
+
+  # Persist token so restart works without new .cmd
+  $authDir = Join-Path $agentDir 'data\\auth'
+  New-Item -ItemType Directory -Path $authDir -Force | Out-Null
+  Set-Content -Path (Join-Path $authDir 'pc-agent.token') -Value $token -Encoding ascii -NoNewline
 
   $nodePaths = @(
     (Join-Path $env:ProgramFiles 'nodejs'),
@@ -497,15 +488,16 @@ try {
     if (Test-Path (Join-Path $np 'node.exe')) { $env:Path = "$np;" + $env:Path }
   }
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    L '[BLAD] Brak Node.js. Zainstaluj LTS: https://nodejs.org (Add to PATH).'
+    L '[BLAD] Brak Node.js. Kolega musi zainstalowac Node LTS: https://nodejs.org (zaznacz Add to PATH), potem uruchomic ten plik ponownie.'
     exit 2
   }
   L ("Node: " + (node -v))
 
-  # 1) Prefer existing local project (dev machine)
+  # Optional: local ClipForge project (dev machine only)
   $localCandidates = @(
     (Join-Path $env:USERPROFILE 'Projects\\clips-tv'),
     (Join-Path $env:USERPROFILE 'Projects\\clipforge'),
+    (Join-Path $env:USERPROFILE 'clipforge'),
     'C:\\Users\\londy\\Projects\\clips-tv'
   )
   $localSrc = $null
@@ -513,74 +505,140 @@ try {
     if (Test-Path (Join-Path $c 'scripts\\pc-agent.js')) { $localSrc = $c; break }
   }
 
-  if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
-    $ok = $false
-
-    if ($localSrc) {
-      L "Kopiuje lokalny projekt: $localSrc"
-      if (Test-Path $agentDir) { Remove-Item $agentDir -Recurse -Force }
-      New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
-      foreach ($name in @('package.json','package-lock.json','lib','scripts')) {
-        $src = Join-Path $localSrc $name
-        $dst = Join-Path $agentDir $name
-        if (Test-Path $src) {
-          if (Test-Path $src -PathType Container) {
-            Copy-Item $src $dst -Recurse -Force
-          } else {
-            Copy-Item $src $dst -Force
-          }
-        }
-      }
-      if (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js')) { $ok = $true }
+  function Install-AgentFromCloud {
+    L 'Pobieram paczke agenta z chmury (ZIP)...'
+    $zip = Join-Path $env:TEMP 'clipforge-agent.zip'
+    # token in query — some networks strip Authorization headers
+    $uri = $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.zip?token=' + [uri]::EscapeDataString($token)
+    $headers = @{ Authorization = "Bearer $token" }
+    try {
+      Invoke-WebRequest -Uri $uri -Headers $headers -OutFile $zip -UseBasicParsing
+    } catch {
+      L ('IWR z naglowkiem nieudane, proboje sam URL: ' + $_)
+      Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing
     }
-
-    if (-not $ok) {
-      L 'Pobieram paczke agenta z chmury (nie z prywatnego GitHuba)...'
-      $tgz = Join-Path $env:TEMP 'clipforge-agent.tgz'
-      $uri = $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.tgz'
-      $headers = @{ Authorization = "Bearer $token" }
-      try {
-        Invoke-WebRequest -Uri $uri -Headers $headers -OutFile $tgz -UseBasicParsing
-      } catch {
-        L ('Pobieranie z chmury nieudane: ' + $_)
-        throw 'Nie mozna pobrac kodu agenta. Zdeployuj najnowszy ClipForge na Render i sprobuj ponownie.'
-      }
-      if (Test-Path $agentDir) { Remove-Item $agentDir -Recurse -Force }
-      New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
-      tar -xzf $tgz -C $agentDir
-      if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
-        throw 'Paczka z chmury jest pusta lub uszkodzona'
-      }
-      $ok = $true
+    if (-not (Test-Path $zip) -or (Get-Item $zip).Length -lt 100) {
+      throw 'Pobrany ZIP jest pusty (sprawdz token / deploy Render)'
     }
-
-    if (-not $ok) { throw 'Brak zrodel agenta' }
-
-    L 'npm install (raz, moze potrwac kilka minut)...'
-    Push-Location $agentDir
-    npm install --omit=dev
-    if ($LASTEXITCODE -ne 0) { throw "npm install failed: $LASTEXITCODE" }
-    Pop-Location
-  } else {
-    L "Folder agenta juz istnieje: $agentDir"
-    # Refresh code from local project if available (pipeline fixes)
-    if ($localSrc) {
-      foreach ($name in @('lib','scripts/pc-agent.js')) {
-        $src = Join-Path $localSrc $name
-        $dst = Join-Path $agentDir $name
-        if (Test-Path $src) {
-          if (Test-Path $src -PathType Container) {
-            Copy-Item $src $dst -Recurse -Force
-          } else {
-            $dstDir = Split-Path $dst -Parent
-            if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
-            Copy-Item $src $dst -Force
-          }
+    L ("ZIP OK: " + (Get-Item $zip).Length + " bajtow")
+    if (Test-Path $agentDir) {
+      # keep data/auth token; wipe code only
+      Get-ChildItem $agentDir -Force | Where-Object { $_.Name -ne 'data' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
+    # Expand-Archive is built into Windows PowerShell 5+
+    Expand-Archive -LiteralPath $zip -DestinationPath $agentDir -Force
+    if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
+      # sometimes zip has a single root folder
+      $sub = Get-ChildItem $agentDir -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($sub -and (Test-Path (Join-Path $sub.FullName 'package.json'))) {
+        L "Paczka ma folder glowny: $($sub.Name) — przenosze pliki"
+        Get-ChildItem $sub.FullName -Force | ForEach-Object {
+          Move-Item $_.FullName -Destination $agentDir -Force
         }
+        Remove-Item $sub.FullName -Recurse -Force -ErrorAction SilentlyContinue
       }
-      L 'Odswiezono lib/ i pc-agent.js z lokalnego projektu'
+    }
+    if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
+      L 'Zawartosc folderu agenta po rozpakowaniu:'
+      Get-ChildItem $agentDir -Recurse -ErrorAction SilentlyContinue | Select-Object -First 30 FullName | ForEach-Object { L $_.FullName }
+      throw 'Paczka z chmury jest pusta lub uszkodzona (brak package.json)'
+    }
+    if (-not (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js'))) {
+      throw 'Brak scripts/pc-agent.js w paczce'
+    }
+    L 'Kod agenta z chmury gotowy'
+  }
+
+  function Install-AgentFromLocal($src) {
+    L "Kopiuje lokalny projekt: $src"
+    New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
+    foreach ($name in @('package.json','package-lock.json','lib','scripts')) {
+      $s = Join-Path $src $name
+      $d = Join-Path $agentDir $name
+      if (Test-Path $s) {
+        if (Test-Path $s -PathType Container) { Copy-Item $s $d -Recurse -Force }
+        else { Copy-Item $s $d -Force }
+      }
+    }
+    if (-not (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js'))) {
+      throw 'Lokalny projekt nie ma scripts/pc-agent.js'
     }
   }
+
+  $needInstall = -not (Test-Path (Join-Path $agentDir 'package.json')) -or -not (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js'))
+  if ($needInstall) {
+    L 'Folder agenta pusty lub niekompletny — instalacja...'
+    try {
+      # Always prefer cloud for "friends" reliability; local only as fast path
+      if ($localSrc) {
+        try { Install-AgentFromLocal $localSrc } catch { L ("Lokalnie nieudane: $_; biore z chmury"); Install-AgentFromCloud }
+      } else {
+        L 'Brak lokalnego projektu clips-tv — to normalne u kolegi. Biore z chmury.'
+        Install-AgentFromCloud
+      }
+    } catch {
+      L ('[BLAD] Instalacja: ' + $_)
+      throw $_
+    }
+
+    L 'npm install (raz, moze potrwac kilka minut — potrzebny internet)...'
+    Push-Location $agentDir
+    npm install --omit=dev
+    if ($LASTEXITCODE -ne 0) {
+      Pop-Location
+      throw "npm install failed: $LASTEXITCODE (sprawdz internet / antywirus)"
+    }
+    Pop-Location
+    L 'npm install OK'
+  } else {
+    L "Folder agenta juz istnieje: $agentDir"
+    # Refresh code from cloud so friends get bugfixes without deleting folder
+    try {
+      L 'Odswiezam kod agenta z chmury (bez kasowania node_modules jesli sie da)...'
+      $zip = Join-Path $env:TEMP 'clipforge-agent-refresh.zip'
+      $uri = $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.zip?token=' + [uri]::EscapeDataString($token)
+      Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Bearer $token" } -OutFile $zip -UseBasicParsing
+      $tmp = Join-Path $env:TEMP ('cf-agent-unpack-' + [guid]::NewGuid().ToString('n'))
+      New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+      Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
+      $srcRoot = $tmp
+      if (-not (Test-Path (Join-Path $srcRoot 'package.json'))) {
+        $sub = Get-ChildItem $tmp -Directory | Select-Object -First 1
+        if ($sub) { $srcRoot = $sub.FullName }
+      }
+      foreach ($name in @('package.json','package-lock.json','lib','scripts')) {
+        $s = Join-Path $srcRoot $name
+        $d = Join-Path $agentDir $name
+        if (Test-Path $s) {
+          if (Test-Path $s -PathType Container) {
+            if (Test-Path $d) { Remove-Item $d -Recurse -Force }
+            Copy-Item $s $d -Recurse -Force
+          } else { Copy-Item $s $d -Force }
+        }
+      }
+      Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+      L 'Kod odswiezony z chmury'
+    } catch {
+      L ("Odswiezenie z chmury pominiete: $_")
+      if ($localSrc) {
+        foreach ($name in @('lib','scripts/pc-agent.js')) {
+          $s = Join-Path $localSrc $name
+          $d = Join-Path $agentDir $name
+          if (Test-Path $s) {
+            if (Test-Path $s -PathType Container) { Copy-Item $s $d -Recurse -Force }
+            else { Copy-Item $s $d -Force }
+          }
+        }
+        L 'Odswiezono z lokalnego projektu'
+      }
+    }
+  }
+
+  # Re-write token after possible wipe
+  New-Item -ItemType Directory -Path $authDir -Force | Out-Null
+  Set-Content -Path (Join-Path $authDir 'pc-agent.token') -Value $token -Encoding ascii -NoNewline
+  L ("Token zapisany w: " + (Join-Path $authDir 'pc-agent.token'))
 
   # FFmpeg must actually run (npm ffmpeg-static sometimes blocked / broken on Windows)
   function Test-Ffmpeg($bin) {
