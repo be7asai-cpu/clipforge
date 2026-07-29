@@ -140,25 +140,34 @@ app.get("/api/health", async (_req, res) => {
     users = -1;
     dbError = e && e.message ? String(e.message).slice(0, 160) : "query failed";
   }
-  const urlSet = Boolean(
-    String(process.env.DATABASE_URL || process.env.POSTGRES_URL || "").trim()
-  );
+  const urlRaw = db.databaseUrl();
+  const urlSet = Boolean(urlRaw);
+  // Safe fingerprint only (no password): host + db name
+  let dbHost = null;
+  if (urlRaw) {
+    try {
+      const u = new URL(urlRaw.replace(/^postgres(ql)?:/i, "http:"));
+      dbHost = u.hostname + (u.pathname || "");
+    } catch {
+      dbHost = "(unparseable)";
+    }
+  }
   res.json({
     ok: true,
     service: "clipforge",
     studio: true,
-    v: "2026-07-29pg2",
+    v: "2026-07-29pg3",
     users,
     authStore: db.usingPostgres() ? "postgres" : "file",
     // Help debug Render env without leaking secrets
     databaseUrlConfigured: urlSet,
+    dbHost,
     dbError,
-    hint:
-      urlSet && !db.usingPostgres()
-        ? "DATABASE_URL jest ustawione, ale store nie jest postgres — zrestartuj usługę"
-        : !urlSet
-          ? "Brak DATABASE_URL na Render → konta w pliku (znikają po redeploy). Dodaj DATABASE_URL z Neon."
-          : null,
+    hint: !urlSet
+      ? "Render NIE przekazuje DATABASE_URL do kontenera. Wejdź w tę samą usługę co clipforge-45ti → Environment → dodaj dokładnie DATABASE_URL → Save → Manual Deploy."
+      : dbError
+        ? "DATABASE_URL jest, ale połączenie pada: " + dbError
+        : "Postgres OK — konta trwałe.",
   });
 });
 
