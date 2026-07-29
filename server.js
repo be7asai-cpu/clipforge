@@ -133,18 +133,32 @@ function isLoggedIn(req) {
 app.get("/api/health", async (_req, res) => {
   noStore(res);
   let users = 0;
+  let dbError = null;
   try {
     users = await auth.userCount();
-  } catch {
+  } catch (e) {
     users = -1;
+    dbError = e && e.message ? String(e.message).slice(0, 160) : "query failed";
   }
+  const urlSet = Boolean(
+    String(process.env.DATABASE_URL || process.env.POSTGRES_URL || "").trim()
+  );
   res.json({
     ok: true,
     service: "clipforge",
     studio: true,
-    v: "2026-07-29pg1",
+    v: "2026-07-29pg2",
     users,
     authStore: db.usingPostgres() ? "postgres" : "file",
+    // Help debug Render env without leaking secrets
+    databaseUrlConfigured: urlSet,
+    dbError,
+    hint:
+      urlSet && !db.usingPostgres()
+        ? "DATABASE_URL jest ustawione, ale store nie jest postgres — zrestartuj usługę"
+        : !urlSet
+          ? "Brak DATABASE_URL na Render → konta w pliku (znikają po redeploy). Dodaj DATABASE_URL z Neon."
+          : null,
   });
 });
 
