@@ -115,7 +115,7 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     service: "clipforge",
     studio: true,
-    v: "2026-07-29pc-setup2",
+    v: "2026-07-29pc-setup5",
   });
 });
 
@@ -468,13 +468,16 @@ $log = Join-Path $env:TEMP 'clipforge-agent-setup.log'
 function L($m) { $t = (Get-Date).ToString('s') + ' ' + $m; Add-Content -Path $log -Value $t; Write-Host $t }
 
 try {
-  L '=== ClipForge PC Agent setup ==='
+  L '=== ClipForge PC Agent setup (setup5) ==='
+  L ("PS version: " + $PSVersionTable.PSVersion)
+  L ("User: " + $env:USERNAME + "  PC: " + $env:COMPUTERNAME)
   $cloud = '${psQ(cloud)}'
   $token = '${psQ(token)}'
   $label = '${psQ(label || "Moj PC")}'
   $agentDir = Join-Path $env:LOCALAPPDATA 'ClipForge-Agent'
   L ("Folder agenta: $agentDir")
   L ("Cloud: $cloud")
+  L ("Token prefix: " + $token.Substring(0, [Math]::Min(12, $token.Length)) + "...")
 
   $env:CLIPFORGE_CLOUD_URL = $cloud
   $env:CLIPFORGE_AGENT_TOKEN = $token
@@ -511,28 +514,86 @@ try {
     if (Test-Path (Join-Path $c 'scripts\\pc-agent.js')) { $localSrc = $c; break }
   }
 
+  function Expand-AgentZip($zip, $dest) {
+    New-Item -ItemType Directory -Path $dest -Force | Out-Null
+    $ok = $false
+    try {
+      Expand-Archive -LiteralPath $zip -DestinationPath $dest -Force
+      $ok = $true
+      L 'Rozpakowano: Expand-Archive'
+    } catch {
+      L ('Expand-Archive fail: ' + $_)
+    }
+    if (-not $ok) {
+      try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        # .NET Framework has no overwrite flag - wipe dest code first
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest)
+        $ok = $true
+        L 'Rozpakowano: ZipFile.ExtractToDirectory'
+      } catch {
+        L ('ZipFile fail: ' + $_)
+      }
+    }
+    if (-not $ok) {
+      try {
+        $shell = New-Object -ComObject Shell.Application
+        $zipItem = $shell.NameSpace((Resolve-Path $zip).Path)
+        $destItem = $shell.NameSpace((Resolve-Path $dest).Path)
+        $destItem.CopyHere($zipItem.Items(), 16)
+        Start-Sleep -Seconds 2
+        $ok = $true
+        L 'Rozpakowano: Shell.Application'
+      } catch {
+        L ('Shell unzip fail: ' + $_)
+      }
+    }
+    if (-not $ok) { throw 'Nie udalo sie rozpakowac ZIP (Expand-Archive/ZipFile/Shell)' }
+  }
+
   function Install-AgentFromCloud {
     L 'Pobieram paczke agenta z chmury (ZIP)...'
     $zip = Join-Path $env:TEMP 'clipforge-agent.zip'
+    if (Test-Path $zip) { Remove-Item $zip -Force -ErrorAction SilentlyContinue }
     # token in query - some networks strip Authorization headers
     $uri = $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.zip?token=' + [uri]::EscapeDataString($token)
     $headers = @{ Authorization = "Bearer $token" }
+    $dlOk = $false
     try {
       Invoke-WebRequest -Uri $uri -Headers $headers -OutFile $zip -UseBasicParsing
+      $dlOk = $true
     } catch {
-      L ('IWR z naglowkiem nieudane, proboje sam URL: ' + $_)
-      Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing
+      L ('IWR z naglowkiem nieudane: ' + $_)
     }
-    if (-not (Test-Path $zip) -or (Get-Item $zip).Length -lt 100) {
-      throw 'Pobrany ZIP jest pusty (sprawdz token / deploy Render)'
+    if (-not $dlOk) {
+      try {
+        Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing
+        $dlOk = $true
+      } catch {
+        L ('IWR URL nieudane: ' + $_)
+      }
     }
+    if (-not $dlOk) {
+      try {
+        curl.exe -L --fail -o $zip $uri
+        if ((Test-Path $zip) -and (Get-Item $zip).Length -gt 100) { $dlOk = $true; L 'Pobrano przez curl.exe' }
+      } catch {
+        L ('curl fail: ' + $_)
+      }
+    }
+    if (-not $dlOk -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 100) {
+      throw 'Pobrany ZIP jest pusty lub download nieudany (token/deploy/internet)'
+    }
+    # Detect HTML error page saved as zip
+    $head = Get-Content -LiteralPath $zip -Encoding Byte -TotalCount 4 -ErrorAction SilentlyContinue
+    if ($head -and $head[0] -eq 0x3C) { throw 'Zamiast ZIP serwer zwrocil HTML (401/404). Zaloguj sie i pobierz SWIEZY .cmd ze strony.' }
     L ("ZIP OK: " + (Get-Item $zip).Length + " bajtow")
     if (Test-Path $agentDir) {
       # keep data/auth token; wipe code only
       Get-ChildItem $agentDir -Force | Where-Object { $_.Name -ne 'data' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
     New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
-    Expand-Archive -LiteralPath $zip -DestinationPath $agentDir -Force
+    Expand-AgentZip $zip $agentDir
     if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
       $sub = Get-ChildItem $agentDir -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
       if ($sub -and (Test-Path (Join-Path $sub.FullName 'package.json'))) {
@@ -770,20 +831,27 @@ function sendPcSetupCmd(req, res) {
   const chunks = b64.match(/.{1,76}/g) || [];
 
   // PowerShell bootstrap: read ::B64 lines from this .cmd, decode, run
+  // Trim each chunk (CR/spaces). Clear errors if payload missing = stary plik.
   const bootstrap =
     "powershell -NoProfile -ExecutionPolicy Bypass -Command " +
     "\"try { " +
+    "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); " +
     "$cmd = $env:CF_CMD; " +
+    "Write-Host ('Plik: ' + $cmd); " +
+    "Write-Host ('PS: ' + $PSVersionTable.PSVersion); " +
     "if (-not $cmd -or -not (Test-Path -LiteralPath $cmd)) { throw 'Brak sciezki CF_CMD do pliku .cmd' }; " +
     "$lines = Get-Content -LiteralPath $cmd -ErrorAction Stop; " +
-    "$b64 = ($lines | Where-Object { $_ -like '::B64 *' } | ForEach-Object { $_.Substring(6) }) -join ''; " +
-    "if (-not $b64) { throw 'Brak danych setup w pliku .cmd (pobierz ponownie ze strony)' }; " +
+    "$parts = @($lines | Where-Object { $_ -match '^::B64\\s+' } | ForEach-Object { ($_ -replace '^::B64\\s+','').Trim() }); " +
+    "Write-Host ('B64 chunks: ' + $parts.Count); " +
+    "if ($parts.Count -lt 5) { throw 'Stary lub uszkodzony plik .cmd (brak ::B64). Pobierz SWIEZY agent ze strony po zalogowaniu.' }; " +
+    "$b64 = $parts -join ''; " +
     "$ps1Path = Join-Path $env:TEMP 'ClipForge-PC-Agent.setup.ps1'; " +
     "$bytes = [Convert]::FromBase64String($b64); " +
     "[IO.File]::WriteAllBytes($ps1Path, $bytes); " +
     "Unblock-File -Path $ps1Path -ErrorAction SilentlyContinue; " +
+    "Write-Host ('Setup: ' + $ps1Path + ' (' + $bytes.Length + ' B)'); " +
     "& $ps1Path; exit $LASTEXITCODE " +
-    "} catch { Write-Host ('[BLAD] ' + $_); exit 1 }\"";
+    "} catch { Write-Host ('[BLAD] ' + $_); Write-Host '---'; Write-Host 'Wyslij kumplowi: ten komunikat + %TEMP%\\clipforge-agent-setup.log'; exit 1 }\"";
 
   const launcher = [
     "@echo off",
@@ -794,10 +862,26 @@ function sendPcSetupCmd(req, res) {
     "set \"CF_CMD=%~f0\"",
     "echo.",
     "echo  ========================================",
-    "echo   ClipForge PC Agent",
+    "echo   ClipForge PC Agent  (setup5)",
     "echo  ========================================",
     "echo.",
-    "echo  Trwa przygotowanie... (log: %TEMP%\\clipforge-agent-setup.log)",
+    "echo  Plik: %~f0",
+    "echo  Log:  %TEMP%\\clipforge-agent-setup.log",
+    "echo  Folder docelowy: %LOCALAPPDATA%\\ClipForge-Agent",
+    "echo.",
+    "where node >nul 2>&1",
+    "if errorlevel 1 (",
+    "  echo [BLAD] Brak Node.js w PATH.",
+    "  echo Zainstaluj LTS z https://nodejs.org  (zaznacz Add to PATH),",
+    "  echo zamknij to okno, zrestartuj PC i odpal plik ponownie.",
+    "  echo.",
+    "  pause",
+    "  exit /b 2",
+    ")",
+    "echo  Node:",
+    "node -v",
+    "echo.",
+    "echo  Trwa przygotowanie...",
     "echo.",
     bootstrap,
     "set ERR=%ERRORLEVEL%",
