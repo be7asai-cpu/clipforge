@@ -115,7 +115,7 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     service: "clipforge",
     studio: true,
-    v: "2026-07-29r3",
+    v: "2026-07-29pc-setup2",
   });
 });
 
@@ -408,9 +408,12 @@ app.post("/api/studio/pc-token", auth.requireAuthIfEnabled, (req, res) => {
  * downloads a .cmd with cloud URL + personal token baked in.
  * First run: clones repo to %LOCALAPPDATA%\ClipForge-Agent, npm install, starts agent.
  */
-app.get("/api/studio/pc-setup.cmd", auth.requireAuthIfEnabled, (req, res) => {
+function sendPcSetupCmd(req, res) {
   if (!req.user?.id) {
-    return res.status(401).type("text").send("Zaloguj sie w przegladarce i sprobuj ponownie.");
+    return res
+      .status(401)
+      .type("text")
+      .send("Zaloguj sie w przegladarce i sprobuj ponownie.");
   }
   const label = String(req.query.label || "Moj PC").slice(0, 40);
   const tok = pcAgent.issueToken(req.user.id, label);
@@ -522,7 +525,11 @@ app.get("/api/studio/pc-setup.cmd", auth.requireAuthIfEnabled, (req, res) => {
   );
   res.setHeader("Cache-Control", "no-store");
   res.send(cmd);
-});
+}
+
+// Both URLs (some proxies choke on ".cmd" in path)
+app.get("/api/studio/pc-setup", auth.requireAuthIfEnabled, sendPcSetupCmd);
+app.get("/api/studio/pc-setup.cmd", auth.requireAuthIfEnabled, sendPcSetupCmd);
 
 app.post("/api/studio/agent/heartbeat", (req, res) => {
   const row = pcAgent.resolveToken(agentBearer(req));

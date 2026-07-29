@@ -841,18 +841,54 @@
     return true;
   }
 
-  /** One-click: same setup for every user (URL + token baked into .cmd) */
-  function downloadPcAgentSetup() {
-    // Must be top-level navigation so cookie session is sent
-    const a = document.createElement("a");
-    a.href = "/api/studio/pc-setup.cmd?label=" + encodeURIComponent("Moj PC");
-    a.download = "ClipForge-PC-Agent.cmd";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+  /** One-click PC agent — fetch+blob (cookie session; works when <a href> fails) */
+  async function downloadPcAgentSetup() {
     try {
       sessionStorage.setItem("clipforge_pc_setup_offered", "1");
     } catch (_) {}
+    const url =
+      "/api/studio/pc-setup?label=" + encodeURIComponent("Moj PC") + "&_=" + Date.now();
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (res.status === 401 || res.status === 403) {
+        alert(
+          "Musisz być zalogowany, żeby pobrać agenta.\nZaloguj się i kliknij ⬇ PC ponownie."
+        );
+        location.href =
+          "/login.html?next=" + encodeURIComponent("/studio.html");
+        return;
+      }
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        alert(
+          "Nie można pobrać agenta (HTTP " +
+            res.status +
+            ").\n" +
+            (t || "").slice(0, 200) +
+            "\n\nOdśwież stronę albo zdeployuj najnowszy kod na Render."
+        );
+        return;
+      }
+      const blob = await res.blob();
+      const obj = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = obj;
+      a.download = "ClipForge-PC-Agent.cmd";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(obj), 2000);
+    } catch (err) {
+      alert(
+        "Błąd pobierania agenta: " +
+          (err && err.message ? err.message : String(err)) +
+          "\nSprawdź czy jesteś zalogowany i czy strona jest Live."
+      );
+    }
   }
 
   function ensurePcAgentUi(pcOnline) {
@@ -868,28 +904,12 @@
         "font:600 0.65rem Orbitron,sans-serif;letter-spacing:0.06em;padding:4px 8px;border-radius:999px;border:1px solid rgba(0,240,255,0.35);margin-right:8px;cursor:default;";
       head.prepend(chip);
     }
-    let btn = document.getElementById("btn-pc-setup");
-    if (!btn) {
-      btn = document.createElement("button");
-      btn.type = "button";
-      btn.id = "btn-pc-setup";
-      btn.textContent = "⬇ PC";
-      btn.title =
-        "Pobierz gotowy agent na TEN komputer (automatyczna konfiguracja dla Twojego konta)";
-      btn.style.cssText =
-        "font:700 0.62rem Orbitron,sans-serif;letter-spacing:0.08em;padding:5px 10px;margin-right:8px;cursor:pointer;border:1px solid rgba(0,240,255,0.45);background:rgba(0,229,255,0.12);color:#7df9ff;clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);";
-      btn.addEventListener("click", () => {
-        downloadPcAgentSetup();
-        alert(
-          "Pobrano ClipForge-PC-Agent.cmd\n\n" +
-            "1. Otwórz plik (Pobrane)\n" +
-            "2. Jeśli Windows zapyta — Więcej informacji → Uruchom mimo to\n" +
-            "3. Zostaw okno otwarte\n" +
-            "4. Wróć tu — chip PC·ON\n\n" +
-            "Potrzebne raz: Node.js + Git (przy pierwszym uruchomieniu)."
-        );
+    const btn = document.getElementById("btn-pc-setup");
+    if (btn && !btn.dataset.bound) {
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", async () => {
+        await downloadPcAgentSetup();
       });
-      head.prepend(btn);
     }
 
     if (pcOnline) {
