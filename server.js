@@ -682,7 +682,9 @@ function sendPcSetupPs1(req, res) {
 }
 
 /**
- * One-click PC agent — short .cmd that downloads .ps1 (never embeds long base64).
+ * One-click PC agent — self-contained .cmd (embeds setup as base64 lines).
+ * No second HTTP request → no 401 when Render has no shared token store / multi-instance.
+ * File download can be large; only CMD *command line* had the 8191 limit.
  */
 function sendPcSetupCmd(req, res) {
   if (!req.user?.id) {
@@ -696,17 +698,14 @@ function sendPcSetupCmd(req, res) {
     .replace(/[^\w\s.-]/g, "");
   const tok = pcAgent.issueToken(req.user.id, label || "Moj PC");
   const cloud = resolvePcSetupCloud(req);
+  const ps1 = buildPcSetupPs1({
+    cloud,
+    token: tok.token,
+    label: label || "Moj PC",
+  });
+  const b64 = Buffer.from(ps1, "utf8").toString("base64");
+  const chunks = b64.match(/.{1,76}/g) || [];
 
-  // Escape for batch SET "VAR=..."
-  const batSafe = (s) =>
-    String(s)
-      .replace(/%/g, "%%")
-      .replace(/"/g, "")
-      .replace(/[&|<>^]/g, (ch) => "^" + ch);
-  const cloudBat = batSafe(cloud);
-  const tokenBat = batSafe(tok.token);
-
-  // Short launcher: download full setup.ps1 then run with -File (no 8191 overflow)
   const launcher = [
     "@echo off",
     "chcp 65001 >nul",
@@ -720,10 +719,14 @@ function sendPcSetupCmd(req, res) {
     "echo.",
     "echo  Trwa przygotowanie... (log: %TEMP%\\clipforge-agent-setup.log)",
     "echo.",
-    `set "CF_CLOUD=${cloudBat}"`,
-    `set "CF_TOKEN=${tokenBat}"`,
+    "set \"CF_B64=%TEMP%\\clipforge-agent-setup.b64\"",
     "set \"CF_PS1=%TEMP%\\ClipForge-PC-Agent.setup.ps1\"",
-    "powershell -NoProfile -ExecutionPolicy Bypass -Command \"try { $u = $env:CF_CLOUD.TrimEnd('/') + '/api/studio/pc-setup.ps1'; $h = @{ Authorization = 'Bearer ' + $env:CF_TOKEN }; Invoke-WebRequest -Uri $u -Headers $h -OutFile $env:CF_PS1 -UseBasicParsing; if (-not (Test-Path $env:CF_PS1)) { throw 'Brak pliku setup' }; & $env:CF_PS1; exit $LASTEXITCODE } catch { Write-Host ('[BLAD] ' + $_); exit 1 }\"",
+    "if exist \"%CF_B64%\" del /f /q \"%CF_B64%\" >nul 2>&1",
+    "if exist \"%CF_PS1%\" del /f /q \"%CF_PS1%\" >nul 2>&1",
+    "echo  Rozpakowuje setup...",
+    // Self-contained: write base64 payload (no network, no 401)
+    ...chunks.map((line) => `>>"%CF_B64%" echo ${line}`),
+    "powershell -NoProfile -ExecutionPolicy Bypass -Command \"try { $b64Path = Join-Path $env:TEMP 'clipforge-agent-setup.b64'; $ps1Path = Join-Path $env:TEMP 'ClipForge-PC-Agent.setup.ps1'; $raw = (Get-Content -LiteralPath $b64Path -Raw) -replace '\\s',''; [IO.File]::WriteAllBytes($ps1Path, [Convert]::FromBase64String($raw)); Unblock-File -Path $ps1Path -ErrorAction SilentlyContinue; & $ps1Path; exit $LASTEXITCODE } catch { Write-Host ('[BLAD] ' + $_); exit 1 }\"",
     "set ERR=%ERRORLEVEL%",
     "echo.",
     "if not \"%ERR%\"==\"0\" (",
@@ -739,15 +742,6 @@ function sendPcSetupCmd(req, res) {
     "exit /b %ERR%",
     "",
   ].join("\r\n");
-
-  // Sanity: keep under Windows CMD limit with margin
-  if (launcher.length > 7000) {
-    console.warn(
-      "[pc-setup] launcher length",
-      launcher.length,
-      "(still under 8191?)"
-    );
-  }
 
   res.setHeader("Content-Type", "application/octet-stream; charset=utf-8");
   res.setHeader(
