@@ -15,10 +15,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY server.js ./
 COPY lib ./lib
 COPY public ./public
-# PC agent bootstrap needs this in the cloud ZIP bundle
-COPY scripts/pc-agent.js ./scripts/pc-agent.js
+# Whole scripts dir (pc-agent.js required for /api/studio/pc-agent-bundle.zip)
+COPY scripts ./scripts
 
-RUN mkdir -p data/auth data/studio/uploads data/studio/outputs data/studio/work scripts \
+RUN mkdir -p data/auth data/studio/uploads data/studio/outputs data/studio/work \
   && chown -R node:node /app
 
 ENV NODE_ENV=production

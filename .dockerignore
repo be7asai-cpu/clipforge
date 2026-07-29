@@ -31,6 +31,5 @@ README.md
 start-clipforge*
 START.ps1
 Uruchom*
-# Keep pc-agent.js in image (cloud ZIP bundle). Ignore other scripts.
-scripts/*
-!scripts/pc-agent.js
+# Do NOT ignore scripts/ — Render Docker needs scripts/pc-agent.js for PC-agent ZIP.
+# (dockerignore negation of nested files is unreliable on BuildKit)
