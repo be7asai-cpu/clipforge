@@ -415,106 +415,158 @@ function sendPcSetupCmd(req, res) {
       .type("text")
       .send("Zaloguj sie w przegladarce i sprobuj ponownie.");
   }
-  const label = String(req.query.label || "Moj PC").slice(0, 40);
-  const tok = pcAgent.issueToken(req.user.id, label);
+  const label = String(req.query.label || "Moj PC")
+    .slice(0, 40)
+    .replace(/[^\w\s.-]/g, "");
+  const tok = pcAgent.issueToken(req.user.id, label || "Moj PC");
   const cloud = (
     auth.baseUrl() ||
     process.env.RENDER_EXTERNAL_URL ||
     `${req.protocol}://${req.get("host")}`
   ).replace(/\/$/, "");
-  const repo =
-    process.env.CLIPFORGE_GIT_REPO ||
-    "https://github.com/be7asai-cpu/clipforge.git";
   const zipUrl =
     process.env.CLIPFORGE_ZIP_URL ||
     "https://github.com/be7asai-cpu/clipforge/archive/refs/heads/main.zip";
 
-  // CMD: find git in PATH or Program Files; else download ZIP (no git required)
+  // Escape for PowerShell single-quoted strings (double single-quotes)
+  const psQ = (s) => String(s).replace(/'/g, "''");
+
+  // Tiny CMD launcher → PowerShell does the real work (stable on Windows)
+  // Always ends with pause so the window never "flash-closes".
   const cmd = [
     "@echo off",
     "chcp 65001 >nul",
     "title ClipForge PC Agent",
-    "setlocal EnableExtensions",
+    "cd /d \"%~dp0\"",
+    "echo.",
+    "echo  ========================================",
+    "echo   ClipForge PC Agent",
+    "echo  ========================================",
+    "echo.",
     `set "CLIPFORGE_CLOUD_URL=${cloud}"`,
     `set "CLIPFORGE_AGENT_TOKEN=${tok.token}"`,
-    `set "CLIPFORGE_PC_LABEL=${label.replace(/"/g, "")}"`,
+    `set "CLIPFORGE_PC_LABEL=${label || "Moj PC"}"`,
+    `set "CLIPFORGE_ZIP_URL=${zipUrl}"`,
     'set "AGENT_DIR=%LOCALAPPDATA%\\ClipForge-Agent"',
-    'set "ZIP_URL=' + zipUrl + '"',
+    'set "LOG=%TEMP%\\clipforge-agent-setup.log"',
+    "echo Start %DATE% %TIME% > \"%LOG%\"",
+    "echo Cloud: %CLIPFORGE_CLOUD_URL%",
+    "echo Log:   %LOG%",
     "echo.",
-    "echo  ClipForge PC Agent — automatyczna konfiguracja",
-    "echo  Strona w przegladarce zostaje w chmurze; liczenie na TYM PC.",
-    "echo  Cloud: %CLIPFORGE_CLOUD_URL%",
+    "powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0ClipForge-PC-Agent.setup.ps1\"",
+    "set ERR=%ERRORLEVEL%",
     "echo.",
-    "REM --- Node: PATH + typowe lokalizacje ---",
-    'if exist "%ProgramFiles%\\nodejs\\node.exe" set "PATH=%ProgramFiles%\\nodejs;%PATH%"',
-    'if exist "%ProgramFiles(x86)%\\nodejs\\node.exe" set "PATH=%ProgramFiles(x86)%\\nodejs;%PATH%"',
-    'if exist "%LOCALAPPDATA%\\Programs\\node\\node.exe" set "PATH=%LOCALAPPDATA%\\Programs\\node;%PATH%"',
-    "where node >nul 2>&1",
-    "if errorlevel 1 (",
-    "  echo [BLAD] Brak Node.js w PATH — zainstaluj LTS z https://nodejs.org",
-    "  echo        Zaznacz opcje \"Add to PATH\", zamknij CMD i uruchom ten plik ponownie.",
-    "  pause",
-    "  exit /b 1",
+    "if not %ERR%==0 (",
+    "  echo [BLAD] Kod wyjscia: %ERR%",
+    "  echo Szczegoly w: %LOG%",
+    "  echo.",
+    "  type \"%LOG%\"",
+    "  echo.",
     ")",
-    "REM --- Git: czesto jest, ale CMD go nie widzi (brak w PATH) ---",
-    'if exist "%ProgramFiles%\\Git\\cmd\\git.exe" set "PATH=%ProgramFiles%\\Git\\cmd;%ProgramFiles%\\Git\\bin;%PATH%"',
-    'if exist "%ProgramFiles(x86)%\\Git\\cmd\\git.exe" set "PATH=%ProgramFiles(x86)%\\Git\\cmd;%ProgramFiles(x86)%\\Git\\bin;%PATH%"',
-    'if exist "%LOCALAPPDATA%\\Programs\\Git\\cmd\\git.exe" set "PATH=%LOCALAPPDATA%\\Programs\\Git\\cmd;%PATH%"',
-    "set \"HAS_GIT=0\"",
-    "where git >nul 2>&1 && set \"HAS_GIT=1\"",
-    'if not exist "%AGENT_DIR%\\package.json" (',
-    "  echo Pobieram ClipForge do %AGENT_DIR% ...",
-    "  if \"%HAS_GIT%\"==\"1\" (",
-    `    git clone --depth 1 "${repo}" "%AGENT_DIR%"`,
-    "    if errorlevel 1 set \"HAS_GIT=0\"",
-    "  )",
-    "  if not exist \"%AGENT_DIR%\\package.json\" (",
-    "    echo Git niedostepny lub clone nieudany — pobieram ZIP z GitHub...",
-    "    set \"ZIP=%TEMP%\\clipforge-agent.zip\"",
-    "    set \"UNZ=%TEMP%\\clipforge-agent-unz\"",
-    "    if exist \"%UNZ%\" rmdir /s /q \"%UNZ%\" 2>nul",
-    "    powershell -NoProfile -ExecutionPolicy Bypass -Command ^",
-    "      \"try { Invoke-WebRequest -Uri $env:ZIP_URL -OutFile $env:ZIP -UseBasicParsing; Expand-Archive -Path $env:ZIP -DestinationPath $env:UNZ -Force } catch { Write-Host $_; exit 1 }\"",
-    "    if errorlevel 1 (",
-    "      echo [BLAD] Pobieranie ZIP nieudane. Sprawdz internet / GitHub.",
-    "      pause",
-    "      exit /b 1",
-    "    )",
-    "    REM repo z zip to folder clipforge-main",
-    "    for /d %%D in (\"%UNZ%\\*\") do (",
-    "      if exist \"%%D\\package.json\" (",
-    "        if exist \"%AGENT_DIR%\" rmdir /s /q \"%AGENT_DIR%\" 2>nul",
-    "        move \"%%D\" \"%AGENT_DIR%\" >nul",
-    "      )",
-    "    )",
-    "  )",
-    "  if not exist \"%AGENT_DIR%\\package.json\" (",
-    "    echo [BLAD] Nie udalo sie przygotowac folderu agenta.",
-    "    pause",
-    "    exit /b 1",
-    "  )",
-    '  cd /d "%AGENT_DIR%"',
-    "  echo Instaluje zaleznosci npm (raz, moze potrwac)...",
-    "  call npm install --omit=dev",
-    "  if errorlevel 1 (",
-    "    echo [BLAD] npm install nieudany",
-    "    pause",
-    "    exit /b 1",
-    "  )",
-    ") else (",
-    '  cd /d "%AGENT_DIR%"',
-    "  echo Folder agenta juz jest: %AGENT_DIR%",
-    "  if \"%HAS_GIT%\"==\"1\" git pull --ff-only >nul 2>&1",
+    "echo.",
+    "echo  Okno zostaje otwarte — wcisnij klawisz, zeby zamknac.",
+    "pause >nul",
+    "exit /b %ERR%",
+    "",
+  ].join("\r\n");
+
+  // Companion PS1 next to cmd — we embed it by writing BOTH in one download
+  // as a single .cmd that contains and extracts PS1, OR pure PS1 download.
+  // Simplest reliable: one .cmd that runs inline powershell -Command with base64.
+  const ps1 = `
+$ErrorActionPreference = 'Stop'
+$log = Join-Path $env:TEMP 'clipforge-agent-setup.log'
+function L($m) { $t = (Get-Date).ToString('s') + ' ' + $m; Add-Content -Path $log -Value $t; Write-Host $t }
+
+try {
+  L '=== ClipForge PC Agent setup ==='
+  $cloud = '${psQ(cloud)}'
+  $token = '${psQ(tok.token)}'
+  $label = '${psQ(label || "Moj PC")}'
+  $zipUrl = '${psQ(zipUrl)}'
+  $agentDir = Join-Path $env:LOCALAPPDATA 'ClipForge-Agent'
+
+  $env:CLIPFORGE_CLOUD_URL = $cloud
+  $env:CLIPFORGE_AGENT_TOKEN = $token
+  $env:CLIPFORGE_PC_LABEL = $label
+
+  # Node on PATH or common folders
+  $nodePaths = @(
+    (Join-Path $env:ProgramFiles 'nodejs'),
+    (Join-Path \${env:ProgramFiles(x86)} 'nodejs'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\\node')
+  )
+  foreach ($p in $nodePaths) {
+    if (Test-Path (Join-Path $p 'node.exe')) { $env:Path = "$p;" + $env:Path }
+  }
+  $node = Get-Command node -ErrorAction SilentlyContinue
+  if (-not $node) {
+    L '[BLAD] Brak Node.js. Zainstaluj LTS: https://nodejs.org (Add to PATH), potem uruchom ponownie.'
+    exit 2
+  }
+  L ("Node: " + (node -v))
+
+  if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
+    L "Pobieram kod do $agentDir ..."
+    $zip = Join-Path $env:TEMP 'clipforge-agent.zip'
+    $unz = Join-Path $env:TEMP 'clipforge-agent-unz'
+    if (Test-Path $unz) { Remove-Item $unz -Recurse -Force }
+    Invoke-WebRequest -Uri $zipUrl -OutFile $zip -UseBasicParsing
+    Expand-Archive -Path $zip -DestinationPath $unz -Force
+    $pkg = Get-ChildItem -Path $unz -Recurse -Filter package.json | Select-Object -First 1
+    if (-not $pkg) { throw 'ZIP bez package.json' }
+    $src = $pkg.Directory.FullName
+    if (Test-Path $agentDir) { Remove-Item $agentDir -Recurse -Force }
+    Move-Item $src $agentDir
+    L 'npm install (raz, moze potrwac kilka minut)...'
+    Push-Location $agentDir
+    npm install --omit=dev
+    if ($LASTEXITCODE -ne 0) { throw "npm install failed: $LASTEXITCODE" }
+    Pop-Location
+  } else {
+    L "Folder agenta juz istnieje: $agentDir"
+  }
+
+  L 'Startuje agent — wroc do strony w przegladarce (PC · ON). Nie zamykaj okna.'
+  Set-Location $agentDir
+  node scripts\\pc-agent.js
+  L ("Agent zakonczyl dzialanie, kod=" + $LASTEXITCODE)
+  exit $LASTEXITCODE
+} catch {
+  L ('[BLAD] ' + $_)
+  L $_.ScriptStackTrace
+  exit 1
+}
+`.trim();
+
+  // Single .cmd that writes PS1 next to itself then runs it (no nested hell)
+  const launcher = [
+    "@echo off",
+    "chcp 65001 >nul",
+    "title ClipForge PC Agent",
+    "cd /d \"%~dp0\"",
+    "echo.",
+    "echo  ========================================",
+    "echo   ClipForge PC Agent",
+    "echo  ========================================",
+    "echo.",
+    "echo  Trwa przygotowanie... (log: %TEMP%\\clipforge-agent-setup.log)",
+    "echo.",
+    // Write PS1 via powershell from base64 to avoid quoting hell
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "$b='${Buffer.from(ps1, "utf8").toString("base64")}'; $p=Join-Path $env:TEMP 'ClipForge-PC-Agent.setup.ps1'; [IO.File]::WriteAllBytes($p,[Convert]::FromBase64String($b)); & $p; exit $LASTEXITCODE"`,
+    "set ERR=%ERRORLEVEL%",
+    "echo.",
+    "if not \"%ERR%\"==\"0\" (",
+    "  echo [BLAD] Cos poszlo nie tak. Kod: %ERR%",
+    "  echo.",
+    "  echo --- log ---",
+    "  if exist \"%TEMP%\\clipforge-agent-setup.log\" type \"%TEMP%\\clipforge-agent-setup.log\"",
+    "  echo -----------",
     ")",
-    'cd /d "%AGENT_DIR%"',
     "echo.",
-    "echo  Agent startuje. Wroc do strony — chip PC·ON.",
-    "echo  Nie zamykaj tego okna podczas obrobki.",
-    "echo.",
-    "node scripts\\pc-agent.js",
-    "echo.",
-    "echo  Agent zakonczyl dzialanie.",
-    "pause",
+    "echo  Wcisnij dowolny klawisz, zeby zamknac to okno...",
+    "pause >nul",
+    "exit /b %ERR%",
     "",
   ].join("\r\n");
 
@@ -524,7 +576,7 @@ function sendPcSetupCmd(req, res) {
     'attachment; filename="ClipForge-PC-Agent.cmd"'
   );
   res.setHeader("Cache-Control", "no-store");
-  res.send(cmd);
+  res.send(launcher);
 }
 
 // Both URLs (some proxies choke on ".cmd" in path)
