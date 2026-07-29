@@ -78,17 +78,22 @@ const cookieSecure =
   process.env.COOKIE_SECURE === "true" ||
   (behindProxy && process.env.COOKIE_SECURE !== "0");
 
+const { FileSessionStore } = require("./lib/file-session-store");
+const sessionTtlMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+
 app.use(
   session({
     name: "clipforge.sid",
     secret: sessionSecret || "clipforge-dev-secret-change-me",
     resave: false,
     saveUninitialized: false,
+    rolling: true, // refresh cookie on each request while active
+    store: new FileSessionStore({ ttlMs: sessionTtlMs }),
     cookie: {
       httpOnly: true,
       sameSite: "lax",
       secure: cookieSecure,
-      maxAge: 14 * 24 * 60 * 60 * 1000,
+      maxAge: sessionTtlMs,
     },
   })
 );

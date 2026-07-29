@@ -20,11 +20,15 @@
   const btnFacebook = $("#btn-facebook");
   const oauthHint = $("#oauth-hint");
 
-  let mode = "login"; // login | register
+  let mode = "login"; // login | register | forgot | reset
 
   const params = new URLSearchParams(location.search);
   const next = params.get("next") || "/studio.html";
   const urlError = params.get("error");
+  const resetToken = (params.get("reset") || "").trim();
+  const btnForgot = $("#btn-forgot");
+  const forgotRow = $("#forgot-row");
+  const switchRow = $("#auth-switch-row");
 
   const errorMessages = {
     google_failed: "Logowanie Google nie powiodło się.",
@@ -63,30 +67,74 @@
   function setMode(m) {
     mode = m;
     const isReg = mode === "register";
-    titleEl.textContent = isReg
-      ? tr("login.registerTitle", "Utwórz konto")
-      : tr("login.title", "Zaloguj się do ClipForge");
-    subEl.textContent = isReg
-      ? tr("login.subReg", "Zarejestruj się e-mailem albo użyj Google / Facebook.")
-      : tr("login.sub", "Wejście do Studio: e-mail + hasło.");
-    btnSubmit.textContent = isReg
-      ? tr("login.register", "Zarejestruj")
-      : tr("login.submit", "Zaloguj");
+    const isForgot = mode === "forgot";
+    const isReset = mode === "reset";
+
+    if (isForgot) {
+      titleEl.textContent = "Nie pamiętam hasła";
+      subEl.textContent =
+        "Podaj e-mail konta — wyślemy link do ustawienia nowego hasła (albo pokażemy link na stronie, jeśli brak SMTP).";
+      btnSubmit.textContent = "Wyślij link resetu";
+    } else if (isReset) {
+      titleEl.textContent = "Nowe hasło";
+      subEl.textContent = "Ustaw hasło (min. 8 znaków). Potem wejdziesz do Studio.";
+      btnSubmit.textContent = "Zapisz hasło i zaloguj";
+    } else {
+      titleEl.textContent = isReg
+        ? tr("login.registerTitle", "Utwórz konto")
+        : tr("login.title", "Zaloguj się do ClipForge");
+      subEl.textContent = isReg
+        ? tr("login.subReg", "Zarejestruj się e-mailem albo użyj Google / Facebook.")
+        : tr("login.sub", "Wejście do Studio: e-mail + hasło.");
+      btnSubmit.textContent = isReg
+        ? tr("login.register", "Zarejestruj")
+        : tr("login.submit", "Zaloguj");
+    }
+
     switchText.textContent = isReg
       ? tr("login.haveAccount", "Masz już konto?")
       : tr("login.noAccount", "Nie masz konta?");
     btnToggle.textContent = isReg
       ? tr("login.switchLog", "Zaloguj się")
-      : tr("login.switchReg", "Zarejestruj się");
+      : isForgot || isReset
+        ? "Wróć do logowania"
+        : tr("login.switchReg", "Zarejestruj się");
+
     nameField.hidden = !isReg;
-    passwordEl.autocomplete = isReg ? "new-password" : "current-password";
+    // forgot: only email; reset: only password
+    if (emailEl.closest("label")) {
+      emailEl.closest("label").hidden = isReset;
+    }
+    if (passwordEl.closest("label")) {
+      passwordEl.closest("label").hidden = isForgot;
+    }
+    emailEl.required = !isReset;
+    passwordEl.required = !isForgot;
+    passwordEl.autocomplete =
+      isReg || isReset ? "new-password" : "current-password";
+    if (forgotRow) forgotRow.hidden = isForgot || isReset || isReg;
+    if (switchRow) switchRow.hidden = false;
     showError("");
     showOk("");
   }
 
   btnToggle.addEventListener("click", () => {
+    if (mode === "forgot" || mode === "reset") {
+      // clear reset token from URL when going back
+      if (resetToken) {
+        const u = new URL(location.href);
+        u.searchParams.delete("reset");
+        history.replaceState({}, "", u.pathname + u.search);
+      }
+      setMode("login");
+      return;
+    }
     setMode(mode === "login" ? "register" : "login");
   });
+
+  if (btnForgot) {
+    btnForgot.addEventListener("click", () => setMode("forgot"));
+  }
 
   async function loadProviders() {
     try {
@@ -150,6 +198,76 @@
     const password = passwordEl.value;
     const name = nameEl.value.trim();
 
+    if (mode === "forgot") {
+      if (!email) {
+        showError("Podaj e-mail konta.");
+        return;
+      }
+      btnSubmit.disabled = true;
+      try {
+        const res = await fetch("/api/auth/forgot-password", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showError(data.error || "Nie udało się wysłać resetu.");
+          return;
+        }
+        showOk(data.message || "Sprawdź e-mail.");
+        if (data.resetUrl) showResetLink(data.resetUrl);
+      } catch (err) {
+        showError(err.message || "Błąd sieci");
+      } finally {
+        btnSubmit.disabled = false;
+      }
+      return;
+    }
+
+    if (mode === "reset") {
+      if (password.length < 8) {
+        showError(tr("err.passShort", "Hasło musi mieć co najmniej 8 znaków."));
+        return;
+      }
+      const token =
+        resetToken ||
+        new URLSearchParams(location.search).get("reset") ||
+        "";
+      if (!token) {
+        showError("Brak tokenu resetu. Poproś o nowy link.");
+        return;
+      }
+      btnSubmit.disabled = true;
+      try {
+        const res = await fetch("/api/auth/reset-password", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showError(data.error || "Reset nie powiódł się.");
+          return;
+        }
+        showOk(data.message || "Hasło zmienione.");
+        if (data.loggedIn) {
+          setTimeout(() => {
+            location.href = next.startsWith("/") ? next : "/studio.html";
+          }, 400);
+        } else {
+          setMode("login");
+        }
+      } catch (err) {
+        showError(err.message || "Błąd sieci");
+      } finally {
+        btnSubmit.disabled = false;
+      }
+      return;
+    }
+
     if (!email || !password) {
       showError(tr("err.needEmailPass", "Podaj e-mail i hasło."));
       return;
@@ -210,6 +328,24 @@
     }
   });
 
+  function showResetLink(url) {
+    let a = document.getElementById("dev-reset-link");
+    if (!a) {
+      a = document.createElement("a");
+      a.id = "dev-reset-link";
+      a.className = "auth-submit";
+      a.style.display = "block";
+      a.style.textAlign = "center";
+      a.style.textDecoration = "none";
+      a.style.marginTop = "0.75rem";
+      form.parentNode.insertBefore(a, form.nextSibling);
+    }
+    a.href = url;
+    a.textContent = "▶ Ustaw nowe hasło (kliknij ten link)";
+    a.style.background =
+      "linear-gradient(180deg, rgba(61,255,154,0.35), rgba(0,168,192,0.2))";
+  }
+
   function showDevLink(url) {
     let a = document.getElementById("dev-activate-link");
     if (!a) {
@@ -265,4 +401,9 @@
   }
 
   loadProviders();
+
+  // Open reset form when landing from e-mail link
+  if (resetToken) {
+    setMode("reset");
+  }
 })();
