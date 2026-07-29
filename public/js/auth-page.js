@@ -194,7 +194,12 @@
         return;
       }
 
-      showOk("Zalogowano…");
+      // Auto-activated (no SMTP) or normal login success
+      showOk(
+        data.autoActivated
+          ? data.message || "Konto gotowe — wchodzę do Studio…"
+          : "Zalogowano…"
+      );
       setTimeout(() => {
         location.href = next.startsWith("/") ? next : "/studio.html";
       }, 350);
