@@ -12,8 +12,42 @@
       rel="stylesheet"
     />
     <meta http-equiv="Cache-Control" content="no-store" />
-    <link rel="stylesheet" href="/css/studio.css?v=20260728d" />
-    <link rel="stylesheet" href="/css/auth.css?v=20260728d" />
+    <!-- Critical theme: dark HUD even if CSS loads late (Render free cold start) -->
+    <style>
+      html, body.auth-body {
+        margin: 0;
+        min-height: 100vh;
+        background: #02060f !important;
+        color: #e0f7ff !important;
+        font-family: "Exo 2", system-ui, sans-serif;
+      }
+      body.auth-body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background-image:
+          radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 80, 120, 0.25), transparent),
+          linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px) !important;
+        background-size: 100% 100%, 40px 40px, 40px 40px !important;
+      }
+      .auth-card {
+        background: rgba(0, 20, 40, 0.75) !important;
+        border: 1px solid rgba(0, 240, 255, 0.35) !important;
+        color: #e0f7ff !important;
+      }
+      .auth-card input {
+        background: rgba(0, 15, 30, 0.8) !important;
+        border: 1px solid rgba(0, 240, 255, 0.3) !important;
+        color: #e0f7ff !important;
+      }
+      .oauth-btn.disabled {
+        opacity: 0.45;
+      }
+    </style>
+    <link rel="stylesheet" href="/css/studio.css?v=20260729r1" />
+    <link rel="stylesheet" href="/css/auth.css?v=20260729r1" />
     <link rel="icon" href="/assets/clipforge-192.png" />
   </head>
   <body class="auth-body">
