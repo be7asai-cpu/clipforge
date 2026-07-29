@@ -929,74 +929,54 @@ function sendPcSetupCmd(req, res) {
     "& $ps1Path; exit $LASTEXITCODE " +
     "} catch { Write-Host ('[BLAD] ' + $_); Write-Host '---'; Write-Host 'Wyslij kumplowi: ten komunikat + %TEMP%\\clipforge-agent-setup.log'; exit 1 }\"";
 
+  // ASCII-only launcher. Do NOT require node in .cmd — PowerShell setup finds it.
+  // Hardcode common node dirs into PATH (32-bit cmd has wrong ProgramFiles).
   const launcher = [
     "@echo off",
-    "chcp 65001 >nul",
     "setlocal EnableExtensions",
     "title ClipForge PC Agent",
     "cd /d \"%~dp0\"",
     "set \"CF_CMD=%~f0\"",
     "echo.",
     "echo  ========================================",
-    "echo   ClipForge PC Agent  (setup9-cloud-only)",
+    "echo   ClipForge PC Agent  (setup10)",
     "echo  ========================================",
     "echo.",
     "echo  Plik: %~f0",
     "echo  Log:  %TEMP%\\clipforge-agent-setup.log",
-    "echo  Instalacja: %LOCALAPPDATA%\\ClipForge-Agent",
+    "echo  Folder: %LOCALAPPDATA%\\ClipForge-Agent",
+    "echo  Kod: Z CHMURY na TEN PC (nie z dysku dev).",
     "echo.",
-    "echo  Kod sciaga sie Z CHMURY na TEN komputer.",
-    "echo  Nie uzywa dysku kolegi / dewelopera.",
-    "echo  Kazdy: wlasne konto + wlasny ⬇ PC (nie dawaj .cmd).",
+    "REM Prepend node paths (works even when PATH empty / 32-bit cmd)",
+    "if exist \"C:\\Program Files\\nodejs\\node.exe\" set \"PATH=C:\\Program Files\\nodejs;%PATH%\"",
+    "if exist \"%LOCALAPPDATA%\\Programs\\nodejs\\node.exe\" set \"PATH=%LOCALAPPDATA%\\Programs\\nodejs;%PATH%\"",
+    "if exist \"%SystemDrive%\\nodejs\\node.exe\" set \"PATH=%SystemDrive%\\nodejs;%PATH%\"",
+    "if defined ProgramW6432 if exist \"%ProgramW6432%\\nodejs\\node.exe\" set \"PATH=%ProgramW6432%\\nodejs;%PATH%\"",
+    "if defined ProgramFiles if exist \"%ProgramFiles%\\nodejs\\node.exe\" set \"PATH=%ProgramFiles%\\nodejs;%PATH%\"",
+    "echo  Trwa instalacja z chmury - NIE ZAMYKAJ okna...",
     "echo.",
-    "REM Find node.exe by full path (double-click .cmd often has empty/stale PATH).",
-    "REM Avoid if exist ...ProgramFiles(x86)... — the ) breaks batch IF parsing.",
-    "set \"NODE_EXE=\"",
-    "if exist \"%ProgramFiles%\\nodejs\\node.exe\" set \"NODE_EXE=%ProgramFiles%\\nodejs\\node.exe\"",
-    "if not defined NODE_EXE if exist \"%LOCALAPPDATA%\\Programs\\nodejs\\node.exe\" set \"NODE_EXE=%LOCALAPPDATA%\\Programs\\nodejs\\node.exe\"",
-    "if not defined NODE_EXE if exist \"%LOCALAPPDATA%\\Programs\\node\\node.exe\" set \"NODE_EXE=%LOCALAPPDATA%\\Programs\\node\\node.exe\"",
-    "if not defined NODE_EXE if exist \"%SystemDrive%\\nodejs\\node.exe\" set \"NODE_EXE=%SystemDrive%\\nodejs\\node.exe\"",
-    "if not defined NODE_EXE (",
-    "  for %%I in (node.exe) do if not \"%%~$PATH:I\"==\"\" set \"NODE_EXE=%%~$PATH:I\"",
-    ")",
-    "if defined NODE_EXE (",
-    "  for %%I in (\"%NODE_EXE%\") do set \"PATH=%%~dpI;%PATH%\"",
-    ")",
-    "if not defined NODE_EXE (",
-    "  echo [BLAD] Nie widze Node.js na tym PC.",
-    "  echo 1. Zainstaluj LTS: https://nodejs.org  (zaznacz Add to PATH)",
-    "  echo 2. Zamknij to okno i odpal ten plik ponownie",
-    "  echo.",
-    "  echo Albo w nowym PowerShell:",
-    "  echo   node -v",
-    "  echo   cd %%USERPROFILE%%\\Downloads",
-    "  echo   .\\ClipForge-PC-Agent*.cmd",
-    "  echo.",
-    "  pause",
-    "  exit /b 2",
-    ")",
-    "echo  Node: %NODE_EXE%",
-    "\"%NODE_EXE%\" -v",
-    "if errorlevel 1 (",
-    "  echo [BLAD] node.exe nie startuje: %NODE_EXE%",
-    "  pause",
-    "  exit /b 2",
-    ")",
-    "echo.",
-    "echo  Trwa przygotowanie (nie zamykaj — agent ma zostac otwarty)...",
-    "echo.",
-    bootstrap,
+    "REM Prefer 64-bit PowerShell (sysnative when launched as 32-bit)",
+    "set \"PS_EXE=%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",
+    "if exist \"%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe\" set \"PS_EXE=%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe\"",
+    "if not exist \"%PS_EXE%\" set \"PS_EXE=powershell.exe\"",
+    bootstrap.replace(
+      /^powershell /,
+      "\"%PS_EXE%\" "
+    ),
     "set ERR=%ERRORLEVEL%",
     "echo.",
     "if not \"%ERR%\"==\"0\" (",
-    "  echo [BLAD] Cos poszlo nie tak. Kod: %ERR%",
+    "  echo [BLAD] Kod: %ERR%",
+    "  echo.",
+    "  echo Jesli brak Node: https://nodejs.org  (LTS, Add to PATH)",
+    "  echo Potem odpal ten .cmd ponownie.",
     "  echo.",
     "  echo --- log ---",
     "  if exist \"%TEMP%\\clipforge-agent-setup.log\" type \"%TEMP%\\clipforge-agent-setup.log\"",
     "  echo -----------",
     ")",
     "echo.",
-    "echo  Wcisnij dowolny klawisz, zeby zamknac to okno...",
+    "echo  Enter = zamknij okno...",
     "pause >nul",
     "exit /b %ERR%",
     "",
@@ -1005,13 +985,14 @@ function sendPcSetupCmd(req, res) {
     "",
   ].join("\r\n");
 
-  res.setHeader("Content-Type", "application/octet-stream; charset=utf-8");
+  // Pure binary-ish download: avoid charset mangling by browsers
+  res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader(
     "Content-Disposition",
     'attachment; filename="ClipForge-PC-Agent.cmd"'
   );
   res.setHeader("Cache-Control", "no-store");
-  res.send(launcher);
+  res.send(Buffer.from(launcher, "ascii"));
 }
 
 // Both URLs (some proxies choke on ".cmd" in path)
