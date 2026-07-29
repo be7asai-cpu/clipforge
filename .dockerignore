@@ -31,4 +31,6 @@ README.md
 start-clipforge*
 START.ps1
 Uruchom*
-scripts
+# Keep pc-agent.js in image (cloud ZIP bundle). Ignore other scripts.
+scripts/*
+!scripts/pc-agent.js
