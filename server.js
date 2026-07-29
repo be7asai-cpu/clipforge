@@ -156,7 +156,7 @@ app.get("/api/health", async (_req, res) => {
     ok: true,
     service: "clipforge",
     studio: true,
-    v: "2026-07-29pg3",
+    v: "2026-07-29agent7",
     users,
     authStore: db.usingPostgres() ? "postgres" : "file",
     // Help debug Render env without leaking secrets
@@ -520,7 +520,7 @@ $log = Join-Path $env:TEMP 'clipforge-agent-setup.log'
 function L($m) { $t = (Get-Date).ToString('s') + ' ' + $m; Add-Content -Path $log -Value $t; Write-Host $t }
 
 try {
-  L '=== ClipForge PC Agent setup (setup5) ==='
+  L '=== ClipForge PC Agent setup (setup7-cloud) ==='
   L ("PS version: " + $PSVersionTable.PSVersion)
   L ("User: " + $env:USERNAME + "  PC: " + $env:COMPUTERNAME)
   $cloud = '${psQ(cloud)}'
@@ -683,21 +683,25 @@ try {
     }
   }
 
-  $needInstall = -not (Test-Path (Join-Path $agentDir 'package.json')) -or -not (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js'))
-  if ($needInstall) {
-    L 'Folder agenta pusty lub niekompletny - instalacja...'
+  # Always prefer cloud package for friends (local copy only as offline fallback)
+  $hasAgent = (Test-Path (Join-Path $agentDir 'package.json')) -and (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js'))
+  $forceCloud = $true
+  if ($forceCloud -or -not $hasAgent) {
+    L 'Instalacja / odswiezenie agenta Z CHMURY...'
     try {
-      if ($localSrc) {
-        try { Install-AgentFromLocal $localSrc } catch { L ("Lokalnie nieudane: $_; biore z chmury"); Install-AgentFromCloud }
-      } else {
-        L 'Brak lokalnego projektu clips-tv - to normalne u kolegi. Biore z chmury.'
-        Install-AgentFromCloud
-      }
+      Install-AgentFromCloud
     } catch {
-      L ('[BLAD] Instalacja: ' + $_)
-      throw $_
+      L ('Chmura nieudana: ' + $_)
+      if ($localSrc) {
+        L 'Fallback: kopia lokalnego projektu (dev)'
+        Install-AgentFromLocal $localSrc
+      } else {
+        throw $_
+      }
     }
+  }
 
+  if (-not (Test-Path (Join-Path $agentDir 'node_modules'))) {
     L 'npm install (raz, moze potrwac kilka minut - potrzebny internet)...'
     Push-Location $agentDir
     npm install --omit=dev
@@ -708,46 +712,7 @@ try {
     Pop-Location
     L 'npm install OK'
   } else {
-    L "Folder agenta juz istnieje: $agentDir"
-    try {
-      L 'Odswiezam kod agenta z chmury (bez kasowania node_modules jesli sie da)...'
-      $zip = Join-Path $env:TEMP 'clipforge-agent-refresh.zip'
-      $uri = $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.zip?token=' + [uri]::EscapeDataString($token)
-      Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Bearer $token" } -OutFile $zip -UseBasicParsing
-      $tmp = Join-Path $env:TEMP ('cf-agent-unpack-' + [guid]::NewGuid().ToString('n'))
-      New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-      Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
-      $srcRoot = $tmp
-      if (-not (Test-Path (Join-Path $srcRoot 'package.json'))) {
-        $sub = Get-ChildItem $tmp -Directory | Select-Object -First 1
-        if ($sub) { $srcRoot = $sub.FullName }
-      }
-      foreach ($name in @('package.json','package-lock.json','lib','scripts')) {
-        $s = Join-Path $srcRoot $name
-        $d = Join-Path $agentDir $name
-        if (Test-Path $s) {
-          if (Test-Path $s -PathType Container) {
-            if (Test-Path $d) { Remove-Item $d -Recurse -Force }
-            Copy-Item $s $d -Recurse -Force
-          } else { Copy-Item $s $d -Force }
-        }
-      }
-      Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-      L 'Kod odswiezony z chmury'
-    } catch {
-      L ("Odswiezenie z chmury pominiete: $_")
-      if ($localSrc) {
-        foreach ($name in @('lib','scripts/pc-agent.js')) {
-          $s = Join-Path $localSrc $name
-          $d = Join-Path $agentDir $name
-          if (Test-Path $s) {
-            if (Test-Path $s -PathType Container) { Copy-Item $s $d -Recurse -Force }
-            else { Copy-Item $s $d -Force }
-          }
-        }
-        L 'Odswiezono z lokalnego projektu'
-      }
-    }
+    L 'node_modules juz jest - pomijam npm install'
   }
 
   # Re-write token after possible wipe
@@ -914,7 +879,7 @@ function sendPcSetupCmd(req, res) {
     "set \"CF_CMD=%~f0\"",
     "echo.",
     "echo  ========================================",
-    "echo   ClipForge PC Agent  (setup6)",
+    "echo   ClipForge PC Agent  (setup7-cloud)",
     "echo  ========================================",
     "echo.",
     "echo  Plik: %~f0",
