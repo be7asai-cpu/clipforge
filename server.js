@@ -268,8 +268,10 @@ const studioUpload = multer({
 });
 
 // Protect Studio APIs when auth is required (health stays public for start scripts)
+// PC agent routes use Bearer token auth (not browser session)
 app.use("/api/studio", (req, res, next) => {
   if (req.path === "/health" || req.path.startsWith("/health")) return next();
+  if (req.path.startsWith("/agent")) return next();
   return auth.requireAuthIfEnabled(req, res, next);
 });
 
@@ -295,6 +297,8 @@ function getOwnedJob(req, res) {
   return job;
 }
 
+const pcAgent = require("./lib/pc-agent-hub");
+
 app.get("/api/studio/health", (req, res) => {
   // Lightweight — never touch pipeline/ffmpeg here (must stay instant)
   // Optional session: if logged in, "busy" = only MY jobs (multi-user safe)
@@ -306,6 +310,7 @@ app.get("/api/studio/health", (req, res) => {
         : null;
   const serverBusy = studioJobs.isServerBusy();
   const myBusy = uid ? studioJobs.isUserBusy(uid) : serverBusy;
+  const pc = uid ? pcAgent.statusFor(uid) : { online: false };
   res.json({
     ok: true,
     studio: true,
@@ -313,10 +318,223 @@ app.get("/api/studio/health", (req, res) => {
     myBusy,
     serverBusy,
     multiUser: true,
+    pcAgent: pc,
     uptime: Math.round(process.uptime()),
     pid: process.pid,
   });
 });
+
+// ── PC Agent (browser stays on cloud; processing on user's machine) ────
+function agentBearer(req) {
+  const h = req.headers.authorization || "";
+  const m = /^Bearer\s+(.+)$/i.exec(h);
+  return m ? m[1].trim() : String(req.body?.token || req.query?.token || "").trim();
+}
+
+function requireAgent(req, res) {
+  const row = pcAgent.resolveToken(agentBearer(req));
+  if (!row) {
+    res.status(401).json({ error: "Nieprawidłowy token agenta" });
+    return null;
+  }
+  pcAgent.heartbeat(row.token, row.label);
+  return row;
+}
+
+/** Login from PC agent → long-lived token (store on disk) */
+app.post("/api/studio/agent/login", async (req, res) => {
+  try {
+    const email = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
+    const password = String(req.body?.password || "");
+    const label = String(req.body?.label || "Mój PC").slice(0, 40);
+    if (!email || !password) {
+      return res.status(400).json({ error: "Podaj e-mail i hasło" });
+    }
+    const bcrypt = require("bcryptjs");
+    const u = auth.findByEmail(email);
+    if (!u || !u.passwordHash) {
+      return res.status(401).json({ error: "Złe e-mail lub hasło" });
+    }
+    const ok = await bcrypt.compare(password, u.passwordHash);
+    if (!ok) return res.status(401).json({ error: "Złe e-mail lub hasło" });
+    const tok = pcAgent.issueToken(u.id, label);
+    pcAgent.heartbeat(tok.token, label);
+    res.json({
+      ok: true,
+      token: tok.token,
+      userId: u.id,
+      label: tok.label,
+      cloudUrl: auth.baseUrl(),
+    });
+  } catch (err) {
+    console.error("agent login:", err);
+    res.status(500).json({ error: err.message || "Błąd logowania agenta" });
+  }
+});
+
+/** Browser (logged in) can mint a token without password re-entry */
+app.post("/api/studio/agent/token", (req, res) => {
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({ error: "Zaloguj się w przeglądarce" });
+  }
+  // require session auth — this path is under /agent so re-check
+  if (auth.isAuthRequired() && !(req.isAuthenticated && req.isAuthenticated())) {
+    return res.status(401).json({ error: "Zaloguj się" });
+  }
+  const label = String(req.body?.label || "Mój PC").slice(0, 40);
+  const tok = pcAgent.issueToken(req.user.id, label);
+  res.json({ ok: true, token: tok.token, label: tok.label });
+});
+
+// Session-auth wrapper for token mint (mounted with manual check above)
+// Re-enable session for token route only via separate path under studio with auth
+app.post("/api/studio/pc-token", auth.requireAuthIfEnabled, (req, res) => {
+  if (!req.user?.id) return res.status(401).json({ error: "Zaloguj się" });
+  const label = String(req.body?.label || "Mój PC").slice(0, 40);
+  const tok = pcAgent.issueToken(req.user.id, label);
+  res.json({
+    ok: true,
+    token: tok.token,
+    label: tok.label,
+    hint: "Ustaw CLIPFORGE_AGENT_TOKEN w .env i odpal start-pc-agent.bat",
+  });
+});
+
+app.post("/api/studio/agent/heartbeat", (req, res) => {
+  const row = pcAgent.resolveToken(agentBearer(req));
+  if (!row) return res.status(401).json({ error: "Zły token" });
+  const label = String(req.body?.label || row.label || "PC");
+  const st = pcAgent.heartbeat(row.token, label);
+  res.json({ ok: true, ...st });
+});
+
+app.post("/api/studio/agent/claim", (req, res) => {
+  const row = requireAgent(req, res);
+  if (!row) return;
+  const job = studioJobs.claimPcJob(row.userId);
+  if (!job) return res.json({ ok: true, job: null });
+  res.json({
+    ok: true,
+    job: {
+      id: job.id,
+      originalName: job.originalName,
+      options: job.options || {},
+      userId: job.userId,
+    },
+  });
+});
+
+app.get("/api/studio/agent/jobs/:id/input", (req, res) => {
+  const row = requireAgent(req, res);
+  if (!row) return;
+  const job = studioJobs.getJob(req.params.id);
+  if (!job || !studioJobs.ownsJob(job, row.userId)) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+  if (!job.inputPath || !fs.existsSync(job.inputPath)) {
+    return res.status(404).json({ error: "Brak pliku źródłowego" });
+  }
+  res.download(job.inputPath, job.originalName || "input.mp4");
+});
+
+app.post("/api/studio/agent/jobs/:id/progress", (req, res) => {
+  const row = requireAgent(req, res);
+  if (!row) return;
+  const job = studioJobs.getJob(req.params.id);
+  if (!job || !studioJobs.ownsJob(job, row.userId)) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+  if (job.executor !== "pc") {
+    return res.status(400).json({ error: "To nie jest job PC" });
+  }
+  const patch = req.body || {};
+  const allowed = {};
+  if (typeof patch.progress === "number") allowed.progress = patch.progress;
+  if (patch.stage) allowed.stage = patch.stage;
+  if (patch.log) allowed.log = patch.log;
+  if (patch.liveOriginal) allowed.liveOriginal = patch.liveOriginal;
+  if (patch.liveScript) allowed.liveScript = patch.liveScript;
+  if (patch.livePhase) allowed.livePhase = patch.livePhase;
+  studioJobs.updateJob(job.id, allowed);
+  res.json({ ok: true });
+});
+
+app.post("/api/studio/agent/jobs/:id/fail", (req, res) => {
+  const row = requireAgent(req, res);
+  if (!row) return;
+  const job = studioJobs.getJob(req.params.id);
+  if (!job || !studioJobs.ownsJob(job, row.userId)) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+  studioJobs.updateJob(job.id, {
+    status: "failed",
+    error: String(req.body?.error || "Błąd na PC"),
+    stage: "Błąd",
+    finishedAt: new Date().toISOString(),
+    canRetry: true,
+    log: "PC agent: " + String(req.body?.error || "błąd"),
+  });
+  res.json({ ok: true });
+});
+
+app.post(
+  "/api/studio/agent/jobs/:id/complete",
+  (req, res, next) => {
+    // multer for agent upload
+    const agentOut = multer({
+      storage: multer.diskStorage({
+        destination: (_req, _file, cb) => {
+          studioJobs.ensureDirs();
+          cb(null, studioJobs.OUTPUT_DIR);
+        },
+        filename: (_req, file, cb) => {
+          const id = String(_req.params.id || "out");
+          if (file.fieldname === "preview") cb(null, `studio_${id}_preview.jpg`);
+          else if (file.fieldname === "srt") cb(null, `studio_${id}.srt`);
+          else cb(null, `studio_${id}.mp4`);
+        },
+      }),
+      limits: { fileSize: 500 * 1024 * 1024 },
+    });
+    agentOut.fields([
+      { name: "video", maxCount: 1 },
+      { name: "preview", maxCount: 1 },
+      { name: "srt", maxCount: 1 },
+    ])(req, res, next);
+  },
+  (req, res) => {
+    const row = requireAgent(req, res);
+    if (!row) return;
+    const job = studioJobs.getJob(req.params.id);
+    if (!job || !studioJobs.ownsJob(job, row.userId)) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    const video = req.files?.video?.[0];
+    if (!video) return res.status(400).json({ error: "Brak pliku video" });
+    let result = {};
+    try {
+      if (req.body?.result) result = JSON.parse(req.body.result);
+    } catch {
+      result = {};
+    }
+    const preview = req.files?.preview?.[0];
+    const srt = req.files?.srt?.[0];
+    if (srt) result.srtPath = srt.path;
+    studioJobs.updateJob(job.id, {
+      status: "done",
+      progress: 100,
+      stage: "Gotowe",
+      finishedAt: new Date().toISOString(),
+      outputPath: video.path,
+      previewPath: preview ? preview.path : job.previewPath,
+      result: { ...(job.result || {}), ...result },
+      log: "Wynik z Twojego PC zapisany w chmurze (UI bez przekierowania).",
+    });
+    res.json({ ok: true, job: studioJobs.publicJob(studioJobs.getJob(job.id)) });
+  }
+);
 
 app.get("/api/studio/languages", (_req, res) => {
   const { listLanguageModels } = require("./lib/lang-utils");

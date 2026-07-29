@@ -850,6 +850,36 @@
       });
       if (!res.ok) return false;
       const data = await res.json();
+      // Discreet PC-agent chip (processing on your machine, UI stays on cloud)
+      try {
+        let chip = document.getElementById("pc-agent-chip");
+        if (!chip) {
+          const head = document.querySelector(".panel-progress-head");
+          if (head) {
+            chip = document.createElement("span");
+            chip.id = "pc-agent-chip";
+            chip.style.cssText =
+              "font:600 0.65rem Orbitron,sans-serif;letter-spacing:0.06em;padding:4px 8px;border-radius:999px;border:1px solid rgba(0,240,255,0.35);margin-right:8px;";
+            head.querySelector(".panel-progress-actions")?.prepend(chip) ||
+              head.appendChild(chip);
+          }
+        }
+        if (chip) {
+          if (data.pcAgent && data.pcAgent.online) {
+            chip.textContent = "PC · ON";
+            chip.style.color = "#00ff9d";
+            chip.style.borderColor = "rgba(0,255,157,0.5)";
+            chip.title =
+              "Agent na Twoim PC połączony — joby liczone lokalnie (strona bez przekierowania)";
+          } else {
+            chip.textContent = "PC · OFF";
+            chip.style.color = "#7eb8c9";
+            chip.style.borderColor = "rgba(0,240,255,0.25)";
+            chip.title =
+              "Brak agenta PC — joby na serwerze w chmurze. Odpal start-pc-agent.bat";
+          }
+        }
+      } catch (_) {}
       // Prefer myBusy (per-user). Fallback busy for older servers.
       if (typeof data.myBusy === "boolean") return data.myBusy;
       return !!data.busy;
@@ -862,6 +892,12 @@
       );
     }
   }
+
+  // Refresh PC-agent status periodically
+  setInterval(() => {
+    isStudioBusy().catch(() => {});
+  }, 8000);
+  setTimeout(() => isStudioBusy().catch(() => {}), 500);
 
   btnStart.addEventListener("click", async () => {
     if (!selectedFile) return;
