@@ -452,11 +452,17 @@ app.get("/api/studio/pc-agent-bundle.tgz", sendAgentZipBundle);
 
 /**
  * Full PC-agent setup PowerShell (can be long).
- * Must NOT be inlined into a .cmd -Command line (Windows ~8191 char limit → broken $p).
+ * ASCII-only body: Windows PowerShell 5.1 mis-parses UTF-8 scripts without BOM
+ * (em-dash / Polish chars break strings -> "Missing closing }" / parser errors).
  */
 function buildPcSetupPs1({ cloud, token, label }) {
-  const psQ = (s) => String(s).replace(/'/g, "''");
-  return `
+  const psQ = (s) =>
+    String(s)
+      .replace(/'/g, "''")
+      // keep payload ASCII-safe for PS 5.1
+      .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "?");
+  // Entire script must stay ASCII (no em-dash, no fancy dots)
+  const body = `
 $ErrorActionPreference = 'Stop'
 $log = Join-Path $env:TEMP 'clipforge-agent-setup.log'
 function L($m) { $t = (Get-Date).ToString('s') + ' ' + $m; Add-Content -Path $log -Value $t; Write-Host $t }
@@ -488,7 +494,7 @@ try {
     if (Test-Path (Join-Path $np 'node.exe')) { $env:Path = "$np;" + $env:Path }
   }
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    L '[BLAD] Brak Node.js. Kolega musi zainstalowac Node LTS: https://nodejs.org (zaznacz Add to PATH), potem uruchomic ten plik ponownie.'
+    L '[BLAD] Brak Node.js. Zainstaluj Node LTS: https://nodejs.org (Add to PATH), potem uruchom ten plik ponownie.'
     exit 2
   }
   L ("Node: " + (node -v))
@@ -508,7 +514,7 @@ try {
   function Install-AgentFromCloud {
     L 'Pobieram paczke agenta z chmury (ZIP)...'
     $zip = Join-Path $env:TEMP 'clipforge-agent.zip'
-    # token in query — some networks strip Authorization headers
+    # token in query - some networks strip Authorization headers
     $uri = $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.zip?token=' + [uri]::EscapeDataString($token)
     $headers = @{ Authorization = "Bearer $token" }
     try {
@@ -526,13 +532,11 @@ try {
       Get-ChildItem $agentDir -Force | Where-Object { $_.Name -ne 'data' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
     New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
-    # Expand-Archive is built into Windows PowerShell 5+
     Expand-Archive -LiteralPath $zip -DestinationPath $agentDir -Force
     if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
-      # sometimes zip has a single root folder
       $sub = Get-ChildItem $agentDir -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
       if ($sub -and (Test-Path (Join-Path $sub.FullName 'package.json'))) {
-        L "Paczka ma folder glowny: $($sub.Name) — przenosze pliki"
+        L "Paczka ma folder glowny: $($sub.Name) - przenosze pliki"
         Get-ChildItem $sub.FullName -Force | ForEach-Object {
           Move-Item $_.FullName -Destination $agentDir -Force
         }
@@ -568,13 +572,12 @@ try {
 
   $needInstall = -not (Test-Path (Join-Path $agentDir 'package.json')) -or -not (Test-Path (Join-Path $agentDir 'scripts\\pc-agent.js'))
   if ($needInstall) {
-    L 'Folder agenta pusty lub niekompletny — instalacja...'
+    L 'Folder agenta pusty lub niekompletny - instalacja...'
     try {
-      # Always prefer cloud for "friends" reliability; local only as fast path
       if ($localSrc) {
         try { Install-AgentFromLocal $localSrc } catch { L ("Lokalnie nieudane: $_; biore z chmury"); Install-AgentFromCloud }
       } else {
-        L 'Brak lokalnego projektu clips-tv — to normalne u kolegi. Biore z chmury.'
+        L 'Brak lokalnego projektu clips-tv - to normalne u kolegi. Biore z chmury.'
         Install-AgentFromCloud
       }
     } catch {
@@ -582,7 +585,7 @@ try {
       throw $_
     }
 
-    L 'npm install (raz, moze potrwac kilka minut — potrzebny internet)...'
+    L 'npm install (raz, moze potrwac kilka minut - potrzebny internet)...'
     Push-Location $agentDir
     npm install --omit=dev
     if ($LASTEXITCODE -ne 0) {
@@ -593,7 +596,6 @@ try {
     L 'npm install OK'
   } else {
     L "Folder agenta juz istnieje: $agentDir"
-    # Refresh code from cloud so friends get bugfixes without deleting folder
     try {
       L 'Odswiezam kod agenta z chmury (bez kasowania node_modules jesli sie da)...'
       $zip = Join-Path $env:TEMP 'clipforge-agent-refresh.zip'
@@ -640,7 +642,6 @@ try {
   Set-Content -Path (Join-Path $authDir 'pc-agent.token') -Value $token -Encoding ascii -NoNewline
   L ("Token zapisany w: " + (Join-Path $authDir 'pc-agent.token'))
 
-  # FFmpeg must actually run (npm ffmpeg-static sometimes blocked / broken on Windows)
   function Test-Ffmpeg($bin) {
     if (-not $bin -or -not (Test-Path $bin)) { return $false }
     try { Unblock-File -Path $bin -ErrorAction SilentlyContinue } catch {}
@@ -650,7 +651,7 @@ try {
   }
   $ffBin = Join-Path $agentDir 'node_modules\\ffmpeg-static\\ffmpeg.exe'
   if (-not (Test-Ffmpeg $ffBin)) {
-    L 'FFmpeg agenta nie dziala — proboje naprawic...'
+    L 'FFmpeg agenta nie dziala - proboje naprawic...'
     $goodCandidates = @()
     if ($localSrc) { $goodCandidates += (Join-Path $localSrc 'node_modules\\ffmpeg-static\\ffmpeg.exe') }
     $goodCandidates += (Join-Path $env:USERPROFILE 'Projects\\clips-tv\\node_modules\\ffmpeg-static\\ffmpeg.exe')
@@ -673,13 +674,13 @@ try {
       $fixed = Test-Ffmpeg $ffBin
     }
     if (-not $fixed) {
-      throw 'FFmpeg nie dziala na tym PC (Windows blokuje plik albo uszkodzony binary). Zainstaluj FFmpeg systemowo albo skopiuj dzialajacy ffmpeg.exe do %LOCALAPPDATA%\\ClipForge-Agent\\node_modules\\ffmpeg-static\\'
+      throw 'FFmpeg nie dziala na tym PC. Zainstaluj FFmpeg albo skopiuj dzialajacy ffmpeg.exe do %LOCALAPPDATA%\\ClipForge-Agent\\node_modules\\ffmpeg-static\\'
     }
   } else {
     L 'FFmpeg OK'
   }
 
-  L 'Startuje agent — wroc do strony (PC · ON). Nie zamykaj okna.'
+  L 'Startuje agent - wroc do strony (PC ON). Nie zamykaj okna.'
   Set-Location $agentDir
   node .\\scripts\\pc-agent.js
   L ("Agent zakonczyl, kod=" + $LASTEXITCODE)
@@ -690,6 +691,8 @@ try {
   exit 1
 }
 `.trim();
+  // Hard guarantee: no non-ASCII that breaks Windows PowerShell 5.1
+  return body.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "-");
 }
 
 function resolvePcSetupCloud(req) {
@@ -730,19 +733,21 @@ function sendPcSetupPs1(req, res) {
 
   const cloud = resolvePcSetupCloud(req);
   const ps1 = buildPcSetupPs1({ cloud, token, label });
+  // UTF-8 BOM so Windows PowerShell 5.1 parses correctly if any non-ASCII slips in
+  const bom = "\uFEFF";
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader(
     "Content-Disposition",
     'attachment; filename="ClipForge-PC-Agent.setup.ps1"'
   );
   res.setHeader("Cache-Control", "no-store");
-  res.send(ps1.replace(/\n/g, "\r\n"));
+  res.send(bom + ps1.replace(/\n/g, "\r\n"));
 }
 
 /**
- * One-click PC agent — self-contained .cmd (embeds setup as base64 lines).
- * No second HTTP request → no 401 when Render has no shared token store / multi-instance.
- * File download can be large; only CMD *command line* had the 8191 limit.
+ * One-click PC agent — self-contained .cmd.
+ * Payload lives in ::B64 comment lines (read by PowerShell) — avoids CMD echo
+ * corruption and 8191-char -Command limits. No second HTTP (no 401).
  */
 function sendPcSetupCmd(req, res) {
   if (!req.user?.id) {
@@ -761,8 +766,24 @@ function sendPcSetupCmd(req, res) {
     token: tok.token,
     label: label || "Moj PC",
   });
-  const b64 = Buffer.from(ps1, "utf8").toString("base64");
+  const b64 = Buffer.from(ps1, "ascii").toString("base64");
   const chunks = b64.match(/.{1,76}/g) || [];
+
+  // PowerShell bootstrap: read ::B64 lines from this .cmd, decode, run
+  const bootstrap =
+    "powershell -NoProfile -ExecutionPolicy Bypass -Command " +
+    "\"try { " +
+    "$cmd = $env:CF_CMD; " +
+    "if (-not $cmd -or -not (Test-Path -LiteralPath $cmd)) { throw 'Brak sciezki CF_CMD do pliku .cmd' }; " +
+    "$lines = Get-Content -LiteralPath $cmd -ErrorAction Stop; " +
+    "$b64 = ($lines | Where-Object { $_ -like '::B64 *' } | ForEach-Object { $_.Substring(6) }) -join ''; " +
+    "if (-not $b64) { throw 'Brak danych setup w pliku .cmd (pobierz ponownie ze strony)' }; " +
+    "$ps1Path = Join-Path $env:TEMP 'ClipForge-PC-Agent.setup.ps1'; " +
+    "$bytes = [Convert]::FromBase64String($b64); " +
+    "[IO.File]::WriteAllBytes($ps1Path, $bytes); " +
+    "Unblock-File -Path $ps1Path -ErrorAction SilentlyContinue; " +
+    "& $ps1Path; exit $LASTEXITCODE " +
+    "} catch { Write-Host ('[BLAD] ' + $_); exit 1 }\"";
 
   const launcher = [
     "@echo off",
@@ -770,6 +791,7 @@ function sendPcSetupCmd(req, res) {
     "setlocal EnableExtensions",
     "title ClipForge PC Agent",
     "cd /d \"%~dp0\"",
+    "set \"CF_CMD=%~f0\"",
     "echo.",
     "echo  ========================================",
     "echo   ClipForge PC Agent",
@@ -777,14 +799,7 @@ function sendPcSetupCmd(req, res) {
     "echo.",
     "echo  Trwa przygotowanie... (log: %TEMP%\\clipforge-agent-setup.log)",
     "echo.",
-    "set \"CF_B64=%TEMP%\\clipforge-agent-setup.b64\"",
-    "set \"CF_PS1=%TEMP%\\ClipForge-PC-Agent.setup.ps1\"",
-    "if exist \"%CF_B64%\" del /f /q \"%CF_B64%\" >nul 2>&1",
-    "if exist \"%CF_PS1%\" del /f /q \"%CF_PS1%\" >nul 2>&1",
-    "echo  Rozpakowuje setup...",
-    // Self-contained: write base64 payload (no network, no 401)
-    ...chunks.map((line) => `>>"%CF_B64%" echo ${line}`),
-    "powershell -NoProfile -ExecutionPolicy Bypass -Command \"try { $b64Path = Join-Path $env:TEMP 'clipforge-agent-setup.b64'; $ps1Path = Join-Path $env:TEMP 'ClipForge-PC-Agent.setup.ps1'; $raw = (Get-Content -LiteralPath $b64Path -Raw) -replace '\\s',''; [IO.File]::WriteAllBytes($ps1Path, [Convert]::FromBase64String($raw)); Unblock-File -Path $ps1Path -ErrorAction SilentlyContinue; & $ps1Path; exit $LASTEXITCODE } catch { Write-Host ('[BLAD] ' + $_); exit 1 }\"",
+    bootstrap,
     "set ERR=%ERRORLEVEL%",
     "echo.",
     "if not \"%ERR%\"==\"0\" (",
@@ -798,6 +813,9 @@ function sendPcSetupCmd(req, res) {
     "echo  Wcisnij dowolny klawisz, zeby zamknac to okno...",
     "pause >nul",
     "exit /b %ERR%",
+    "",
+    "REM --- payload (do not edit) ---",
+    ...chunks.map((line) => "::B64 " + line),
     "",
   ].join("\r\n");
 
