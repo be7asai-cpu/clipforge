@@ -296,6 +296,16 @@
         if (data.canResend && data.email) {
           showResend(data.email);
         }
+        if (data.canRegister) {
+          showOk(
+            "Tip: kliknij „Zarejestruj się” tym samym e-mailem i hasłem — po restarcie serwera konta na free hostingu znikają."
+          );
+        }
+        if (data.canReset && btnForgot) {
+          // soft highlight
+          btnForgot.style.textDecoration = "underline";
+          btnForgot.style.color = "#7df9ff";
+        }
         return;
       }
 

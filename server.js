@@ -80,6 +80,8 @@ const cookieSecure =
 
 const { FileSessionStore } = require("./lib/file-session-store");
 const sessionTtlMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+const authDataDir =
+  process.env.AUTH_DATA_DIR || path.join(__dirname, "data", "auth");
 
 app.use(
   session({
@@ -88,7 +90,10 @@ app.use(
     resave: false,
     saveUninitialized: false,
     rolling: true, // refresh cookie on each request while active
-    store: new FileSessionStore({ ttlMs: sessionTtlMs }),
+    store: new FileSessionStore({
+      dir: path.join(authDataDir, "sessions"),
+      ttlMs: sessionTtlMs,
+    }),
     cookie: {
       httpOnly: true,
       sameSite: "lax",
@@ -116,11 +121,18 @@ function isLoggedIn(req) {
 // ── Health first (Render probes this) ──────────────────────────────────
 app.get("/api/health", (_req, res) => {
   noStore(res);
+  let users = 0;
+  try {
+    users = auth.userCount();
+  } catch {
+    users = -1;
+  }
   res.json({
     ok: true,
     service: "clipforge",
     studio: true,
-    v: "2026-07-29pc-setup5",
+    v: "2026-07-29auth3",
+    users,
   });
 });
 

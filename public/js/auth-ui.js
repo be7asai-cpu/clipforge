@@ -189,6 +189,13 @@
           if (data.canResend) {
             ensureResendBtn(email);
           }
+          if (data.canRegister) {
+            setGateMode("register");
+            showGateError(
+              (data.error || "") +
+                " → formularz przełączony na rejestrację. To samo hasło utworzy konto od nowa."
+            );
+          }
           return;
         }
 
