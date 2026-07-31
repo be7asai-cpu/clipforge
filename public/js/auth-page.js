@@ -57,7 +57,9 @@
   }
 
   if (urlError) {
-    showError(errorMessages[urlError] || "Błąd logowania.");
+    const detail = (params.get("detail") || "").trim();
+    const base = errorMessages[urlError] || "Błąd logowania.";
+    showError(detail ? base + " (" + detail + ")" : base);
   }
 
   function tr(key, fallback) {
