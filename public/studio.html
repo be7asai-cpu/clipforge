@@ -95,50 +95,48 @@
     </div>
 
     <main class="wrap hud-frame">
-      <!-- Digital title — exact HUD mockup style -->
-      <section class="digital-hero" aria-label="ClipForge Studio">
-        <div class="digital-hero-tags">
-          <span data-i18n="hero.tagLocal">LOCAL PC</span>
-          <span data-i18n="hero.tagRender">SMART RENDER</span>
-          <span data-i18n="hero.tagPrivate">YOUR DISK</span>
-        </div>
-        <div class="digital-hero-core">
-          <div class="digital-hero-side left" aria-hidden="true">
-            SYS.STATUS // OK<br />RENDER.CORE // 2.4<br />UPSCALE.ENG // ESRGAN<br />LATENCY // 12ms
-          </div>
-          <h1>CLIPFORGE<br /><span class="studio-line">STUDIO</span></h1>
-          <div class="digital-hero-side right" aria-hidden="true">
-            NODE // LOCAL<br />SECURE // ON<br />CACHE // 0.0GB<br />QUEUE // 1
-          </div>
-        </div>
-        <p class="hero-tagline" data-i18n="hero.tagline">
+      <!-- Główny baner (grafika użytkownika) -->
+      <section class="hero-banner" aria-label="ClipForge Studio">
+        <img
+          class="hero-banner-img"
+          src="/assets/hero-banner.jpg"
+          alt="ClipForge Studio — Twój PC, lokalny render, Twój dysk"
+          width="1920"
+          height="640"
+          decoding="async"
+        />
+        <p class="hero-tagline under-banner" data-i18n="hero.tagline">
           Zwykły filmik w minutę staje się contentem gotowym do sieci.
-        </p>
-        <p class="hero-pitch" data-i18n="hero.pitch">
-          Usuń logo i znaki wodne, podkręć jakość do ostrego HD, dodaj lektora
-          w wielu językach i napisy — potem pobierz i wrzuć na FacePub, Reels czy TikTok.
-          Działa u Ciebie lokalnie: szybko, bez chmury i bez trzymania Twoich filmów na serwerze.
         </p>
       </section>
 
-      <section class="features" aria-label="Features">
-        <div class="feature-card">
-          <div class="feature-title" data-i18n="hero.b1t">Czysty obraz</div>
-          <div class="feature-desc">— <span data-i18n="hero.b1d">retusz logo w kilka klików</span></div>
-        </div>
-        <div class="feature-card">
-          <div class="feature-title" data-i18n="hero.b2t">Szybki HD</div>
-          <div class="feature-desc">— <span data-i18n="hero.b2d">ostre ujęcia bez długiego czekania</span></div>
-        </div>
-        <div class="feature-card">
-          <div class="feature-title" data-i18n="hero.b3t">Głos i napisy</div>
-          <div class="feature-desc">— <span data-i18n="hero.b3d">lektor + napisy pod publikację</span></div>
-        </div>
-        <div class="feature-card">
-          <div class="feature-title" data-i18n="hero.b4t">Prywatność</div>
-          <div class="feature-desc">— <span data-i18n="hero.b4d">obróbka tymczasowa, wynik u Ciebie na dysku</span></div>
-        </div>
+      <!-- 4 główne atuty — klik = pełny opis -->
+      <section class="features features-menu" aria-label="Główne atuty ClipForge" id="features-menu">
+        <button type="button" class="feature-card feature-btn" data-feature="delogo" aria-expanded="false">
+          <div class="feature-title">1 · Czysty obraz</div>
+          <div class="feature-desc">Usuwanie logo i znaków wodnych</div>
+        </button>
+        <button type="button" class="feature-card feature-btn" data-feature="hd" aria-expanded="false">
+          <div class="feature-title">2 · Super HD / AI</div>
+          <div class="feature-desc">Szybki HD + Real-ESRGAN x4plus</div>
+        </button>
+        <button type="button" class="feature-card feature-btn" data-feature="voice" aria-expanded="false">
+          <div class="feature-title">3 · Lektor i napisy</div>
+          <div class="feature-desc">STT · tłumaczenie · TTS · SRT</div>
+        </button>
+        <button type="button" class="feature-card feature-btn" data-feature="pc" aria-expanded="false">
+          <div class="feature-title">4 · Twój PC</div>
+          <div class="feature-desc">Agent lokalny · prywatność · bez kolejki</div>
+        </button>
       </section>
+
+      <div class="feature-detail hidden" id="feature-detail" role="region" aria-live="polite">
+        <div class="feature-detail-head">
+          <h3 id="feature-detail-title">—</h3>
+          <button type="button" class="btn ghost sm" id="feature-detail-close" aria-label="Zamknij opis">✕</button>
+        </div>
+        <div class="feature-detail-body" id="feature-detail-body"></div>
+      </div>
 
       <div class="layout workspace layout-3col">
         <!-- KOLUMNA 1: film + opcje wideo pod wrzutnią -->
@@ -828,6 +826,104 @@
         I.mountSwitcher(document.getElementById("ui-lang-slot"));
         I.apply();
         window.addEventListener("clipforge:lang", () => I.apply());
+      })();
+    </script>
+    <script>
+      (function () {
+        const DETAIL = {
+          delogo: {
+            title: "1 · Czysty obraz",
+            html:
+              "<p><strong>Usuwanie logo, watermarków i znaków wodnych</strong> — bez ręcznego montażu w CapCutcie.</p>" +
+              "<ul>" +
+              "<li><strong>Ręczny wybór</strong> — narysuj prostokąt(y) na klatce, gdzie siedzi logo.</li>" +
+              "<li><strong>Auto (dół)</strong> — szybki retusz typowych watermarków na dole kadru.</li>" +
+              "<li><strong>Metody:</strong> delogo (naturalne), czarny pasek (100% ukrycia), blur + mocniejsze krycie.</li>" +
+              "<li>Wielokrotne obszary — kilka logo na jednym filmie.</li>" +
+              "</ul>" +
+              "<p class='feature-cta'>→ Kolumna 1 · Opcje wideo · „Usuń logo / znak wodny”</p>",
+          },
+          hd: {
+            title: "2 · Super HD / AI",
+            html:
+              "<p><strong>Podkręć jakość do ostrego HD</strong> — od szybkiego FFmpeg po mocny Real-ESRGAN.</p>" +
+              "<ul>" +
+              "<li><strong>Szybki HD</strong> — scale + ostrość + denoise + korekcja kolorów (auto lub ręczna).</li>" +
+              "<li><strong>AI Real-ESRGAN</strong> na Twoim PC (agent): modele Anime/Video oraz <strong>Fotoreal x4plus</strong>.</li>" +
+              "<li><strong>Style i kadr:</strong> Cartoon, Cinematic, VHS, Noir, 9:16 Reels, 1:1, stabilizacja, tempo, max 15/30/60 s.</li>" +
+              "<li>Porównanie <strong>PRZED / PO</strong> dwoma odtwarzaczami w wyniku.</li>" +
+              "</ul>" +
+              "<p class='feature-cta'>→ Kolumna 1 · Jakość i rozdzielczość · Styl i kadr wideo</p>",
+          },
+          voice: {
+            title: "3 · Lektor i napisy",
+            html:
+              "<p><strong>Z dźwięku wideo robisz lektora i napisy pod publikację</strong> — w wielu językach.</p>" +
+              "<ul>" +
+              "<li><strong>STT</strong> — wyodrębnianie mowy z oryginalnego audio.</li>" +
+              "<li><strong>Tłumaczenie na żywo</strong> na język docelowy (np. PL, EN, ES…).</li>" +
+              "<li><strong>Lektor neuralny</strong> (głos żeński / męski) zmikswany z tłem.</li>" +
+              "<li><strong>Napisy SRT</strong> + opcjonalny burn-in w obrazie.</li>" +
+              "<li><strong>Poprawa audio:</strong> głośność, bass/treble, denoise, fokus na głos, bitrate kbps.</li>" +
+              "</ul>" +
+              "<p class='feature-cta'>→ Kolumna 2 · Lektor · Jakość audio · Napisy</p>",
+          },
+          pc: {
+            title: "4 · Twój PC",
+            html:
+              "<p><strong>UI w chmurze, liczenie u Ciebie</strong> — bez wspólnej kolejki i bez trzymania filmów na zawsze na serwerze.</p>" +
+              "<ul>" +
+              "<li><strong>PC Agent</strong> — jeden plik ⬇ PC, instalacja z chmury, joby na Twoim komputerze.</li>" +
+              "<li><strong>Chip PC · ON</strong> — wiesz, kiedy agent jest podłączony do Twojego konta.</li>" +
+              "<li><strong>Prywatność</strong> — plik roboczy lokalnie / tymczasowo; wynik pobierasz do siebie.</li>" +
+              "<li><strong>Multi-user</strong> — każdy ma swoje konto, swój token, swoje joby.</li>" +
+              "</ul>" +
+              "<p class='feature-cta'>→ Studio · przycisk ⬇ PC · RUN-AGENT.bat</p>",
+          },
+        };
+
+        const menu = document.getElementById("features-menu");
+        const panel = document.getElementById("feature-detail");
+        const titleEl = document.getElementById("feature-detail-title");
+        const bodyEl = document.getElementById("feature-detail-body");
+        const closeBtn = document.getElementById("feature-detail-close");
+        if (!menu || !panel) return;
+
+        function closeDetail() {
+          panel.classList.add("hidden");
+          menu.querySelectorAll(".feature-btn").forEach((b) => {
+            b.classList.remove("is-active");
+            b.setAttribute("aria-expanded", "false");
+          });
+        }
+
+        function openDetail(key, btn) {
+          const data = DETAIL[key];
+          if (!data) return;
+          const already =
+            btn.classList.contains("is-active") && !panel.classList.contains("hidden");
+          if (already) {
+            closeDetail();
+            return;
+          }
+          menu.querySelectorAll(".feature-btn").forEach((b) => {
+            b.classList.toggle("is-active", b === btn);
+            b.setAttribute("aria-expanded", b === btn ? "true" : "false");
+          });
+          titleEl.textContent = data.title;
+          bodyEl.innerHTML = data.html;
+          panel.classList.remove("hidden");
+          try {
+            panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          } catch (_) {}
+        }
+
+        menu.querySelectorAll(".feature-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            openDetail(btn.getAttribute("data-feature"), btn);
+          });
+        });
+        closeBtn?.addEventListener("click", closeDetail);
       })();
     </script>
   </body>
