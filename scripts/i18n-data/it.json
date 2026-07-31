@@ -78,8 +78,8 @@
   "narrator.titleLab": "Titolo (facoltativo)",
   "narrator.titlePh": "Lascia vuoto = prendi dal nome del file",
   "narrator.scriptLab": "Testo per traduzione / narratore (facoltativo)",
-  "narrator.scriptPh": "Lasciare vuoto = estrarre il parlato dal video (STT), quindi tradurre.",
-  "narrator.scriptHint": "Esatto: traduzione → live → STT vuota. Descrizione: monologo più lungo.",
+  "narrator.scriptPh": "Leave empty = STT on Start. Or Extract transcript, edit, then Start.",
+  "narrator.scriptHint": "Exact mode: empty field → STT on Start. Or extract first, edit, then Start uses your text.",
   "narrator.bg": "Volume di sottofondo (più silenzioso = voce più chiara)",
   "subs.title": "Didascalie (lingua di destinazione)",
   "subs.hint": "Da script tradotto · SRT + burn-in",
@@ -413,5 +413,13 @@
   "narrator.styleCalm": "Calm / soft narration",
   "narrator.styleSarcastic": "Sarcastic",
   "narrator.styleDoc": "Documentary",
-  "narrator.styleHype": "Hype / play-by-play"
+  "narrator.styleHype": "Hype / play-by-play",
+  "narrator.extractBtn": "🎤 Extract transcript",
+  "narrator.extractTimed": "with times",
+  "narrator.extractHint": "Drop a video in column 1 first. Transcript fills the box below — edit it, then Start.",
+  "narrator.extractNeedFile": "Drop a video in column 1 first.",
+  "narrator.extractBusy": "Transcribing… (may take a while)",
+  "narrator.extractEmpty": "No speech found (music/silence). Try video captions or paste text.",
+  "narrator.extractOk": "Transcript in the box — you can edit it.",
+  "narrator.extractFail": "Transcript error: "
 }

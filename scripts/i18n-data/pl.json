@@ -88,8 +88,8 @@
   "narrator.titleLab": "Tytuł (opcjonalnie)",
   "narrator.titlePh": "Zostaw puste = weźmie z nazwy pliku",
   "narrator.scriptLab": "Tekst do tłumaczenia / lektora (opcjonalnie)",
-  "narrator.scriptPh": "Zostaw puste = system wyodrębni mowę z wideo (STT), potem przetłumaczy.",
-  "narrator.scriptHint": "Dokładne: puste pole → STT → tłumaczenie. Opis: dłuższy monolog lektora.",
+  "narrator.scriptPh": "Zostaw puste = STT przy starcie. Albo «Wyodrębnij transkrypcję», popraw i Start.",
+  "narrator.scriptHint": "Dokładne tłumaczenie: puste pole → STT przy starcie. Albo wyodrębnij wcześniej, popraw ręcznie, potem Start.",
   "narrator.bg": "Głośność tła (ciszej = lepiej słychać lektora)",
   "subs.title": "Napisy (język docelowy)",
   "subs.hint": "Z przetłumaczonego skryptu · SRT + burn-in",
@@ -413,5 +413,13 @@
   "narrator.styleCalm": "Spokojny / spokojna narracja",
   "narrator.styleSarcastic": "Sarkastyczny",
   "narrator.styleDoc": "Dokumentalny",
-  "narrator.styleHype": "Hype / komentator"
+  "narrator.styleHype": "Hype / komentator",
+  "narrator.extractBtn": "🎤 Wyodrębnij transkrypcję",
+  "narrator.extractTimed": "z czasem",
+  "narrator.extractHint": "Najpierw wrzuć wideo (kolumna 1). Transkrypcja wpadnie do pola poniżej — możesz poprawić i dopiero potem Start.",
+  "narrator.extractNeedFile": "Najpierw wrzuć wideo w kolumnie 1.",
+  "narrator.extractBusy": "Transkrypcja w toku… (może potrwać)",
+  "narrator.extractEmpty": "Brak mowy w audio (muzyka / cisza). Spróbuj napisów z filmu albo wklej tekst ręcznie.",
+  "narrator.extractOk": "Transkrypcja w polu — możesz poprawić.",
+  "narrator.extractFail": "Błąd transkrypcji: "
 }

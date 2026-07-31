@@ -78,8 +78,8 @@
   "narrator.titleLab": "العنوان (اختياري)",
   "narrator.titlePh": "اترك فارغًا = خذ من اسم الملف",
   "narrator.scriptLab": "نص للترجمة/الراوي (اختياري)",
-  "narrator.scriptPh": "اتركه فارغًا = استخرج الكلام من الفيديو (STT)، ثم ترجمه.",
-  "narrator.scriptHint": "بالضبط: فارغ → STT → ترجمة مباشرة. الوصف : مونولوج أطول.",
+  "narrator.scriptPh": "Leave empty = STT on Start. Or Extract transcript, edit, then Start.",
+  "narrator.scriptHint": "Exact mode: empty field → STT on Start. Or extract first, edit, then Start uses your text.",
   "narrator.bg": "مستوى صوت الخلفية (أكثر هدوءًا = صوت أكثر وضوحًا)",
   "subs.title": "التسميات التوضيحية (اللغة المستهدفة)",
   "subs.hint": "من النص المترجم · SRT + النسخ",
@@ -413,5 +413,13 @@
   "narrator.styleCalm": "Calm / soft narration",
   "narrator.styleSarcastic": "Sarcastic",
   "narrator.styleDoc": "Documentary",
-  "narrator.styleHype": "Hype / play-by-play"
+  "narrator.styleHype": "Hype / play-by-play",
+  "narrator.extractBtn": "🎤 Extract transcript",
+  "narrator.extractTimed": "with times",
+  "narrator.extractHint": "Drop a video in column 1 first. Transcript fills the box below — edit it, then Start.",
+  "narrator.extractNeedFile": "Drop a video in column 1 first.",
+  "narrator.extractBusy": "Transcribing… (may take a while)",
+  "narrator.extractEmpty": "No speech found (music/silence). Try video captions or paste text.",
+  "narrator.extractOk": "Transcript in the box — you can edit it.",
+  "narrator.extractFail": "Transcript error: "
 }

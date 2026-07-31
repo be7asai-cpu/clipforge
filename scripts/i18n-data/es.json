@@ -78,8 +78,8 @@
   "narrator.titleLab": "Título (opcional)",
   "narrator.titlePh": "Dejar vacío = tomar del nombre del archivo",
   "narrator.scriptLab": "Texto para traducción / narrador (opcional)",
-  "narrator.scriptPh": "Dejar vacío = extraer el habla del video (STT), luego traducir.",
-  "narrator.scriptHint": "Exacto: traducción → en vivo → STT vacía. Descripción: monólogo más largo.",
+  "narrator.scriptPh": "Leave empty = STT on Start. Or Extract transcript, edit, then Start.",
+  "narrator.scriptHint": "Exact mode: empty field → STT on Start. Or extract first, edit, then Start uses your text.",
   "narrator.bg": "Volumen de fondo (más silencioso = voz más clara)",
   "subs.title": "Subtítulos",
   "subs.hint": "Del script traducido · SRT + burn-in",
@@ -413,5 +413,13 @@
   "narrator.styleCalm": "Calm / soft narration",
   "narrator.styleSarcastic": "Sarcastic",
   "narrator.styleDoc": "Documentary",
-  "narrator.styleHype": "Hype / play-by-play"
+  "narrator.styleHype": "Hype / play-by-play",
+  "narrator.extractBtn": "🎤 Extract transcript",
+  "narrator.extractTimed": "with times",
+  "narrator.extractHint": "Drop a video in column 1 first. Transcript fills the box below — edit it, then Start.",
+  "narrator.extractNeedFile": "Drop a video in column 1 first.",
+  "narrator.extractBusy": "Transcribing… (may take a while)",
+  "narrator.extractEmpty": "No speech found (music/silence). Try video captions or paste text.",
+  "narrator.extractOk": "Transcript in the box — you can edit it.",
+  "narrator.extractFail": "Transcript error: "
 }

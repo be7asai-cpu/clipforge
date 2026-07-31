@@ -18,7 +18,7 @@
     />
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
-    <link rel="stylesheet" href="/css/studio.css?v=20260801style1" />
+    <link rel="stylesheet" href="/css/studio.css?v=20260801preStt" />
     <link rel="stylesheet" href="/css/auth.css?v=20260728narronly" />
     <link rel="icon" href="/assets/clipforge-192.png" />
     <link rel="apple-touch-icon" href="/assets/clipforge-192.png" />
@@ -559,6 +559,20 @@
                   <option value="male" data-i18n="narrator.male">Męski (neural)</option>
                 </select>
               </label>
+              <div class="pre-stt-bar" id="pre-stt-bar">
+                <button type="button" class="btn ghost sm" id="btn-extract-transcript">
+                  <span data-i18n="narrator.extractBtn">🎤 Wyodrębnij transkrypcję</span>
+                </button>
+                <label class="inline pre-stt-timed" title="Wstaw z znacznikami czasu">
+                  <input type="checkbox" id="opt-extract-timed" />
+                  <span data-i18n="narrator.extractTimed">z czasem</span>
+                </label>
+                <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
+              </div>
+              <p class="hint" data-i18n="narrator.extractHint">
+                Najpierw wrzuć wideo (kolumna 1). Transkrypcja wpadnie do pola poniżej — możesz poprawić i dopiero potem Start.
+              </p>
+
               <label class="stack">
                 <span data-i18n="narrator.titleLab">Tytuł (opcjonalnie)</span>
                 <input
@@ -572,13 +586,13 @@
                 <span data-i18n="narrator.scriptLab">Tekst do tłumaczenia / lektora (opcjonalnie)</span>
                 <textarea
                   id="opt-script"
-                  rows="4"
+                  rows="6"
                   data-i18n-placeholder="narrator.scriptPh"
-                  placeholder="Zostaw puste = system wyodrębni mowę z wideo (STT), potem przetłumaczy."
+                  placeholder="Zostaw puste = system wyodrębni mowę z wideo (STT), potem przetłumaczy. Albo: «Wyodrębnij transkrypcję», popraw i Start."
                 ></textarea>
               </label>
               <p class="hint" data-i18n="narrator.scriptHint">
-                Dokładne tłumaczenie: puste pole → STT z wideo → tłumaczenie na żywo.
+                Dokładne tłumaczenie: puste pole → STT przy starcie. Albo wyodrębnij wcześniej, popraw tekst ręcznie, potem Start (wtedy użyje tego pola).
               </p>
               <label class="inline">
                 <span data-i18n="narrator.bg">Głośność tła (ciszej = lepiej słychać lektora)</span>
@@ -886,9 +900,9 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801style1"></script>
+    <script src="/js/i18n.js?v=20260801preStt"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260801style1"></script>
+    <script src="/js/studio.js?v=20260801preStt"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;

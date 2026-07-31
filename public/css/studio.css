@@ -1522,6 +1522,37 @@ body.clipforge-only {
   opacity: 1;
   filter: none;
 }
+/* Pre-job transcript extract → fills #opt-script for edits */
+.pre-stt-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+.pre-stt-bar .btn {
+  flex: 0 0 auto;
+}
+.pre-stt-timed {
+  font-size: 0.82rem;
+  opacity: 0.9;
+  gap: 6px;
+}
+#extract-transcript-status {
+  flex: 1 1 140px;
+  min-height: 1.2em;
+  margin: 0;
+}
+#extract-transcript-status.is-busy {
+  color: var(--cyan, #00f0ff);
+}
+#extract-transcript-status.is-ok {
+  color: #6dffa8;
+}
+#extract-transcript-status.is-err {
+  color: #ff8a8a;
+}
+
 /* Real DOM badge (i18n via data-i18n) — not CSS content (was stuck in Polish) */
 .narrator-only-badge {
   display: block;

@@ -78,8 +78,8 @@
   "narrator.titleLab": "标题（可选）",
   "narrator.titlePh": "留空=从文件名中获取",
   "narrator.scriptLab": "翻译文本/旁白（可选）",
-  "narrator.scriptPh": "留空=从视频中提取语音（STT），然后翻译。",
-  "narrator.scriptHint": "确切地说：空→STT→实时翻译。描述：较长的独白。",
+  "narrator.scriptPh": "Leave empty = STT on Start. Or Extract transcript, edit, then Start.",
+  "narrator.scriptHint": "Exact mode: empty field → STT on Start. Or extract first, edit, then Start uses your text.",
   "narrator.bg": "背景音量（更安静=更清晰的声音）",
   "subs.title": "字幕（目标语言）",
   "subs.hint": "From translated script · SRT + burn-in",
@@ -413,5 +413,13 @@
   "narrator.styleCalm": "Calm / soft narration",
   "narrator.styleSarcastic": "Sarcastic",
   "narrator.styleDoc": "Documentary",
-  "narrator.styleHype": "Hype / play-by-play"
+  "narrator.styleHype": "Hype / play-by-play",
+  "narrator.extractBtn": "🎤 Extract transcript",
+  "narrator.extractTimed": "with times",
+  "narrator.extractHint": "Drop a video in column 1 first. Transcript fills the box below — edit it, then Start.",
+  "narrator.extractNeedFile": "Drop a video in column 1 first.",
+  "narrator.extractBusy": "Transcribing… (may take a while)",
+  "narrator.extractEmpty": "No speech found (music/silence). Try video captions or paste text.",
+  "narrator.extractOk": "Transcript in the box — you can edit it.",
+  "narrator.extractFail": "Transcript error: "
 }

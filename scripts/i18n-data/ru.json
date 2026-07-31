@@ -78,8 +78,8 @@
   "narrator.titleLab": "Название (необязательно)",
   "narrator.titlePh": "Оставить пустым = взять из имени файла",
   "narrator.scriptLab": "Текст для перевода/диктор (по желанию)",
-  "narrator.scriptPh": "Оставьте пустым = извлеките речь из видео (STT), затем переведите.",
-  "narrator.scriptHint": "Точно: пусто → STT → живой перевод. Описание: длинный монолог.",
+  "narrator.scriptPh": "Leave empty = STT on Start. Or Extract transcript, edit, then Start.",
+  "narrator.scriptHint": "Exact mode: empty field → STT on Start. Or extract first, edit, then Start uses your text.",
   "narrator.bg": "Громкость фона (тише = четче голос)",
   "subs.title": "Субтитры (целевой язык)",
   "subs.hint": "Из переведенного сценария · SRT + прожигание",
@@ -413,5 +413,13 @@
   "narrator.styleCalm": "Calm / soft narration",
   "narrator.styleSarcastic": "Sarcastic",
   "narrator.styleDoc": "Documentary",
-  "narrator.styleHype": "Hype / play-by-play"
+  "narrator.styleHype": "Hype / play-by-play",
+  "narrator.extractBtn": "🎤 Extract transcript",
+  "narrator.extractTimed": "with times",
+  "narrator.extractHint": "Drop a video in column 1 first. Transcript fills the box below — edit it, then Start.",
+  "narrator.extractNeedFile": "Drop a video in column 1 first.",
+  "narrator.extractBusy": "Transcribing… (may take a while)",
+  "narrator.extractEmpty": "No speech found (music/silence). Try video captions or paste text.",
+  "narrator.extractOk": "Transcript in the box — you can edit it.",
+  "narrator.extractFail": "Transcript error: "
 }

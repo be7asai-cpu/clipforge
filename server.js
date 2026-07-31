@@ -1628,6 +1628,123 @@ app.get("/api/studio/languages", (_req, res) => {
   res.json(listLanguageModels());
 });
 
+/**
+ * Pre-job STT: extract transcript into the narrator script field for manual edits.
+ * POST multipart field "video" + optional sourceLang, maxSeconds.
+ */
+app.post("/api/studio/transcribe", (req, res) => {
+  studioUpload.single("video")(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || "Upload error" });
+    }
+    const uid = studioUserId(req);
+    if (auth.isAuthRequired() && !uid) {
+      return res.status(401).json({ error: "Wymagane logowanie" });
+    }
+    if (!req.file || !req.file.path) {
+      return res.status(400).json({
+        error: "Brak pliku wideo — wrzuć klip w kolumnie 1, potem wyodrębnij transkrypcję.",
+      });
+    }
+    const videoPath = req.file.path;
+    const originalName = req.file.originalname || "video.mp4";
+    let sourceLang = String(req.body?.sourceLang || "auto").trim() || "auto";
+    const maxSeconds = Math.min(
+      1200,
+      Math.max(5, Number(req.body?.maxSeconds) || 600)
+    );
+    const workDir = path.join(
+      studioJobs.WORK_DIR || path.join(__dirname, "data", "studio", "work"),
+      "pre_stt_" + Date.now().toString(36)
+    );
+    try {
+      fs.mkdirSync(workDir, { recursive: true });
+      const {
+        extractSpeechFromVideoSegmented,
+      } = require("./lib/lang-utils");
+      let durationSec = 0;
+      try {
+        const { ffmpegPath } = require("./lib/studio-pipeline");
+        const ff = ffmpegPath();
+        const { spawnSync } = require("child_process");
+        const pr = spawnSync(ff, ["-i", videoPath], {
+          encoding: "utf8",
+          windowsHide: true,
+        });
+        const errOut = (pr.stderr || "") + (pr.stdout || "");
+        const m = errOut.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+        if (m) {
+          durationSec =
+            Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+        }
+      } catch {
+        /* ignore probe */
+      }
+      const stt = extractSpeechFromVideoSegmented(videoPath, {
+        sourceLang,
+        maxSeconds: durationSec > 0 ? Math.min(durationSec + 1, maxSeconds) : maxSeconds,
+        workDir: path.join(workDir, "stt"),
+      });
+      const text = String(stt.text || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      const titleGuess = String(originalName)
+        .replace(/\.[^.]+$/, "")
+        .replace(/[_\-]+/g, " ")
+        .trim()
+        .slice(0, 120);
+      // Timed preview for UI (optional)
+      const timed =
+        Array.isArray(stt.timelineSegments) && stt.timelineSegments.length
+          ? stt.timelineSegments
+              .filter((s) => s && String(s.text || "").trim())
+              .map((s) => {
+                const a = Number(s.start) || 0;
+                const b = Math.max(a + 0.3, Number(s.end) || a + 1);
+                const mm = (x) => {
+                  const m0 = Math.floor(x / 60);
+                  const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
+                  return String(m0).padStart(2, "0") + ":" + s0;
+                };
+                return `[${mm(a)}–${mm(b)}] ${String(s.text).trim()}`;
+              })
+              .join("\n")
+          : "";
+      res.json({
+        ok: true,
+        text,
+        timedText: timed,
+        title: titleGuess,
+        engine: stt.engine || null,
+        langCode: stt.langCode || sourceLang || null,
+        durationSec: durationSec || stt.audioDuration || null,
+        segments: Array.isArray(stt.timelineSegments)
+          ? stt.timelineSegments.length
+          : 0,
+        error: text ? null : stt.error || "Brak rozpoznanej mowy",
+        musicLikely: !!stt.musicLikely,
+      });
+    } catch (e) {
+      console.error("[transcribe]", e);
+      res.status(500).json({
+        error: (e && e.message) || "Transkrypcja nieudana",
+      });
+    } finally {
+      // cleanup temp upload + work (best effort)
+      try {
+        if (videoPath && fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.rmSync(workDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+});
+
 app.get("/api/studio/jobs", (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 20, 50);
   const uid = studioUserId(req);

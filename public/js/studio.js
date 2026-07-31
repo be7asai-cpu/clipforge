@@ -564,6 +564,100 @@
   refreshTranscriptHint();
   refreshLangBadge();
 
+  /** Pre-job STT → fill #opt-script (and title if empty) for manual edits */
+  async function extractTranscriptToField() {
+    const status = $("#extract-transcript-status");
+    const btn = $("#btn-extract-transcript");
+    const setSt = (msg, kind) => {
+      if (!status) return;
+      status.textContent = msg || "";
+      status.classList.remove("is-busy", "is-ok", "is-err");
+      if (kind) status.classList.add("is-" + kind);
+    };
+    if (!selectedFile) {
+      setSt(
+        tr(
+          "narrator.extractNeedFile",
+          "Najpierw wrzuć wideo w kolumnie 1."
+        ),
+        "err"
+      );
+      return;
+    }
+    const wantTimed = !!$("#opt-extract-timed")?.checked;
+    const srcLang = $("#opt-source-lang")?.value || "auto";
+    const fd = new FormData();
+    fd.append("video", selectedFile, selectedFile.name || "video.mp4");
+    fd.append("sourceLang", srcLang);
+    if (btn) btn.disabled = true;
+    setSt(
+      tr("narrator.extractBusy", "Transkrypcja w toku… (może potrwać)"),
+      "busy"
+    );
+    try {
+      const res = await fetch("/api/studio/transcribe", {
+        method: "POST",
+        body: fd,
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "HTTP " + res.status);
+      }
+      const plain = String(data.text || "").trim();
+      const timed = String(data.timedText || "").trim();
+      const useText = wantTimed && timed ? timed : plain;
+      if (!useText) {
+        setSt(
+          data.error ||
+            tr(
+              "narrator.extractEmpty",
+              "Brak mowy w audio (muzyka / cisza). Spróbuj napisów z filmu albo wklej tekst ręcznie."
+            ),
+          "err"
+        );
+        return;
+      }
+      const ta = $("#opt-script");
+      if (ta) {
+        ta.value = useText;
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      const titleEl = $("#opt-title");
+      if (titleEl && !String(titleEl.value || "").trim() && data.title) {
+        titleEl.value = data.title;
+        titleEl.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      refreshLangBadge();
+      const meta = [
+        data.engine ? String(data.engine) : null,
+        data.langCode ? "lang " + data.langCode : null,
+        data.durationSec
+          ? "~" + Math.round(Number(data.durationSec)) + "s"
+          : null,
+        data.segments ? data.segments + " seg." : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      setSt(
+        tr("narrator.extractOk", "Transkrypcja w polu — możesz poprawić.") +
+          (meta ? " (" + meta + ")" : ""),
+        "ok"
+      );
+    } catch (e) {
+      setSt(
+        tr("narrator.extractFail", "Błąd transkrypcji: ") +
+          (e.message || e),
+        "err"
+      );
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+  $("#btn-extract-transcript")?.addEventListener("click", () => {
+    extractTranscriptToField();
+  });
+
   // --- file + first frame for logo picker ---
   function setFile(file) {
     if (!file) return;

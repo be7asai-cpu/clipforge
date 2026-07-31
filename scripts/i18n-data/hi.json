@@ -78,8 +78,8 @@
   "narrator.titleLab": "शीर्षक (वैकल्पिक)",
   "narrator.titlePh": "खाली छोड़ें = फ़ाइल नाम से लें",
   "narrator.scriptLab": "अनुवाद/वर्णनकर्ता के लिए पाठ (वैकल्पिक)",
-  "narrator.scriptPh": "खाली छोड़ें = वीडियो (एसटीटी) से भाषण निकालें, फिर अनुवाद करें।",
-  "narrator.scriptHint": "Exact: empty → STT → live translation. Description: longer monologue.",
+  "narrator.scriptPh": "Leave empty = STT on Start. Or Extract transcript, edit, then Start.",
+  "narrator.scriptHint": "Exact mode: empty field → STT on Start. Or extract first, edit, then Start uses your text.",
   "narrator.bg": "पृष्ठभूमि ध्वनि (शांत = स्पष्ट आवाज)",
   "subs.title": "कैप्शन (लक्ष्य भाषा)",
   "subs.hint": "अनूदित स्क्रिप्ट से · एसआरटी + बर्न-इन",
@@ -413,5 +413,13 @@
   "narrator.styleCalm": "Calm / soft narration",
   "narrator.styleSarcastic": "Sarcastic",
   "narrator.styleDoc": "Documentary",
-  "narrator.styleHype": "Hype / play-by-play"
+  "narrator.styleHype": "Hype / play-by-play",
+  "narrator.extractBtn": "🎤 Extract transcript",
+  "narrator.extractTimed": "with times",
+  "narrator.extractHint": "Drop a video in column 1 first. Transcript fills the box below — edit it, then Start.",
+  "narrator.extractNeedFile": "Drop a video in column 1 first.",
+  "narrator.extractBusy": "Transcribing… (may take a while)",
+  "narrator.extractEmpty": "No speech found (music/silence). Try video captions or paste text.",
+  "narrator.extractOk": "Transcript in the box — you can edit it.",
+  "narrator.extractFail": "Transcript error: "
 }
