@@ -441,6 +441,79 @@
               </label>
             </div>
 
+            <!-- Jakość audio — pod lektorem -->
+            <div class="opt-block audio-enhance-block" id="audio-enhance-block">
+              <div class="opt-block-title">Jakość audio</div>
+              <label class="opt">
+                <input type="checkbox" id="opt-audio" checked />
+                <span>
+                  <strong>Poprawa dźwięku</strong>
+                  <small>Głośność, tony, szumy, bitrate, fokus na głos</small>
+                </span>
+              </label>
+              <div class="sub-opts" id="audio-opts">
+                <div class="opt-block-title">Tryb audio</div>
+                <div class="seg" role="radiogroup" aria-label="Audio mode">
+                  <label>
+                    <input type="radio" name="audio-mode" value="manual" />
+                    <span>Ręczna</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="audio-mode" value="auto" checked />
+                    <span>Automatyczna (analiza audio)</span>
+                  </label>
+                </div>
+                <p class="hint" id="audio-auto-hint">
+                  Aplikacja zbada głośność i poziom szumu, potem ustawi wzmocnienie, denoise i EQ.
+                </p>
+                <p class="hint polish-auto-result hidden" id="audio-auto-result" aria-live="polite"></p>
+
+                <label class="stack mt-sm">
+                  <span>Bitrate audio (kbps)</span>
+                  <select id="opt-audio-bitrate">
+                    <option value="96">96 · mniejszy plik</option>
+                    <option value="128">128 · standard</option>
+                    <option value="160" selected>160 · dobra (domyślna)</option>
+                    <option value="192">192 · wysoka</option>
+                    <option value="256">256 · bardzo wysoka</option>
+                    <option value="320">320 · max</option>
+                  </select>
+                </label>
+
+                <div class="sliders" id="audio-sliders">
+                  <label class="inline">
+                    <span>Głośność</span>
+                    <input type="range" id="opt-audio-volume" min="0" max="100" value="55" />
+                    <span id="opt-audio-volume-val">55</span>
+                  </label>
+                  <label class="inline">
+                    <span>Tony niskie (bass)</span>
+                    <input type="range" id="opt-audio-bass" min="0" max="100" value="50" />
+                    <span id="opt-audio-bass-val">50</span>
+                  </label>
+                  <label class="inline">
+                    <span>Tony wysokie (treble)</span>
+                    <input type="range" id="opt-audio-treble" min="0" max="100" value="52" />
+                    <span id="opt-audio-treble-val">52</span>
+                  </label>
+                  <label class="inline">
+                    <span>Usuwanie szumu</span>
+                    <input type="range" id="opt-audio-denoise" min="0" max="100" value="25" />
+                    <span id="opt-audio-denoise-val">25</span>
+                  </label>
+                </div>
+
+                <label class="inline mt-sm">
+                  <input type="checkbox" id="opt-audio-voice" />
+                  <span>Tylko głos ludzi (wycina bas/hałas, pasmo mowy)</span>
+                </label>
+                <label class="inline">
+                  <input type="checkbox" id="opt-audio-normalize" checked />
+                  <span>Wyrównaj głośność (kompresja dynamiczna)</span>
+                </label>
+              </div>
+            </div>
+
             <label class="opt">
               <input type="checkbox" id="opt-subs" />
               <span>

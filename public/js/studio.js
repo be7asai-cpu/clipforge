@@ -253,6 +253,56 @@
       "auto"
     );
   }
+
+  function audioMode() {
+    return (
+      document.querySelector('input[name="audio-mode"]:checked')?.value ||
+      "auto"
+    );
+  }
+
+  function syncAudioModeUi() {
+    const on = $("#opt-audio")?.checked !== false;
+    const audioOpts = $("#audio-opts");
+    const sliders = $("#audio-sliders");
+    const hint = $("#audio-auto-hint");
+    const bitrate = $("#opt-audio-bitrate");
+    if (audioOpts) audioOpts.classList.toggle("hidden", !on);
+    const auto = audioMode() === "auto";
+    if (sliders) {
+      sliders.classList.toggle("is-disabled", auto);
+      sliders.querySelectorAll("input").forEach((el) => {
+        el.disabled = auto;
+      });
+    }
+    // Bitrate always editable; voice/normalize too
+    if (hint) hint.classList.toggle("hidden", !auto || !on);
+    const voice = $("#opt-audio-voice");
+    const norm = $("#opt-audio-normalize");
+    if (voice) voice.disabled = auto;
+    if (norm) norm.disabled = auto;
+    if (bitrate) bitrate.disabled = false;
+  }
+
+  $("#opt-audio")?.addEventListener("change", syncAudioModeUi);
+  document.querySelectorAll('input[name="audio-mode"]').forEach((el) => {
+    el.addEventListener("change", syncAudioModeUi);
+  });
+  [
+    ["opt-audio-volume", "opt-audio-volume-val", ""],
+    ["opt-audio-bass", "opt-audio-bass-val", ""],
+    ["opt-audio-treble", "opt-audio-treble-val", ""],
+    ["opt-audio-denoise", "opt-audio-denoise-val", ""],
+  ].forEach(([id, vid]) => {
+    const inp = $("#" + id);
+    const lab = $("#" + vid);
+    if (inp && lab) {
+      inp.addEventListener("input", () => {
+        lab.textContent = inp.value;
+      });
+    }
+  });
+  syncAudioModeUi();
   function syncPolishModeUi() {
     const on = $("#opt-polish")?.checked;
     const polishOpts = $("#polish-opts");
@@ -725,6 +775,26 @@
       title: $("#opt-title").value.trim(),
       narratorScript: $("#opt-script").value.trim(),
       bgVolume: Number(optBg.value) / 100,
+      // Audio enhance (column 2, under narrator)
+      audioEnhance: $("#opt-audio")?.checked !== false,
+      audioMode: $("#opt-audio")?.checked === false ? "off" : audioMode(),
+      audioBitrate: Number($("#opt-audio-bitrate")?.value) || 160,
+      audioVolume:
+        audioMode() === "auto" ? null : Number($("#opt-audio-volume")?.value),
+      audioBass:
+        audioMode() === "auto" ? null : Number($("#opt-audio-bass")?.value),
+      audioTreble:
+        audioMode() === "auto" ? null : Number($("#opt-audio-treble")?.value),
+      audioDenoise:
+        audioMode() === "auto" ? null : Number($("#opt-audio-denoise")?.value),
+      audioVoiceOnly:
+        audioMode() === "auto"
+          ? null
+          : !!$("#opt-audio-voice")?.checked,
+      audioNormalize:
+        audioMode() === "auto"
+          ? null
+          : $("#opt-audio-normalize")?.checked !== false,
       subtitles: optSubs.checked,
       burnSubtitles: $("#opt-burn").checked,
       videoSize: videoNatural,
