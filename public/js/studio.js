@@ -461,12 +461,12 @@
     if (transcriptSource() === "captions") {
       hint.textContent = tr(
         "narrator.transcriptHintCaps",
-        "Napisy z filmu (YouTube auto/CC) → transkrypcja z znacznikami czasu. Lepsze do muzyki i filmów z napisami."
+        "Pobiera napisy z filmu (np. YouTube) i układa je w tekst z czasem. Dobre do muzyki i filmów, które już mają napisy."
       );
     } else {
       hint.textContent = tr(
         "narrator.transcriptHintStt",
-        "STT: rozpoznaje mowę z audio (segmenty). Dobre do mówionych shortów."
+        "Słucha audio i zamienia mowę na tekst (segmenty). Najlepsze do shortów z gadaniem."
       );
     }
   }
