@@ -16,7 +16,7 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 const http = require("http");
-const { spawnSync } = require("child_process");
+const { spawnSync, spawn } = require("child_process");
 
 const ROOT = path.join(__dirname, "..");
 // Load local .env if present (optional)
@@ -305,7 +305,82 @@ function ensureFfmpegForAgent() {
   );
 }
 
-async function downloadPlatformSource(sourceUrl, destPath) {
+/**
+ * Run yt-dlp async so UI can get progress (spawnSync freezes agent + stuck at 1%).
+ * @param {string} bin
+ * @param {string[]} args
+ * @param {{ onLine?: (line: string) => void, timeoutMs?: number }} [opts]
+ */
+function runYtDlpAsync(bin, args, opts = {}) {
+  const timeoutMs = opts.timeoutMs || 25 * 60 * 1000;
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (process.platform === "win32" && child.pid) {
+          spawnSync("taskkill", ["/F", "/T", "/PID", String(child.pid)], {
+            windowsHide: true,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+      if (!settled) {
+        settled = true;
+        reject(new Error("yt-dlp timeout (" + Math.round(timeoutMs / 1000) + "s)"));
+      }
+    }, timeoutMs);
+    const feed = (buf, isErr) => {
+      const s = buf.toString("utf8");
+      if (isErr) stderr += s;
+      else stdout += s;
+      // yt-dlp uses \r progress updates — split both
+      const parts = s.split(/\r|\n/);
+      for (const line of parts) {
+        const t = line.trim();
+        if (t && opts.onLine) opts.onLine(t);
+      }
+    };
+    child.stdout.on("data", (d) => feed(d, false));
+    child.stderr.on("data", (d) => feed(d, true));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (!settled) {
+        settled = true;
+        resolve({
+          status: code,
+          stdout,
+          stderr,
+        });
+      }
+    });
+  });
+}
+
+/**
+ * @param {string} sourceUrl
+ * @param {string} destPath
+ * @param {{ onProgress?: (p: { progress: number, stage?: string, log?: string }) => void }} [hooks]
+ */
+async function downloadPlatformSource(sourceUrl, destPath, hooks = {}) {
   // Need ffmpeg for merge (video+audio) on YouTube
   let ffPath = null;
   try {
@@ -338,18 +413,51 @@ async function downloadPlatformSource(sourceUrl, destPath) {
     /* ignore */
   }
   const outTpl = path.join(dir, "ytdlp_dl.%(ext)s");
-  // Prefer single progressive mp4 first (less ffmpeg merge issues), then best<=1080
+  // Progressive+audio first (format 18 etc.) — fast, no merge hang.
+  // Cap 720p by default: music videos ~5 min @1080 AI freeze for ages; 720 is enough for Studio.
+  // Then dash merge <=720, then <=1080, then best.
   const formatAttempts = [
-    "mp4[height<=1080]/best[height<=1080]/best",
+    "18/mp4[height<=720][acodec!=none][vcodec!=none]/best[height<=720][ext=mp4]/best[height<=720]",
+    "bv*[height<=720]+ba/b[height<=720]/b",
     "bv*[height<=1080]+ba/b[height<=1080]/b",
     "best",
   ];
   let lastErr = "";
   let r = null;
+  let lastReportAt = 0;
+  const reportDl = (pct, msg) => {
+    const now = Date.now();
+    if (now - lastReportAt < 1500 && pct < 99) return; // throttle cloud posts
+    lastReportAt = now;
+    // Map download 0–100% → job progress 2–14
+    const jobPct = Math.min(14, Math.max(2, 2 + Math.round((pct / 100) * 12)));
+    if (typeof hooks.onProgress === "function") {
+      hooks.onProgress({
+        progress: jobPct,
+        stage: "Pobieranie z YouTube…",
+        log: msg || "yt-dlp " + Math.round(pct) + "%",
+      });
+    }
+  };
   for (const fmt of formatAttempts) {
+    // clean partials between format attempts
+    try {
+      for (const n of fs.readdirSync(dir)) {
+        if (n.startsWith("ytdlp_dl.")) {
+          try {
+            fs.unlinkSync(path.join(dir, n));
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
     const args = [
       "--no-playlist",
       "--no-warnings",
+      "--newline",
       "--ffmpeg-location",
       path.dirname(ffPath),
       "-f",
@@ -363,22 +471,37 @@ async function downloadPlatformSource(sourceUrl, destPath) {
       "5",
       "--fragment-retries",
       "5",
+      "--socket-timeout",
+      "30",
+      "--concurrent-fragments",
+      "4",
       String(sourceUrl),
     ];
     log("yt-dlp start…", fmt, String(sourceUrl).slice(0, 70));
-    r = spawnSync(ytdlp, args, {
-      encoding: "utf8",
-      windowsHide: true,
-      maxBuffer: 30 * 1024 * 1024,
-      timeout: 20 * 60 * 1000,
-    });
-    if (r.error) {
-      throw new Error(
-        "yt-dlp nie startuje: " +
-          (r.error.code || "") +
-          " " +
-          (r.error.message || r.error)
-      );
+    reportDl(0, "Start yt-dlp (" + fmt.slice(0, 40) + "…)");
+    try {
+      r = await runYtDlpAsync(ytdlp, args, {
+        timeoutMs: 25 * 60 * 1000,
+        onLine: (line) => {
+          // [download]  45.2% of  12.34MiB at ...
+          const m = /\[download\]\s+(\d+(?:\.\d+)?)%/.exec(line);
+          if (m) {
+            const pct = Number(m[1]);
+            reportDl(pct, "Pobieranie " + pct.toFixed(0) + "%");
+            return;
+          }
+          if (/\[Merger\]|Merging/i.test(line)) {
+            reportDl(95, "Łączenie wideo+audio…");
+          }
+          if (/Destination:|Downloading/i.test(line)) {
+            log("yt-dlp:", line.slice(0, 120));
+          }
+        },
+      });
+    } catch (e) {
+      lastErr = String(e.message || e);
+      log("yt-dlp error:", lastErr.slice(0, 160));
+      continue;
     }
     lastErr = String(r.stderr || r.stdout || "").slice(-500);
     const found = fs
@@ -396,7 +519,7 @@ async function downloadPlatformSource(sourceUrl, destPath) {
   if (!files.length) {
     throw new Error(
       "yt-dlp nie pobrał pliku (kod " +
-        r.status +
+        (r && r.status) +
         "): " +
         errTail.replace(/\s+/g, " ")
     );
@@ -433,6 +556,13 @@ async function downloadPlatformSource(sourceUrl, destPath) {
   const sz = fs.statSync(destPath).size;
   if (sz < 64) throw new Error("yt-dlp: plik pusty");
   log("yt-dlp OK", destPath, sz, "bytes");
+  if (typeof hooks.onProgress === "function") {
+    hooks.onProgress({
+      progress: 14,
+      stage: "Pobrano z platformy",
+      log: "Pobrano " + Math.round(sz / 1024) + " KB — start obróbki",
+    });
+  }
   return destPath;
 }
 
@@ -453,7 +583,11 @@ async function downloadInput(job, destPath) {
       isPlatformUrl(sourceUrl))
   ) {
     log("Pobieram źródło lokalnie (yt-dlp):", String(sourceUrl).slice(0, 90));
-    await downloadPlatformSource(sourceUrl, destPath);
+    await downloadPlatformSource(sourceUrl, destPath, {
+      onProgress: (patch) => {
+        reportProgress(job.id, patch);
+      },
+    });
     return;
   }
 
@@ -478,7 +612,11 @@ async function downloadInput(job, destPath) {
         isPlatformUrl(u))
     ) {
       log("Cloud 409/platform → yt-dlp:", String(u).slice(0, 90));
-      await downloadPlatformSource(u, destPath);
+      await downloadPlatformSource(u, destPath, {
+        onProgress: (patch) => {
+          reportProgress(job.id, patch);
+        },
+      });
       return;
     }
     const hint = res.buf

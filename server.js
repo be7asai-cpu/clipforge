@@ -1158,10 +1158,10 @@ app.post("/api/studio/agent/heartbeat", async (req, res) => {
 app.post("/api/studio/agent/claim", async (req, res) => {
   const row = await requireAgent(req, res);
   if (!row) return;
-  // Prefer jobs for live account; also try original token userId
-  let job = studioJobs.claimPcJob(row.userId);
+  // Prefer live account userId + email (jobs survive re-login); also token's original userId
+  let job = studioJobs.claimPcJob(row.userId, row.email);
   if (!job && row.tokenUserId && row.tokenUserId !== row.userId) {
-    job = studioJobs.claimPcJob(row.tokenUserId);
+    job = studioJobs.claimPcJob(row.tokenUserId, row.email);
   }
   if (!job) return res.json({ ok: true, job: null });
   const opts = job.options || {};
