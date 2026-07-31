@@ -763,6 +763,7 @@
       brightness: polishMode() === "auto" || narratorOnly ? null : 50,
       upscale: narratorOnly ? "off" : upscale,
       aiScale: Number($("#opt-ai-scale").value) || 2,
+      aiModel: $("#opt-ai-model")?.value || "animevideov3",
       targetHeight: Number($("#opt-height").value) || 1080,
       crf: Number($("#opt-crf").value) || 15,
       crfPreset: Number($("#opt-crf").value) <= 15 ? "slow" : "medium",

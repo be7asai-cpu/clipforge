@@ -260,6 +260,23 @@
                     </select>
                   </label>
                   <label class="stack">
+                    <span>Model Real-ESRGAN</span>
+                    <select id="opt-ai-model" title="x4plus = mocniejszy fotoreal, zawsze ×4, wolniej">
+                      <option value="animevideov3" selected>
+                        Anime/Video (szybki, ×2–4)
+                      </option>
+                      <option value="x4plus">
+                        Fotoreal x4plus (mocny, ×4, ~wolniej)
+                      </option>
+                      <option value="x4plus-anime">
+                        Anime x4plus (×4)
+                      </option>
+                    </select>
+                  </label>
+                  <p class="hint" id="ai-model-hint">
+                    x4plus: lepszy na prawdziwe wideo/osoby. Wymaga modelu na PC (agent). Wolniejszy niż Anime/Video.
+                  </p>
+                  <label class="stack">
                     <span data-i18n="quality.colorLab">Preset koloru/ostrości</span>
                     <select id="opt-quality-preset">
                       <option value="soft" data-i18n="quality.soft">Miękki / mniej szumu</option>

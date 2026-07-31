@@ -25,8 +25,7 @@ tools/realesrgan-windows.zip
 tools/realesrgan/input.jpg
 tools/realesrgan/input2.jpg
 tools/realesrgan/onepiece_demo.mp4
-tools/realesrgan/models/realesrgan-x4plus*
-tools/realesrgan/models/realesrgan-x4plus-anime*
+
 *.mp4
 *.part
 .DS_Store

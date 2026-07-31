@@ -27,6 +27,10 @@ COPY tools/realesrgan/models/realesr-animevideov3-x3.bin tools/realesrgan/models
 COPY tools/realesrgan/models/realesr-animevideov3-x3.param tools/realesrgan/models/
 COPY tools/realesrgan/models/realesr-animevideov3-x4.bin tools/realesrgan/models/
 COPY tools/realesrgan/models/realesr-animevideov3-x4.param tools/realesrgan/models/
+COPY tools/realesrgan/models/realesrgan-x4plus.bin tools/realesrgan/models/
+COPY tools/realesrgan/models/realesrgan-x4plus.param tools/realesrgan/models/
+COPY tools/realesrgan/models/realesrgan-x4plus-anime.bin tools/realesrgan/models/
+COPY tools/realesrgan/models/realesrgan-x4plus-anime.param tools/realesrgan/models/
 
 RUN mkdir -p data/auth data/studio/uploads data/studio/outputs data/studio/work \
   && chown -R node:node /app

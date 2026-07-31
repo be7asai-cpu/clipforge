@@ -734,7 +734,10 @@ try {
       if (Test-Path (Join-Path $srcRoot 'vcomp140d.dll')) { Copy-Item (Join-Path $srcRoot 'vcomp140d.dll') $dest -Force }
       $modelsSrc = Join-Path $srcRoot 'models'
       if (Test-Path $modelsSrc) {
-        Get-ChildItem $modelsSrc -File | Where-Object { $_.Name -like 'realesr-animevideov3*' } | ForEach-Object {
+        Get-ChildItem $modelsSrc -File | Where-Object {
+          $_.Name -like 'realesr-animevideov3*' -or
+          $_.Name -like 'realesrgan-x4plus*'
+        } | ForEach-Object {
           Copy-Item $_.FullName (Join-Path $dest 'models') -Force
         }
       }
