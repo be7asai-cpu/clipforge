@@ -2010,25 +2010,34 @@
     }
   }
 
-  $("#btn-retry")?.addEventListener("click", async () => {
+  $("#btn-retry")?.addEventListener("click", async (ev) => {
     const btn = $("#btn-retry");
     const jobId = btn?.dataset?.jobId || activeJobId;
     if (!jobId) return;
+    const labelBefore = btn.textContent || "";
     btn.disabled = true;
     btn.textContent = tr("btn.retrying", "Restarting…");
     try {
       await fetch("/api/studio/queue/clear", { method: "POST" }).catch(
         () => null
       );
-      // Force safe options: fast HD so it won't hang on AI after restart
+      // Safer AI retry by default (×2 + turbo). Shift-click or HD label = Szybki HD.
+      const forceHd =
+        !!(ev && ev.shiftKey) || /Szybki HD|Fast HD/i.test(labelBefore);
+      const body = forceHd
+        ? { forceFast: true, upscale: "fast", speedMode: "turbo" }
+        : {
+            forceFast: false,
+            upscale: "ai",
+            aiScale: 2,
+            aiModel: "animevideov3",
+            speedMode: "turbo",
+            targetHeight: 1080,
+          };
       const res = await fetch(`/api/studio/jobs/${jobId}/retry`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          forceFast: true,
-          upscale: "fast",
-          speedMode: "turbo",
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || tr("share.err", "Error"));
@@ -2039,7 +2048,7 @@
     } catch (err) {
       alert(err.message || String(err));
       btn.disabled = false;
-      btn.textContent = tr("btn.retryHd", "▶ Run again (Fast HD)");
+      btn.textContent = tr("btn.retry", "▶ Run again");
     }
   });
 
