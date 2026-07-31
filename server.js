@@ -688,7 +688,7 @@ try {
   }
 
   # Windows curl uses Schannel — SEC_E_DECRYPT_FAILURE (0x80090330) mid-download is common.
-  # Mitigations: --ssl-no-revoke, HTTP/1.1, resume (-C -), Node OpenSSL fallback, BITS, IWR.
+  # PRIMARY: Node OpenSSL (proven stable on this OS). Curl only as short fallback.
   function Get-RobustFile {
     param(
       [string]$Url,
@@ -705,51 +705,16 @@ try {
       if ($Validate) { return [bool](& $Validate $p) }
       return $true
     }
-    $hdrArgs = @()
-    foreach ($k in $Headers.Keys) {
-      $hdrArgs += @('-H', ($k + ': ' + $Headers[$k]))
-    }
-    # Common curl flags against schannel decrypt failures
-    $curlBase = @(
-      '-L', '--fail',
-      '--ssl-no-revoke',
-      '--http1.1',
-      '--retry', '8',
-      '--retry-all-errors',
-      '--retry-delay', '3',
-      '--connect-timeout', '45',
-      '--max-time', '900'
-    )
 
-    # 1) Fresh curl download
-    try {
-      if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue }
-      $args1 = $curlBase + $hdrArgs + @('-o', $Dest, $Url)
-      & curl.exe @args1
-      if ($LASTEXITCODE -eq 0 -and (Ok-File $Dest)) { L 'Pobrano: curl (ssl-no-revoke + http1.1)'; return $true }
-      L ('curl exit=' + $LASTEXITCODE + ' size=' + $(if (Test-Path $Dest) { (Get-Item $Dest).Length } else { 0 }))
-    } catch { L ('curl fail: ' + $_) }
-
-    # 2) Resume partial (SEC_E_DECRYPT often leaves a good prefix)
-    for ($ri = 1; $ri -le 4; $ri++) {
-      if (-not (Test-Path $Dest) -or (Get-Item $Dest).Length -lt 5000) { break }
-      try {
-        L ("curl resume proba $ri (partial $((Get-Item $Dest).Length) B)...")
-        $argsR = $curlBase + $hdrArgs + @('-C', '-', '-o', $Dest, $Url)
-        & curl.exe @argsR
-        if ($LASTEXITCODE -eq 0 -and (Ok-File $Dest)) { L 'Pobrano: curl -C resume'; return $true }
-      } catch { L ('curl resume: ' + $_) }
-      Start-Sleep -Seconds (2 * $ri)
-    }
-
-    # 3) Node.js https (OpenSSL — omija Windows Schannel)
+    # 1) Node.js https FIRST (OpenSSL — omija Windows Schannel SEC_E_DECRYPT)
     if ($nodeExe -and (Test-Path $nodeExe)) {
-      try {
-        if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue }
-        L 'Pobieram przez Node (OpenSSL, bez Schannel)...'
-        $hdrJson = ($Headers | ConvertTo-Json -Compress)
-        if (-not $hdrJson) { $hdrJson = '{}' }
-        $nodeDl = @'
+      for ($ni = 1; $ni -le 3; $ni++) {
+        try {
+          if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue }
+          L ("Pobieram przez Node/OpenSSL (proba $ni/3, bez Schannel)...")
+          $hdrJson = ($Headers | ConvertTo-Json -Compress)
+          if (-not $hdrJson) { $hdrJson = '{}' }
+          $nodeDl = @'
 const https = require("https");
 const http = require("http");
 const fs = require("fs");
@@ -757,48 +722,104 @@ const { URL } = require("url");
 const dest = process.argv[2];
 const url = process.argv[3];
 let headers = {};
-try { headers = JSON.parse(process.argv[4] || "{}"); } catch(e) {}
+try { headers = JSON.parse(process.argv[4] || "{}"); } catch (e) {}
 function get(u, redirects) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(u);
     const lib = parsed.protocol === "https:" ? https : http;
-    const req = lib.get({
-      hostname: parsed.hostname,
-      port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
-      path: parsed.pathname + parsed.search,
-      headers: Object.assign({ "User-Agent": "ClipForge-Setup/1.0" }, headers),
-      timeout: 600000
-    }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
-        res.resume();
-        return resolve(get(new URL(res.headers.location, u).href, redirects - 1));
+    const req = lib.get(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        headers: Object.assign(
+          { "User-Agent": "ClipForge-Setup/2.0", Accept: "*/*", Connection: "close" },
+          headers
+        ),
+        timeout: 600000,
+      },
+      (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
+          res.resume();
+          return resolve(get(new URL(res.headers.location, u).href, redirects - 1));
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          return reject(new Error("HTTP " + res.statusCode));
+        }
+        const total = parseInt(res.headers["content-length"] || "0", 10) || 0;
+        const f = fs.createWriteStream(dest);
+        let got = 0;
+        let lastLog = 0;
+        res.on("data", (c) => {
+          got += c.length;
+          if (total > 0 && got - lastLog > total * 0.2) {
+            lastLog = got;
+            process.stdout.write("  Node DL " + Math.round((100 * got) / total) + "%\\n");
+          }
+        });
+        res.pipe(f);
+        f.on("finish", () =>
+          f.close(() => {
+            const sz = fs.statSync(dest).size;
+            process.stdout.write("  Node DL OK " + sz + " B\\n");
+            resolve(dest);
+          })
+        );
+        f.on("error", reject);
       }
-      if (res.statusCode !== 200) {
-        res.resume();
-        return reject(new Error("HTTP " + res.statusCode));
-      }
-      const f = fs.createWriteStream(dest);
-      res.pipe(f);
-      f.on("finish", () => f.close(() => resolve(dest)));
-      f.on("error", reject);
-    });
+    );
     req.on("error", reject);
-    req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("timeout"));
+    });
   });
 }
-get(url, 8).then(() => process.exit(0)).catch((e) => { console.error(e.message || e); process.exit(1); });
+get(url, 8)
+  .then(() => process.exit(0))
+  .catch((e) => {
+    console.error(e.message || e);
+    process.exit(1);
+  });
 '@
-        $ndPath = Join-Path $env:TEMP ('cf-dl-' + [guid]::NewGuid().ToString('n').Substring(0,8) + '.js')
-        Set-Content -Path $ndPath -Value $nodeDl -Encoding UTF8
-        & $nodeExe $ndPath $Dest $Url $hdrJson
-        $nc = $LASTEXITCODE
-        try { Remove-Item $ndPath -Force -ErrorAction SilentlyContinue } catch {}
-        if ($nc -eq 0 -and (Ok-File $Dest)) { L 'Pobrano: Node OpenSSL'; return $true }
-        L ('Node download exit=' + $nc)
-      } catch { L ('Node download fail: ' + $_) }
+          $ndPath = Join-Path $env:TEMP ('cf-dl-' + [guid]::NewGuid().ToString('n').Substring(0,8) + '.js')
+          Set-Content -Path $ndPath -Value $nodeDl -Encoding UTF8
+          & $nodeExe $ndPath $Dest $Url $hdrJson
+          $nc = $LASTEXITCODE
+          try { Remove-Item $ndPath -Force -ErrorAction SilentlyContinue } catch {}
+          if ($nc -eq 0 -and (Ok-File $Dest)) { L 'Pobrano: Node OpenSSL'; return $true }
+          L ('Node download exit=' + $nc + ' size=' + $(if (Test-Path $Dest) { (Get-Item $Dest).Length } else { 0 }))
+        } catch { L ('Node download fail: ' + $_) }
+        Start-Sleep -Seconds (2 * $ni)
+      }
     }
 
-    # 4) BITS
+    # 2) curl short attempt (often fails on this PC — do not spam 8 long retries)
+    $hdrArgs = @()
+    foreach ($k in $Headers.Keys) {
+      $hdrArgs += @('-H', ($k + ': ' + $Headers[$k]))
+    }
+    $curlBase = @(
+      '-L', '--fail',
+      '--ssl-no-revoke',
+      '--http1.1',
+      '--retry', '2',
+      '--retry-all-errors',
+      '--retry-delay', '2',
+      '--connect-timeout', '30',
+      '--max-time', '300'
+    )
+    try {
+      if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue }
+      L 'Pobieram curl (krotko, Schannel moze padac)...'
+      $args1 = $curlBase + $hdrArgs + @('-o', $Dest, $Url)
+      & curl.exe @args1
+      if ($LASTEXITCODE -eq 0 -and (Ok-File $Dest)) { L 'Pobrano: curl'; return $true }
+      L ('curl exit=' + $LASTEXITCODE)
+    } catch { L ('curl fail: ' + $_) }
+
+    # 3) BITS
     try {
       if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue }
       Import-Module BitsTransfer -ErrorAction SilentlyContinue
@@ -806,7 +827,7 @@ get(url, 8).then(() => process.exit(0)).catch((e) => { console.error(e.message |
       if (Ok-File $Dest) { L 'Pobrano: BitsTransfer'; return $true }
     } catch { L ('BITS fail: ' + $_) }
 
-    # 5) IWR last
+    # 4) IWR last
     try {
       if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue }
       $iwrHdr = @{}
