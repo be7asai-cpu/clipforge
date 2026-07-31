@@ -182,6 +182,21 @@ function sendPublic(res, relPath) {
   return res.sendFile(full);
 }
 
+// Google Search Console verification files — exact body, no login wrap
+app.get(/^\/google[a-f0-9]+\.html$/i, (req, res) => {
+  const name = path.basename(req.path);
+  const full = path.join(PUBLIC_DIR, name);
+  if (!fs.existsSync(full)) {
+    return res.status(404).type("text/plain").send("not found");
+  }
+  const body = fs.readFileSync(full, "utf8");
+  // Google expects plain text line; avoid charset quirks / SPA shell
+  res.status(200);
+  res.setHeader("Content-Type", "text/html");
+  res.setHeader("Cache-Control", "no-store");
+  return res.send(body.endsWith("\n") ? body : body + "\n");
+});
+
 // ── Entry: always the same login page (no flip-flop) ───────────────────
 app.get(["/", "/index.html", "/login.html"], (req, res) => {
   if (isLoggedIn(req)) return res.redirect(302, "/studio.html");
