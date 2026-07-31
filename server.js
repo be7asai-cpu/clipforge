@@ -1327,6 +1327,19 @@ app.get("/api/studio/jobs/:id/download", (req, res) => {
   sendOwnedFile(req, res, job.outputPath, name);
 });
 
+/** Original upload for before/after compare (owner only; kept while job lives) */
+app.get("/api/studio/jobs/:id/original", (req, res) => {
+  const job = getOwnedJob(req, res);
+  if (!job) return;
+  if (!job.inputPath || !fs.existsSync(job.inputPath)) {
+    return res.status(404).json({ error: "Brak oryginalnego pliku" });
+  }
+  const name = job.originalName || "original.mp4";
+  res.setHeader("Content-Type", "video/mp4");
+  res.setHeader("Accept-Ranges", "bytes");
+  sendOwnedFile(req, res, job.inputPath, name);
+});
+
 app.get("/api/studio/jobs/:id/preview", (req, res) => {
   const job = getOwnedJob(req, res);
   if (!job) return;

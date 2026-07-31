@@ -1483,7 +1483,7 @@ body.clipforge-only {
   }
 }
 
-/* Result panel look (under col 2+3) */
+/* Result panel look (under all columns) */
 .result-span {
   padding: 18px 20px !important;
 }
@@ -1501,19 +1501,88 @@ body.clipforge-only {
   border: none !important;
   color: var(--success, #00ff9d) !important;
 }
-.result-span .result-grid {
-  display: grid !important;
-  grid-template-columns: minmax(180px, 280px) 1fr !important;
-  gap: 18px !important;
-  align-items: start;
+
+/* Side-by-side video comparison */
+.compare-players {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 12px;
 }
-.result-span .result-grid img {
+.compare-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(0, 240, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(0, 12, 22, 0.55);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.06);
+}
+.compare-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text, #e0f7ff);
+}
+.compare-badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.1em;
+}
+.compare-badge.orig {
+  color: #7eb8c9;
+  border: 1px solid rgba(126, 184, 201, 0.45);
+  background: rgba(126, 184, 201, 0.1);
+}
+.compare-badge.out {
+  color: #00ff9d;
+  border: 1px solid rgba(0, 255, 157, 0.45);
+  background: rgba(0, 255, 157, 0.1);
+}
+.compare-video {
   width: 100%;
-  max-height: 320px;
-  object-fit: contain;
+  max-height: min(52vh, 420px);
+  min-height: 180px;
   background: #000;
-  border: 1px solid rgba(0, 240, 255, 0.3);
-  box-shadow: 0 0 24px rgba(0, 240, 255, 0.12);
+  border-radius: 6px;
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  object-fit: contain;
+}
+.compare-meta {
+  margin: 0;
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.75rem;
+  color: var(--text-dim, #7eb8c9);
+  line-height: 1.35;
+}
+.compare-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 240, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(0, 20, 35, 0.4);
+}
+.compare-sync-lab {
+  margin: 0 !important;
+  font-size: 0.85rem;
+  color: var(--text-dim, #7eb8c9);
+}
+.result-below-players {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(0, 240, 255, 0.12);
 }
 .result-span .result-main {
   min-width: 0;
@@ -1531,9 +1600,13 @@ body.clipforge-only {
   gap: 10px;
   margin-bottom: 12px;
 }
-@media (max-width: 700px) {
-  .result-span .result-grid {
-    grid-template-columns: 1fr !important;
+@media (max-width: 900px) {
+  .compare-players {
+    grid-template-columns: 1fr;
+  }
+  .compare-video {
+    max-height: 40vh;
+    min-height: 160px;
   }
 }
 

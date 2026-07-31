@@ -198,11 +198,14 @@
   const langBadge = $("#lang-badge");
 
   let selectedFile = null;
+  /** Blob URL of selected file — used as "before" player when job finishes */
+  let selectedFileObjectUrl = null;
   let activeJobId = null;
   let pollTimer = null;
   let lastDoneJob = null;
   let videoNatural = { w: 0, h: 0 };
   let frameBitmap = null;
+  let syncSeekLock = false;
   /** @type {{x:number,y:number,w:number,h:number}[]} */
   let logoBoxes = [];
   let drag = null; // {x0,y0,x1,y1} in canvas CSS pixels mapped to video
@@ -510,6 +513,12 @@
       return;
     }
     selectedFile = file;
+    if (selectedFileObjectUrl) {
+      try {
+        URL.revokeObjectURL(selectedFileObjectUrl);
+      } catch (_) {}
+    }
+    selectedFileObjectUrl = URL.createObjectURL(file);
     fileLabel.textContent = `${file.name} · ${(file.size / 1e6).toFixed(1)} MB`;
     dropzone.classList.add("has-file");
     btnStart.disabled = false;
@@ -518,7 +527,7 @@
   }
 
   function loadVideoFrame(file) {
-    const url = URL.createObjectURL(file);
+    const url = selectedFileObjectUrl || URL.createObjectURL(file);
     const video = document.createElement("video");
     video.preload = "auto";
     video.muted = true;
@@ -866,6 +875,13 @@
 
     if (clearFile) {
       selectedFile = null;
+      if (selectedFileObjectUrl) {
+        try {
+          URL.revokeObjectURL(selectedFileObjectUrl);
+        } catch (_) {}
+        selectedFileObjectUrl = null;
+      }
+      clearCompareVideos();
       if (fileInput) fileInput.value = "";
       if (fileLabel) {
         fileLabel.textContent = tr("drop.sub", "max ~500 MB · tymczasowa obróbka");
@@ -1398,13 +1414,16 @@
       const open = $("#btn-open");
       open.href = job.downloadUrl;
 
+      // Before / after embedded players
+      fillComparePlayers(job, r);
+
       const prev = $("#result-preview");
-      if (job.previewUrl) {
-        prev.src = job.previewUrl + "?t=" + Date.now();
-        prev.style.display = "";
-      } else {
-        prev.removeAttribute("src");
-        prev.style.display = "none";
+      if (prev) {
+        if (job.previewUrl) {
+          prev.src = job.previewUrl + "?t=" + Date.now();
+        } else {
+          prev.removeAttribute("src");
+        }
       }
 
       let scriptTxt = r.script || "(brak tekstu lektora)";
@@ -1436,8 +1455,159 @@
     } else if (job.status !== "done") {
       resBox.classList.add("hidden");
       lastDoneJob = null;
+      clearCompareVideos();
     }
   }
+
+  function clearCompareVideos() {
+    ["result-video-orig", "result-video-out"].forEach((id) => {
+      const v = document.getElementById(id);
+      if (!v) return;
+      try {
+        v.pause();
+      } catch (_) {}
+      v.removeAttribute("src");
+      v.load();
+    });
+    const om = $("#result-orig-meta");
+    const rm = $("#result-out-meta");
+    if (om) om.textContent = "—";
+    if (rm) rm.textContent = "—";
+  }
+
+  function fillComparePlayers(job, result) {
+    const vOrig = $("#result-video-orig");
+    const vOut = $("#result-video-out");
+    const metaOrig = $("#result-orig-meta");
+    const metaOut = $("#result-out-meta");
+    if (!vOrig || !vOut) return;
+
+    // Prefer server original (survives refresh), else blob of selected file
+    const origSrc =
+      job.originalUrl ||
+      selectedFileObjectUrl ||
+      null;
+    const outSrc = job.downloadUrl
+      ? job.downloadUrl + (job.downloadUrl.includes("?") ? "&" : "?") + "t=" + Date.now()
+      : null;
+
+    if (origSrc && vOrig.dataset.src !== String(origSrc)) {
+      vOrig.dataset.src = String(origSrc);
+      vOrig.src = origSrc;
+    } else if (!origSrc) {
+      vOrig.removeAttribute("src");
+      vOrig.removeAttribute("data-src");
+      vOrig.load();
+    }
+
+    if (outSrc && vOut.dataset.src !== String(outSrc).split("?")[0]) {
+      vOut.dataset.src = String(outSrc).split("?")[0];
+      vOut.src = outSrc;
+    }
+
+    if (metaOrig) {
+      metaOrig.textContent = origSrc
+        ? [
+            job.originalName || "oryginał",
+            selectedFile
+              ? (selectedFile.size / 1e6).toFixed(1) + " MB"
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : "Brak podglądu oryginału (odśwież po jobie — serwer musi trzymać upload)";
+    }
+    if (metaOut) {
+      const r = result || {};
+      metaOut.textContent = [
+        r.width && r.height ? `${r.width}×${r.height}` : null,
+        r.mb != null ? `${r.mb} MB` : null,
+        r.duration ? `${Number(r.duration).toFixed(1)} s` : null,
+        "wynik",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+
+    // One-time metadata listeners for nicer labels
+    const tagDim = (video, el, prefix) => {
+      if (!video || !el) return;
+      const apply = () => {
+        if (!video.videoWidth) return;
+        const base = el.textContent || "";
+        if (base.includes("×")) return;
+        el.textContent =
+          (prefix ? prefix + " · " : "") +
+          `${video.videoWidth}×${video.videoHeight}` +
+          (video.duration && isFinite(video.duration)
+            ? ` · ${video.duration.toFixed(1)} s`
+            : "");
+      };
+      video.addEventListener("loadedmetadata", apply, { once: true });
+    };
+    tagDim(vOrig, metaOrig, job.originalName || "oryginał");
+    tagDim(vOut, metaOut, "wynik");
+  }
+
+  // Compare players: play both / pause / optional seek sync
+  (function wireCompareSync() {
+    const vOrig = () => $("#result-video-orig");
+    const vOut = () => $("#result-video-out");
+    const syncOn = () => $("#opt-sync-seek")?.checked;
+
+    $("#btn-sync-play")?.addEventListener("click", () => {
+      const a = vOrig();
+      const b = vOut();
+      try {
+        if (a) {
+          a.currentTime = 0;
+          a.play().catch(() => {});
+        }
+        if (b) {
+          b.currentTime = 0;
+          b.play().catch(() => {});
+        }
+      } catch (_) {}
+    });
+    $("#btn-sync-pause")?.addEventListener("click", () => {
+      try {
+        vOrig()?.pause();
+        vOut()?.pause();
+      } catch (_) {}
+    });
+
+    const bindSeek = (src, dst) => {
+      if (!src || !dst || src.dataset.syncBound) return;
+      src.dataset.syncBound = "1";
+      src.addEventListener("seeked", () => {
+        if (!syncOn() || syncSeekLock) return;
+        syncSeekLock = true;
+        try {
+          if (Math.abs((dst.currentTime || 0) - src.currentTime) > 0.12) {
+            dst.currentTime = src.currentTime;
+          }
+        } catch (_) {}
+        setTimeout(() => {
+          syncSeekLock = false;
+        }, 80);
+      });
+      src.addEventListener("play", () => {
+        if (!syncOn()) return;
+        try {
+          if (dst.paused) dst.play().catch(() => {});
+        } catch (_) {}
+      });
+      src.addEventListener("pause", () => {
+        if (!syncOn()) return;
+        try {
+          if (!dst.paused) dst.pause();
+        } catch (_) {}
+      });
+    };
+    // Bind when players exist (DOM ready)
+    bindSeek(vOrig(), vOut());
+    bindSeek(vOut(), vOrig());
+  })();
 
   function setShareStatus(msg, kind) {
     const el = $("#share-status");

@@ -698,24 +698,68 @@
           </div>
         </section>
 
-        <!-- WYNIK — pełna szerokość pod wszystkimi 3 kolumnami -->
+        <!-- WYNIK — porównanie oryginał | wynik, potem pobieranie / share -->
         <section id="result-box" class="card panel result-span result hidden" aria-live="polite">
           <div class="result-span-head">
-            <h2><span class="num">✓</span> <span data-i18n="result.ready">Gotowe</span></h2>
+            <h2><span class="num">✓</span> <span data-i18n="result.ready">Gotowe</span> — porównanie</h2>
           </div>
-          <div class="result-grid">
-            <img id="result-preview" alt="Preview" />
-            <div class="result-main">
-              <p id="result-info"></p>
-              <div class="result-actions">
-                <a class="btn primary" id="btn-download" href="#" download data-i18n="result.download">Pobierz MP4</a>
-                <a class="btn ghost" id="btn-open" href="#" target="_blank" data-i18n="result.open">Otwórz w przeglądarce</a>
+
+          <div class="compare-players" id="compare-players">
+            <div class="compare-pane">
+              <div class="compare-label">
+                <span class="compare-badge orig">PRZED</span>
+                Oryginał
               </div>
-              <details class="script-box">
-                <summary data-i18n="result.script">Tekst lektora</summary>
-                <pre id="result-script"></pre>
-              </details>
+              <video
+                id="result-video-orig"
+                class="compare-video"
+                controls
+                playsinline
+                preload="metadata"
+              ></video>
+              <p class="compare-meta" id="result-orig-meta">—</p>
             </div>
+            <div class="compare-pane">
+              <div class="compare-label">
+                <span class="compare-badge out">PO</span>
+                Wynik ClipForge
+              </div>
+              <video
+                id="result-video-out"
+                class="compare-video"
+                controls
+                playsinline
+                preload="metadata"
+              ></video>
+              <p class="compare-meta" id="result-out-meta">—</p>
+            </div>
+          </div>
+
+          <div class="compare-toolbar">
+            <button type="button" class="btn ghost sm" id="btn-sync-play" title="Odtwórz oba od początku">
+              ▶ Oba
+            </button>
+            <button type="button" class="btn ghost sm" id="btn-sync-pause">
+              ⏸ Pauza
+            </button>
+            <label class="inline compare-sync-lab">
+              <input type="checkbox" id="opt-sync-seek" checked />
+              <span>Synchronizuj przewijanie</span>
+            </label>
+          </div>
+
+          <div class="result-main result-below-players">
+            <p id="result-info"></p>
+            <div class="result-actions">
+              <a class="btn primary" id="btn-download" href="#" download data-i18n="result.download">Pobierz MP4</a>
+              <a class="btn ghost" id="btn-open" href="#" target="_blank" data-i18n="result.open">Otwórz w przeglądarce</a>
+            </div>
+            <!-- keep img for legacy share thumb; hidden -->
+            <img id="result-preview" alt="" class="hidden" hidden />
+            <details class="script-box">
+              <summary data-i18n="result.script">Tekst lektora</summary>
+              <pre id="result-script"></pre>
+            </details>
           </div>
 
           <div class="share-panel" id="share-panel">
