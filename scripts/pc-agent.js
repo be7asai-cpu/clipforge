@@ -192,53 +192,88 @@ function findYtDlp() {
   return null;
 }
 
+function downloadFileFollow(url, dest, maxRedirects = 8) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith("https") ? https : http;
+    const req = lib.get(
+      url,
+      { headers: { "User-Agent": "ClipForge-Agent/1.0" } },
+      (res) => {
+        if (
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          res.headers.location &&
+          maxRedirects > 0
+        ) {
+          res.resume();
+          const next = new URL(res.headers.location, url).href;
+          return resolve(downloadFileFollow(next, dest, maxRedirects - 1));
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          return reject(new Error("HTTP " + res.statusCode + " download"));
+        }
+        const file = fs.createWriteStream(dest);
+        res.pipe(file);
+        file.on("finish", () => {
+          file.close(() => resolve(dest));
+        });
+        file.on("error", reject);
+      }
+    );
+    req.on("error", reject);
+  });
+}
+
 async function ensureYtDlp() {
   let bin = findYtDlp();
-  if (bin) return bin;
+  if (bin) {
+    // Reject tiny/corrupt HTML stubs (would cause spawn EFTYPE)
+    try {
+      const st = fs.statSync(bin);
+      if (st.size > 500000) return bin;
+      log("yt-dlp podejrzanie mały — pobieram ponownie");
+    } catch {
+      /* redownload */
+    }
+  }
   log("Brak yt-dlp — pobieram yt-dlp.exe (GitHub releases)…");
   const toolsDir = path.join(ROOT, "tools");
   fs.mkdirSync(toolsDir, { recursive: true });
   const dest = path.join(toolsDir, "yt-dlp.exe");
   const url =
     "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
-  await new Promise((resolve, reject) => {
-    const lib = url.startsWith("https") ? https : http;
-    const file = fs.createWriteStream(dest);
-    const req = lib.get(url, { headers: { "User-Agent": "ClipForge-Agent" } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume();
-        https
-          .get(res.headers.location, (r2) => {
-            r2.pipe(file);
-            file.on("finish", () => {
-              file.close();
-              resolve();
-            });
-          })
-          .on("error", reject);
-        return;
-      }
-      if (res.statusCode !== 200) {
-        res.resume();
-        return reject(new Error("HTTP " + res.statusCode + " yt-dlp download"));
-      }
-      res.pipe(file);
-      file.on("finish", () => {
-        file.close();
-        resolve();
-      });
-    });
-    req.on("error", reject);
-  });
   try {
-    fs.chmodSync(dest, 0o755);
-  } catch {
-    /* win */
+    // Prefer curl (stable redirects on Windows)
+    const curl = spawnSync(
+      "curl.exe",
+      ["-L", "--fail", "--retry", "3", "-o", dest, url],
+      { encoding: "utf8", windowsHide: true, timeout: 300000 }
+    );
+    if (curl.status !== 0 || !fs.existsSync(dest) || fs.statSync(dest).size < 500000) {
+      await downloadFileFollow(url, dest);
+    }
+  } catch (e) {
+    await downloadFileFollow(url, dest);
   }
-  if (!fs.existsSync(dest) || fs.statSync(dest).size < 10000) {
-    throw new Error("Nie udało się pobrać yt-dlp.exe");
+  // Verify MZ header (Windows PE)
+  try {
+    const fd = fs.openSync(dest, "r");
+    const buf = Buffer.alloc(2);
+    fs.readSync(fd, buf, 0, 2, 0);
+    fs.closeSync(fd);
+    if (buf[0] !== 0x4d || buf[1] !== 0x5a) {
+      throw new Error("yt-dlp.exe nie jest plikiem EXE (uszkodzony download)");
+    }
+  } catch (e) {
+    try {
+      fs.unlinkSync(dest);
+    } catch {
+      /* ignore */
+    }
+    throw e;
   }
-  log("yt-dlp gotowy:", dest);
+  log("yt-dlp gotowy:", dest, fs.statSync(dest).size, "B");
   return dest;
 }
 
@@ -341,15 +376,23 @@ async function downloadPlatformSource(sourceUrl, destPath) {
   return destPath;
 }
 
+function isPlatformUrl(u) {
+  return /youtube\.com|youtu\.be|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|fb\.com|vimeo\.com|twitter\.com|(^|\/\/)x\.com|reddit\.com|redd\.it|twitch\.tv/i.test(
+    String(u || "")
+  );
+}
+
 async function downloadInput(job, destPath) {
-  // Platform URL → download on this PC (not from cloud)
-  const sourceUrl = job.sourceUrl || job.options?.sourceUrl;
-  const sourceKind = job.sourceKind || job.options?.sourceKind;
-  if (sourceKind === "platform" && sourceUrl) {
-    await downloadPlatformSource(sourceUrl, destPath);
-    return;
-  }
-  if (job.hasCloudInput === false && sourceUrl) {
+  // Platform URL → download on this PC (yt-dlp), never from cloud
+  const sourceUrl = job.sourceUrl || job.options?.sourceUrl || null;
+  const sourceKind = job.sourceKind || job.options?.sourceKind || null;
+  if (
+    sourceUrl &&
+    (sourceKind === "platform" ||
+      job.hasCloudInput === false ||
+      isPlatformUrl(sourceUrl))
+  ) {
+    log("Pobieram źródło lokalnie (yt-dlp):", String(sourceUrl).slice(0, 90));
     await downloadPlatformSource(sourceUrl, destPath);
     return;
   }
@@ -358,25 +401,31 @@ async function downloadInput(job, destPath) {
     token: agentToken,
     raw: true,
   });
-  if (res.status === 409) {
-    // Server says download locally
-    let data = null;
+  const code = Number(res.status) || 0;
+  // 409 or any error body with sourceUrl → local yt-dlp
+  if (code >= 400) {
+    let data = {};
     try {
-      data = JSON.parse(res.buf.toString("utf8"));
+      data = JSON.parse((res.buf && res.buf.toString("utf8")) || "{}");
     } catch {
       data = {};
     }
     const u = data.sourceUrl || sourceUrl;
-    if (!u) throw new Error("409 bez sourceUrl");
-    await downloadPlatformSource(u, destPath);
-    return;
-  }
-  if (res.status >= 400) {
+    if (
+      u &&
+      (code === 409 ||
+        data.sourceKind === "platform" ||
+        isPlatformUrl(u))
+    ) {
+      log("Cloud 409/platform → yt-dlp:", String(u).slice(0, 90));
+      await downloadPlatformSource(u, destPath);
+      return;
+    }
     const hint = res.buf
       ? res.buf.toString("utf8").slice(0, 180)
       : "";
     throw new Error(
-      "Pobieranie input nieudane HTTP " + res.status + " " + hint
+      "Pobieranie input nieudane HTTP " + code + " " + hint
     );
   }
   if (!res.buf || res.buf.length < 64) {
@@ -530,6 +579,34 @@ async function runJob(job) {
     );
   }
   log("Preflight OK", probeOut.match(/(\d{2,5})x(\d{2,5})/)?.[0] || "?");
+
+  // Sanity: Python for STT/TTS (Windows Store stub causes spawn EFTYPE)
+  try {
+    const pyCheck = spawnSync("py", ["-3", "--version"], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 8000,
+    });
+    const pyOut = String((pyCheck.stdout || "") + (pyCheck.stderr || ""));
+    if (pyCheck.error || !/Python/i.test(pyOut)) {
+      const py2 = spawnSync("python", ["--version"], {
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 8000,
+      });
+      if (py2.error) {
+        log(
+          "Ostrzeżenie: Python niedostępny (" +
+            (py2.error.code || py2.error.message) +
+            ") — lektor/STT mogą paść. Zainstaluj Python 3 z python.org (Add to PATH)."
+        );
+      }
+    } else {
+      log("Python:", pyOut.trim());
+    }
+  } catch {
+    /* optional */
+  }
 
   await reportProgress(job.id, {
     progress: 5,
