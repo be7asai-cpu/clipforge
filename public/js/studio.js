@@ -1519,6 +1519,9 @@
       const r = job.result || {};
       const lang = r.language;
       $("#result-info").textContent = [
+        job.localDisk || r.localDisk
+          ? "💾 dysk PC (bez limitu 500 MB chmury)"
+          : null,
         r.width && r.height ? `${r.width}×${r.height}` : null,
         r.mb != null ? `${r.mb} MB` : null,
         r.duration ? `${Number(r.duration).toFixed(1)}s` : null,
@@ -1537,6 +1540,9 @@
             : null,
         lang?.model?.name || lang?.model?.id || null,
         lang?.translated ? "przetłumaczono" : null,
+        job.userCopyPath || r.userCopyPath
+          ? "Videos\\ClipForge"
+          : null,
       ]
         .filter(Boolean)
         .join(" · ");

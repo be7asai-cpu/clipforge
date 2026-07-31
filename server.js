@@ -1442,6 +1442,81 @@ app.post("/api/studio/agent/jobs/:id/fail", async (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * Large PC results: no video upload to free cloud (500 MB limit).
+ * Agent serves files from 127.0.0.1; UI streams from local disk.
+ */
+app.post("/api/studio/agent/jobs/:id/complete-local", async (req, res) => {
+  try {
+    const row = await requireAgent(req, res);
+    if (!row) return;
+    const job = studioJobs.getJob(req.params.id);
+    if (!job || !agentOwnsJob(job, row)) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    const lm = req.body?.localMedia || {};
+    const host = String(lm.host || "127.0.0.1").replace(/[^\w.:[\]]/g, "");
+    const port = Number(lm.port) || 0;
+    const token = String(lm.token || "").trim();
+    if (!port || port < 1 || port > 65535 || !token || token.length < 8) {
+      return res.status(400).json({ error: "Brak localMedia (host/port/token)" });
+    }
+    // Only loopback — never accept remote hosts (security)
+    if (!/^(127\.0\.0\.1|localhost|::1)$/i.test(host)) {
+      return res.status(400).json({ error: "localMedia.host musi być 127.0.0.1" });
+    }
+    let result = req.body?.result || {};
+    if (typeof result === "string") {
+      try {
+        result = JSON.parse(result);
+      } catch {
+        result = {};
+      }
+    }
+    const patch = {
+      status: "done",
+      progress: 100,
+      stage: "Gotowe (dysk PC)",
+      finishedAt: new Date().toISOString(),
+      // No cloud video files — free tier 500 MB avoided
+      outputPath: null,
+      previewPath: null,
+      localMedia: {
+        host,
+        port,
+        token,
+        hasOriginal: !!lm.hasOriginal,
+        hasPreview: !!lm.hasPreview,
+        hasSrt: !!lm.hasSrt,
+        resultBytes: Number(lm.resultBytes) || 0,
+        originalBytes: Number(lm.originalBytes) || 0,
+        resultPath: lm.resultPath ? String(lm.resultPath).slice(0, 400) : null,
+        originalPath: lm.originalPath
+          ? String(lm.originalPath).slice(0, 400)
+          : null,
+        userCopyPath: lm.userCopyPath
+          ? String(lm.userCopyPath).slice(0, 400)
+          : null,
+      },
+      result: {
+        ...(job.result || {}),
+        ...result,
+        localDisk: true,
+      },
+      log:
+        "Wynik na dysku PC (localhost:" +
+        port +
+        ") — podgląd/porównanie bez limitu 500 MB chmury." +
+        (lm.userCopyPath ? " Kopia: " + String(lm.userCopyPath).slice(0, 120) : ""),
+    };
+    studioJobs.updateJob(job.id, patch);
+    res.json({ ok: true, job: studioJobs.publicJob(studioJobs.getJob(job.id)) });
+  } catch (err) {
+    console.error("complete-local:", err);
+    res.status(500).json({ error: err.message || "complete-local" });
+  }
+});
+
 app.post(
   "/api/studio/agent/jobs/:id/complete",
   (req, res, next) => {
@@ -1481,9 +1556,10 @@ app.post(
         return res.status(413).json({
           error:
             err.code === "LIMIT_FILE_SIZE"
-              ? "Plik przekracza limit 500 MB na chmurze (wynik lub oryginał do porównania)."
+              ? "Plik przekracza limit 500 MB na chmurze (wynik lub oryginał do porównania). Agent powinien użyć complete-local (dysk PC)."
               : err.message || "Błąd uploadu",
           code: err.code || "UPLOAD_ERROR",
+          useLocalDisk: true,
         });
       }
       next();
@@ -1516,6 +1592,7 @@ app.post(
       finishedAt: new Date().toISOString(),
       outputPath: video.path,
       previewPath: preview ? preview.path : job.previewPath,
+      localMedia: null,
       result: { ...(job.result || {}), ...result },
       log: "Wynik z Twojego PC zapisany w chmurze (UI bez przekierowania).",
     };

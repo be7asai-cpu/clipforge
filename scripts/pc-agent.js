@@ -14,6 +14,8 @@
  */
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
+const crypto = require("crypto");
 const https = require("https");
 const http = require("http");
 const { spawnSync, spawn } = require("child_process");
@@ -35,11 +37,179 @@ const CLOUD = (
 const LABEL = process.env.CLIPFORGE_PC_LABEL || "Mój PC";
 const POLL_MS = Number(process.env.CLIPFORGE_AGENT_POLL_MS) || 2500;
 const TOKEN_FILE = path.join(ROOT, "data", "auth", "pc-agent.token");
+/** Soft limit: above this, keep media on local disk (serve via localhost), not free Render 500 MB */
+const CLOUD_SAFE_BYTES = Number(process.env.CLIPFORGE_CLOUD_SAFE_MB || 90) * 1024 * 1024;
+const LOCAL_MEDIA_PORT = Number(process.env.CLIPFORGE_LOCAL_PORT) || 17865;
 
 let agentToken = process.env.CLIPFORGE_AGENT_TOKEN || "";
+let localMediaServer = null;
+let localMediaPort = LOCAL_MEDIA_PORT;
+const localMediaToken = crypto.randomBytes(18).toString("hex");
+/** @type {Map<string, { result?: string, original?: string, preview?: string, srt?: string }>} */
+const localMediaFiles = new Map();
 
 function log(...a) {
   console.log("[PC-Agent]", ...a);
+}
+
+/**
+ * Serve large results from THIS PC (127.0.0.1) so cloud never hits 500 MB multer limit.
+ * Browser on same machine loads video from localhost; metadata stays in cloud UI.
+ */
+function ensureLocalMediaServer() {
+  if (localMediaServer) return localMediaPort;
+  const server = http.createServer((req, res) => {
+    try {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Range, Content-Type");
+      res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
+      if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      const u = new URL(req.url || "/", "http://127.0.0.1");
+      if (u.searchParams.get("t") !== localMediaToken) {
+        res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Forbidden — zły token local media");
+        return;
+      }
+      const m = /^\/media\/([a-zA-Z0-9_-]+)\/(result|original|preview|srt)(?:\.[\w]+)?$/i.exec(
+        u.pathname
+      );
+      if (!m) {
+        res.writeHead(404);
+        res.end("not found");
+        return;
+      }
+      const jobId = m[1];
+      const kind = m[2].toLowerCase();
+      const entry = localMediaFiles.get(jobId);
+      if (!entry) {
+        res.writeHead(404);
+        res.end("job media expired or unknown");
+        return;
+      }
+      const filePath = entry[kind];
+      if (!filePath || !fs.existsSync(filePath)) {
+        res.writeHead(404);
+        res.end("file missing on disk");
+        return;
+      }
+      const st = fs.statSync(filePath);
+      const total = st.size;
+      const mime =
+        kind === "preview"
+          ? "image/jpeg"
+          : kind === "srt"
+            ? "text/plain; charset=utf-8"
+            : "video/mp4";
+      const range = req.headers.range;
+      if (range && kind !== "preview" && kind !== "srt") {
+        const mR = /bytes=(\d*)-(\d*)/.exec(range);
+        let start = 0;
+        let end = total - 1;
+        if (mR) {
+          if (mR[1]) start = Number(mR[1]);
+          if (mR[2]) end = Number(mR[2]);
+        }
+        if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= total) {
+          res.writeHead(416, { "Content-Range": `bytes */${total}` });
+          res.end();
+          return;
+        }
+        end = Math.min(end, total - 1);
+        const chunk = end - start + 1;
+        res.writeHead(206, {
+          "Content-Range": `bytes ${start}-${end}/${total}`,
+          "Accept-Ranges": "bytes",
+          "Content-Length": chunk,
+          "Content-Type": mime,
+          "Cache-Control": "no-store",
+        });
+        fs.createReadStream(filePath, { start, end }).pipe(res);
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Length": total,
+        "Content-Type": mime,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store",
+      });
+      if (req.method === "HEAD") {
+        res.end();
+        return;
+      }
+      fs.createReadStream(filePath).pipe(res);
+    } catch (e) {
+      try {
+        res.writeHead(500);
+        res.end(String(e.message || e));
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+  server.on("error", (err) => {
+    if (err && err.code === "EADDRINUSE") {
+      localMediaPort = LOCAL_MEDIA_PORT + 1 + Math.floor(Math.random() * 20);
+      log("Port local media zajęty — próbuję", localMediaPort);
+      try {
+        server.listen(localMediaPort, "127.0.0.1");
+      } catch (e2) {
+        log("Local media server fail:", e2.message || e2);
+      }
+    } else {
+      log("Local media server error:", err.message || err);
+    }
+  });
+  server.listen(localMediaPort, "127.0.0.1", () => {
+    log(
+      "Local media: http://127.0.0.1:" +
+        localMediaPort +
+        " (duże wideo z dysku PC, nie z chmury 500 MB)"
+    );
+  });
+  localMediaServer = server;
+  return localMediaPort;
+}
+
+function registerLocalMedia(jobId, files) {
+  ensureLocalMediaServer();
+  localMediaFiles.set(String(jobId), {
+    result: files.video || null,
+    original: files.original || null,
+    preview: files.preview || null,
+    srt: files.srt || null,
+  });
+}
+
+function fileSizeSafe(p) {
+  try {
+    return fs.existsSync(p) ? fs.statSync(p).size : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Copy result to Videos/ClipForge for easy Explorer access */
+function publishToUserVideos(jobId, videoPath, originalName) {
+  try {
+    const dir = path.join(os.homedir(), "Videos", "ClipForge");
+    fs.mkdirSync(dir, { recursive: true });
+    const base =
+      String(originalName || "clip")
+        .replace(/[^\w.\-ąćęłńóśźżĄĆĘŁŃÓŚŹŻ ]+/gi, "_")
+        .replace(/\.[^.]+$/, "")
+        .slice(0, 60) || "clip";
+    const dest = path.join(dir, `${base}_${jobId}.mp4`);
+    fs.copyFileSync(videoPath, dest);
+    return dest;
+  } catch (e) {
+    log("Kopiowanie do Videos/ClipForge:", e.message || e);
+    return null;
+  }
 }
 
 function request(method, urlPath, { body, token, formData, raw, maxRedirects = 5 } = {}) {
@@ -1119,66 +1289,139 @@ async function runJob(job) {
 
     if (!files.video) throw new Error("Brak pliku wynikowego po pipeline");
 
-    // Platform / no cloud input: upload original for before/after compare in UI
-    // Cloud multer limit is 500 MB per file — huge originals can hang/OOM free Render.
-    const CLOUD_FILE_LIMIT = 480 * 1024 * 1024; // stay under 500 MB
+    // Platform / no cloud input: original for before/after compare
     const needOrig =
       job.sourceKind === "platform" ||
       job.options?.sourceKind === "platform" ||
       job.hasCloudInput === false ||
       isPlatformUrl(job.sourceUrl || job.options?.sourceUrl);
     if (needOrig && fs.existsSync(inputPath)) {
-      let origSize = 0;
-      try {
-        origSize = fs.statSync(inputPath).size;
-      } catch {
-        origSize = 0;
-      }
-      let outSize = 0;
-      try {
-        outSize = fs.statSync(files.video).size;
-      } catch {
-        outSize = 0;
-      }
-      if (origSize > CLOUD_FILE_LIMIT) {
-        log(
-          "Oryginał za duży na chmurę (" +
-            Math.round(origSize / 1e6) +
-            " MB > 480 MB) — porównanie PRZED bez uploadu oryginału"
-        );
-      } else if (origSize + outSize > 900 * 1024 * 1024) {
-        // Combined payload risk on free tier
-        log(
-          "Suma wynik+oryginał za duża na free tier — wysyłam tylko wynik"
-        );
-      } else {
-        files.original = inputPath;
-      }
+      files.original = inputPath;
     }
 
-    const done = await reportProgress(job.id, {
-      progress: 98,
-      stage: "Wysyłka wyniku…",
-      log: files.original
-        ? "Wysyłam wynik + oryginał (porównanie) do chmury…"
-        : "Wysyłam wynik do chmury…",
-    });
-    void done;
-    let up = await multipartComplete(job.id, files, localJob.result || {});
-    // If upload failed (e.g. limit / timeout) retry result-only so job still completes
-    if (up.status >= 400 && files.original) {
+    const outSize = fileSizeSafe(files.video);
+    const origSize = files.original ? fileSizeSafe(files.original) : 0;
+    const prevSize = files.preview ? fileSizeSafe(files.preview) : 0;
+    // Free Render: 500 MB/file. Prefer local disk for anything that would choke cloud / preview.
+    const useLocalDisk =
+      outSize > CLOUD_SAFE_BYTES ||
+      origSize > CLOUD_SAFE_BYTES ||
+      outSize + origSize > CLOUD_SAFE_BYTES * 1.8 ||
+      outSize + origSize + prevSize > 400 * 1024 * 1024;
+
+    const userCopy = publishToUserVideos(
+      job.id,
+      files.video,
+      job.originalName || localJob.originalName
+    );
+
+    if (useLocalDisk) {
+      await reportProgress(job.id, {
+        progress: 98,
+        stage: "Zapis na dysku PC…",
+        log:
+          "Wynik " +
+          Math.round(outSize / 1e6) +
+          " MB" +
+          (origSize ? " + oryginał " + Math.round(origSize / 1e6) + " MB" : "") +
+          " — za duży na chmurę 500 MB. Podgląd z dysku twardego (localhost), nie z Render.",
+      });
+      registerLocalMedia(job.id, files);
+      const port = ensureLocalMediaServer();
+      const resultPayload = {
+        ...(localJob.result || {}),
+        localDisk: true,
+        mb: Math.round((outSize / 1e6) * 10) / 10,
+        userCopyPath: userCopy || null,
+      };
+      const body = {
+        result: resultPayload,
+        localMedia: {
+          host: "127.0.0.1",
+          port,
+          token: localMediaToken,
+          hasOriginal: !!files.original,
+          hasPreview: !!files.preview,
+          hasSrt: !!files.srt,
+          resultBytes: outSize,
+          originalBytes: origSize,
+          resultPath: files.video,
+          originalPath: files.original || null,
+          previewPath: files.preview || null,
+          srtPath: files.srt || null,
+          userCopyPath: userCopy || null,
+        },
+      };
+      let up = await request("POST", `/api/studio/agent/jobs/${job.id}/complete-local`, {
+        token: agentToken,
+        body,
+      });
+      if (up.status >= 400) {
+        throw new Error(
+          up.data?.error ||
+            "complete-local nieudane (HTTP " + up.status + ") — czy chmura ma nowy endpoint?"
+        );
+      }
       log(
-        "Upload z oryginałem nieudany (HTTP " +
-          up.status +
-          ") — retry tylko wynik…"
+        "Job gotowy (DYSK PC):",
+        job.id,
+        Math.round(outSize / 1e6) + " MB",
+        userCopy ? "→ " + userCopy : ""
       );
-      delete files.original;
-      up = await multipartComplete(job.id, files, localJob.result || {});
+    } else {
+      await reportProgress(job.id, {
+        progress: 98,
+        stage: "Wysyłka wyniku…",
+        log: files.original
+          ? "Wysyłam wynik + oryginał (porównanie) do chmury…"
+          : "Wysyłam wynik do chmury…",
+      });
+      let up = await multipartComplete(job.id, files, {
+        ...(localJob.result || {}),
+        userCopyPath: userCopy || null,
+      });
+      // If upload failed (413 / limit) → fall back to local disk serve
+      if (up.status >= 400) {
+        log(
+          "Upload chmura HTTP " +
+            up.status +
+            " — przełączam na dysk PC (localhost)…"
+        );
+        registerLocalMedia(job.id, files);
+        const port = ensureLocalMediaServer();
+        up = await request("POST", `/api/studio/agent/jobs/${job.id}/complete-local`, {
+          token: agentToken,
+          body: {
+            result: {
+              ...(localJob.result || {}),
+              localDisk: true,
+              mb: Math.round((outSize / 1e6) * 10) / 10,
+              userCopyPath: userCopy || null,
+              cloudUploadError: up.data?.error || "HTTP " + up.status,
+            },
+            localMedia: {
+              host: "127.0.0.1",
+              port,
+              token: localMediaToken,
+              hasOriginal: !!files.original,
+              hasPreview: !!files.preview,
+              hasSrt: !!files.srt,
+              resultBytes: outSize,
+              originalBytes: origSize,
+              resultPath: files.video,
+              originalPath: files.original || null,
+              previewPath: files.preview || null,
+              srtPath: files.srt || null,
+              userCopyPath: userCopy || null,
+            },
+          },
+        });
+      }
+      if (up.status >= 400) {
+        throw new Error(up.data?.error || "Upload wyniku nieudany");
+      }
+      log("Job gotowy", job.id);
     }
-    if (up.status >= 400) {
-      throw new Error(up.data?.error || "Upload wyniku nieudany");
-    }
-    log("Job gotowy", job.id);
   } catch (err) {
     log("Job błąd", job.id, err.message || err);
     await reportFail(job.id, err.message || String(err));
@@ -1207,7 +1450,9 @@ async function main() {
   } catch {
     /* best-effort */
   }
+  ensureLocalMediaServer();
   log("Agent gotowy — czekam na joby (YouTube wymaga tego okna otwartego).");
+  log("Duże wyniki (>~90 MB) zostają na dysku PC → podgląd z 127.0.0.1 (nie chmura 500 MB).");
   for (;;) {
     try {
       const hb = await heartbeat();
