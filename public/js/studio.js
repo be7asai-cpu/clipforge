@@ -231,6 +231,14 @@
   });
 
   /** One-click: skip video enhance → narrator/STT only */
+  function setNarratorOnlyBadgeText() {
+    const badge = document.getElementById("narrator-only-badge");
+    if (!badge) return;
+    badge.textContent = tr(
+      "narrator.onlyBadge",
+      "⚡ tylko lektor — poprawa wideo wyłączona"
+    );
+  }
   function applyNarratorOnlyUi(on) {
     if (panelFilmik) {
       panelFilmik.classList.toggle("panel-dimmed", !!on);
@@ -238,6 +246,11 @@
         if (el.id === "file-input") return; // still allow picking a file
         el.disabled = !!on;
       });
+    }
+    const badge = document.getElementById("narrator-only-badge");
+    if (badge) {
+      setNarratorOnlyBadgeText();
+      badge.classList.toggle("hidden", !on);
     }
     if (on) {
       if (optNarrator && !optNarrator.checked) {
@@ -249,6 +262,10 @@
   optNarratorOnly?.addEventListener("change", () => {
     applyNarratorOnlyUi(optNarratorOnly.checked);
   });
+  // Sync badge with current language + checkbox state
+  setNarratorOnlyBadgeText();
+  if (optNarratorOnly?.checked) applyNarratorOnlyUi(true);
+  else applyNarratorOnlyUi(false);
 
   function polishMode() {
     return (
@@ -1051,18 +1068,22 @@
    */
   /** Live flag for URL import (platform links need agent) */
   let pcAgentOnline = false;
+  /** Last full PC agent status (for i18n re-apply) */
+  let lastPcAgentState = { online: false };
 
   function updateUrlImportHint() {
     const hint = $("#url-import-hint");
     if (!hint) return;
     if (pcAgentOnline) {
-      hint.innerHTML =
-        "<strong>PC · ON</strong> — możesz wkleić YouTube / TikTok / Instagram / Vimeo (agent pobierze yt-dlp) " +
-        "albo bezpośredni .mp4. Job liczy się na Twoim PC.";
+      hint.innerHTML = tr(
+        "pc.hintOnHtml",
+        "<strong>PC · ON</strong> — możesz wkleić YouTube / TikTok / Instagram / Vimeo (agent pobierze yt-dlp) albo bezpośredni .mp4. Job liczy się na Twoim PC."
+      );
     } else {
-      hint.innerHTML =
-        "Plik .mp4/.webm — zawsze. YouTube/TikTok — tylko przy <strong>PC · ON</strong> " +
-        "(odpal agent / ⬇ PC). Bez agenta wklej bezpośredni link do pliku.";
+      hint.innerHTML = tr(
+        "pc.hintOffHtml",
+        "Plik .mp4/.webm — zawsze. YouTube/TikTok — tylko przy <strong>PC · ON</strong> (odpal agent / ⬇ PC). Bez agenta wklej bezpośredni link do pliku."
+      );
     }
   }
 
@@ -1075,6 +1096,7 @@
       pcState && typeof pcState === "object"
         ? pcState
         : { online: !!pcState };
+    lastPcAgentState = pc;
     pcAgentOnline = !!pc.online;
     updateUrlImportHint();
 
@@ -1096,33 +1118,41 @@
 
     const pcOnline = !!pc.online;
     if (pcOnline) {
-      chip.textContent = "PC · ON";
+      chip.textContent = tr("pc.chipOn", "PC · ON");
       chip.style.color = "#00ff9d";
       chip.style.borderColor = "rgba(0,255,157,0.5)";
       chip.title =
-        "Twój PC połączony — joby liczone u Ciebie, strona zostaje w chmurze" +
-        (pc.label ? " (" + pc.label + ")" : "");
+        tr(
+          "pc.tipOn",
+          "Twój PC połączony — joby liczone u Ciebie, strona zostaje w chmurze"
+        ) + (pc.label ? " (" + pc.label + ")" : "");
       if (btn) btn.style.opacity = "0.55";
     } else if (pc.needLogin && pc.anyOnline) {
-      chip.textContent = "PC · ?";
+      chip.textContent = tr("pc.chipNeedLogin", "PC · ?");
       chip.style.color = "#ffcc66";
       chip.style.borderColor = "rgba(255,200,80,0.5)";
-      chip.title =
-        "Agent działa, ale nie jesteś zalogowany w przeglądarce — zaloguj się tym samym kontem";
+      chip.title = tr(
+        "pc.tipNeedLogin",
+        "Agent działa, ale nie jesteś zalogowany w przeglądarce — zaloguj się tym samym kontem"
+      );
       if (btn) btn.style.opacity = "1";
     } else if (pc.otherAccount) {
-      chip.textContent = "PC · INNE";
+      chip.textContent = tr("pc.chipOther", "PC · INNE");
       chip.style.color = "#ffcc66";
       chip.style.borderColor = "rgba(255,200,80,0.5)";
-      chip.title =
-        "Agent online jest pod innym kontem. Zaloguj się na to samo konto co przy ⬇ PC, albo pobierz agenta ponownie.";
+      chip.title = tr(
+        "pc.tipOther",
+        "Agent online jest pod innym kontem. Zaloguj się na to samo konto co przy ⬇ PC, albo pobierz agenta ponownie."
+      );
       if (btn) btn.style.opacity = "1";
     } else {
-      chip.textContent = "PC · OFF";
+      chip.textContent = tr("pc.chipOff", "PC · OFF");
       chip.style.color = "#7eb8c9";
       chip.style.borderColor = "rgba(0,240,255,0.25)";
-      chip.title =
-        "Agent offline. Kliknij ⬇ PC, uruchom RUN-AGENT.bat i zostań zalogowany w przeglądarce.";
+      chip.title = tr(
+        "pc.tipOff",
+        "Agent offline. Kliknij ⬇ PC, uruchom RUN-AGENT.bat i zostań zalogowany w przeglądarce."
+      );
       if (btn) btn.style.opacity = "1";
     }
 
@@ -1139,10 +1169,15 @@
         bar.style.cssText =
           "margin:0 0 12px;padding:10px 12px;border:1px solid rgba(0,240,255,0.35);background:rgba(0,40,60,0.5);font:0.85rem Exo 2,sans-serif;color:#e0f7ff;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;";
         bar.innerHTML =
-          "<span><strong>Twój PC</strong> — żeby każdy liczył u siebie (bez kolejki w chmurze), pobierz raz gotowy agent. Strona zostaje tutaj.</span>";
+          "<span>" +
+          tr(
+            "pc.bannerHtml",
+            "<strong>Twój PC</strong> — żeby każdy liczył u siebie (bez kolejki w chmurze), pobierz raz gotowy agent. Strona zostaje tutaj."
+          ) +
+          "</span>";
         const go = document.createElement("button");
         go.type = "button";
-        go.textContent = "Pobierz agent PC";
+        go.textContent = tr("pc.bannerBtn", "Pobierz agent PC");
         go.className = "btn-go";
         go.style.cssText =
           "width:auto;margin:0;padding:8px 14px;font-size:0.7rem;";
@@ -1291,16 +1326,15 @@
           );
         if (looksPlatform && !pcAgentOnline) {
           throw new Error(
-            "Link z platformy (YouTube/TikTok/…) wymaga PC · ON.\n\n" +
-              "1) Odpal RUN-AGENT.bat / ⬇ PC\n" +
-              "2) Poczekaj na zielony chip PC · ON\n" +
-              "3) Start ponownie\n\n" +
-              "Albo wklej bezpośredni plik .mp4."
+            tr(
+              "pc.needAgentErr",
+              "Link z platformy (YouTube/TikTok/…) wymaga PC · ON.\n\n1) Odpal RUN-AGENT.bat / ⬇ PC\n2) Poczekaj na zielony chip PC · ON\n3) Start ponownie\n\nAlbo wklej bezpośredni plik .mp4."
+            )
           );
         }
         btnStart.textContent = looksPlatform
-          ? "Kolejka PC (yt-dlp)…"
-          : "Pobieram z linku…";
+          ? tr("pc.queueYtdlp", "Kolejka PC (yt-dlp)…")
+          : tr("pc.fetchUrl", "Pobieram z linku…");
         res = await fetch("/api/studio/jobs/from-url", {
           method: "POST",
           credentials: "same-origin",
@@ -1520,13 +1554,13 @@
       const lang = r.language;
       $("#result-info").textContent = [
         job.localDisk || r.localDisk
-          ? "💾 dysk PC (bez limitu 500 MB chmury)"
+          ? tr("result.localDisk", "💾 dysk PC (bez limitu 500 MB chmury)")
           : null,
         r.width && r.height ? `${r.width}×${r.height}` : null,
         r.mb != null ? `${r.mb} MB` : null,
         r.duration ? `${Number(r.duration).toFixed(1)}s` : null,
-        r.hasNarrator ? "lektor" : null,
-        r.hasSubtitles ? "napisy" : null,
+        r.hasNarrator ? tr("result.tagNarrator", "lektor") : null,
+        r.hasSubtitles ? tr("result.tagSubs", "napisy") : null,
         lang?.modeLabel || null,
         lang?.sourceLang
           ? `źródło: ${lang.sourceLang.label}`
@@ -1567,16 +1601,36 @@
         }
       }
 
-      let scriptTxt = r.script || "(brak tekstu lektora)";
-      if (lang?.original && lang.translated) {
-        const tgt = lang.targetLang?.label || "docelowy";
-        scriptTxt =
-          "— oryginał —\n" +
-          lang.original +
-          "\n\n— " +
-          tgt +
-          " —\n" +
-          scriptTxt;
+      // Prefer timed transcription (with clocks); fall back to plain script
+      const timedTgt =
+        r.timedScript ||
+        lang?.timedScript ||
+        (r.script && String(r.script).includes("[") ? r.script : null);
+      const timedSrc =
+        r.timedOriginal ||
+        lang?.timedOriginal ||
+        null;
+      let scriptTxt =
+        timedTgt ||
+        r.scriptPlain ||
+        r.script ||
+        "(brak tekstu lektora)";
+      if (timedSrc || (lang?.original && lang.translated)) {
+        const tgt = lang?.targetLang?.label || "docelowy";
+        const srcBlock =
+          timedSrc ||
+          (lang?.original
+            ? String(lang.original)
+            : "");
+        if (srcBlock) {
+          scriptTxt =
+            "— oryginał (z czasem) —\n" +
+            srcBlock +
+            "\n\n— " +
+            tgt +
+            " (z czasem) —\n" +
+            (timedTgt || r.scriptPlain || r.script || "");
+        }
       }
       $("#result-script").textContent = scriptTxt;
 
@@ -1660,11 +1714,15 @@
         job.options?.sourceKind === "platform" ||
         /youtube|tiktok|instagram/i.test(job.options?.sourceUrl || "")
       ) {
-        metaOrig.textContent =
-          "Oryginał z YouTube/platformy — pojawi się po zakończeniu joba (agent wyśle plik źródłowy). Odśwież wynik / poczekaj na 100%.";
+        metaOrig.textContent = tr(
+          "result.origPlatformWait",
+          "Oryginał z YouTube/platformy — pojawi się po zakończeniu joba (agent wyśle plik źródłowy). Odśwież wynik / poczekaj na 100%."
+        );
       } else {
-        metaOrig.textContent =
-          "Brak podglądu oryginału (brak pliku źródłowego na serwerze)";
+        metaOrig.textContent = tr(
+          "result.origMissing",
+          "Brak podglądu oryginału (brak pliku źródłowego na serwerze)"
+        );
       }
     }
     if (metaOut) {
@@ -1673,7 +1731,7 @@
         r.width && r.height ? `${r.width}×${r.height}` : null,
         r.mb != null ? `${r.mb} MB` : null,
         r.duration ? `${Number(r.duration).toFixed(1)} s` : null,
-        "wynik",
+        tr("result.outLabel", "wynik"),
       ]
         .filter(Boolean)
         .join(" · ");
@@ -1695,8 +1753,12 @@
       };
       video.addEventListener("loadedmetadata", apply, { once: true });
     };
-    tagDim(vOrig, metaOrig, job.originalName || "oryginał");
-    tagDim(vOut, metaOut, "wynik");
+    tagDim(
+      vOrig,
+      metaOrig,
+      job.originalName || tr("compare.original", "Oryginał")
+    );
+    tagDim(vOut, metaOut, tr("result.outLabel", "wynik"));
   }
 
   // Compare players: play both / pause / optional seek sync
@@ -1795,8 +1857,11 @@
           method: "POST",
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Błąd");
-        setShareStatus("Otwarto folder z zaznaczonym plikiem.", "ok");
+        if (!res.ok) throw new Error(data.error || tr("share.errGeneric", "Błąd"));
+        setShareStatus(
+          tr("share.folderOk", "Otwarto folder z zaznaczonym plikiem."),
+          "ok"
+        );
         return;
       }
       if (action === "native") {
@@ -1804,7 +1869,7 @@
           method: "POST",
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Błąd");
+        if (!res.ok) throw new Error(data.error || tr("share.errGeneric", "Błąd"));
         setShareStatus(tr("share.playOk", "Opened Windows player."), "ok");
         return;
       }
@@ -1813,9 +1878,10 @@
           method: "POST",
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Błąd");
+        if (!res.ok) throw new Error(data.error || tr("share.errGeneric", "Błąd"));
         setShareStatus(
-          data.message || "Folder otwarty · ścieżka w schowku.",
+          data.message ||
+            tr("share.windowsOk", "Folder otwarty · ścieżka w schowku."),
           "ok"
         );
         return;
@@ -1833,27 +1899,33 @@
       if (action === "copy-url") {
         const url = location.origin + job.downloadUrl;
         await copyText(url);
-        setShareStatus("Skopiowano link: " + url, "ok");
+        setShareStatus(
+          tr("share.urlOk", "Skopiowano link: {url}").replace("{url}", url),
+          "ok"
+        );
         return;
       }
       if (action === "copy-script") {
         const script = job.result?.script || $("#result-script")?.textContent || "";
         await copyText(script);
-        setShareStatus("Skopiowano tekst lektora.", "ok");
+        setShareStatus(
+          tr("share.copiedScript", "Skopiowano tekst lektora."),
+          "ok"
+        );
         return;
       }
       if (action === "copy-pack") {
         const shareRes = await fetch(`/api/studio/jobs/${job.id}/share`);
         const data = await shareRes.json();
-        if (!shareRes.ok) throw new Error(data.error || "Błąd");
+        if (!shareRes.ok) throw new Error(data.error || tr("share.errGeneric", "Błąd"));
         const s = data.share;
         const pack = [
           s.title,
           "",
           s.text,
           "",
-          "Plik: " + (s.path || ""),
-          "Link: " + (s.url || ""),
+          tr("share.fileLabel", "Plik:") + " " + (s.path || ""),
+          tr("share.linkLabel", "Link:") + " " + (s.url || ""),
         ]
           .filter((x) => x != null)
           .join("\n");
@@ -1864,7 +1936,7 @@
       if (action === "webshare") {
         const shareRes = await fetch(`/api/studio/jobs/${job.id}/share`);
         const data = await shareRes.json();
-        if (!shareRes.ok) throw new Error(data.error || "Błąd");
+        if (!shareRes.ok) throw new Error(data.error || tr("share.errGeneric", "Błąd"));
         const s = data.share;
         if (navigator.share) {
           // Try file share if possible
@@ -1926,6 +1998,10 @@
   window.addEventListener("clipforge:lang", () => {
     try {
       if (window.ClipForgeI18n) window.ClipForgeI18n.apply();
+      // PC agent hint + chip labels follow UI language
+      updateUrlImportHint();
+      ensurePcAgentUi(lastPcAgentState || { online: pcAgentOnline });
+      setNarratorOnlyBadgeText();
       // Empty-state placeholders on live pre boxes
       document.querySelectorAll("[data-i18n-empty]").forEach((el) => {
         const key = el.getAttribute("data-i18n-empty");

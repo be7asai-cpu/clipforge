@@ -1522,15 +1522,18 @@ body.clipforge-only {
   opacity: 1;
   filter: none;
 }
-.panel-filmik.panel-dimmed::after {
-  content: "⚡ tylko lektor — poprawa wideo wyłączona";
+/* Real DOM badge (i18n via data-i18n) — not CSS content (was stuck in Polish) */
+.narrator-only-badge {
   display: block;
-  margin-top: 10px;
+  margin: 0 0 10px;
   font-family: "Share Tech Mono", monospace;
   font-size: 0.72rem;
   letter-spacing: 0.06em;
   color: var(--cyan);
   text-align: center;
+}
+.narrator-only-badge.hidden {
+  display: none !important;
 }
 .section-sub {
   font-size: 0.8rem !important;
