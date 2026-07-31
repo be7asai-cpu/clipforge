@@ -563,7 +563,129 @@ async function downloadPlatformSource(sourceUrl, destPath, hooks = {}) {
       log: "Pobrano " + Math.round(sz / 1024) + " KB — start obróbki",
     });
   }
+  // Side-channel: captions text for music (STT fails on singing)
+  if (hooks.captionsOut && typeof hooks.captionsOut === "object") {
+    hooks.captionsOut.text = null;
+    hooks.captionsOut.file = null;
+  }
   return destPath;
+}
+
+/**
+ * Parse SRT/VTT into plain text (lyrics / auto-captions).
+ */
+function captionsFileToText(filePath) {
+  try {
+    let raw = fs.readFileSync(filePath, "utf8");
+    // strip WEBVTT header / tags
+    raw = raw
+      .replace(/\uFEFF/g, "")
+      .replace(/^WEBVTT[^\n]*\n+/i, "")
+      .replace(/<[^>]+>/g, " ");
+    const blocks = raw.split(/\n\s*\n+/);
+    const lines = [];
+    for (const b of blocks) {
+      const ls = b
+        .split(/\r?\n/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      for (const line of ls) {
+        if (/^\d+$/.test(line)) continue;
+        if (/-->/.test(line)) continue;
+        if (/^(NOTE|STYLE|REGION)\b/i.test(line)) continue;
+        if (line.length) lines.push(line);
+      }
+    }
+    return lines
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Download YouTube (auto)captions — much better for music than Google STT on singing.
+ * @returns {{ text: string, file: string|null }|null}
+ */
+async function tryDownloadYoutubeCaptions(sourceUrl, destDir) {
+  if (!/youtube\.com|youtu\.be/i.test(String(sourceUrl || ""))) return null;
+  let ytdlp;
+  try {
+    ytdlp = await ensureYtDlp();
+  } catch {
+    return null;
+  }
+  fs.mkdirSync(destDir, { recursive: true });
+  const outTpl = path.join(destDir, "ytcaps");
+  // Clean old
+  try {
+    for (const n of fs.readdirSync(destDir)) {
+      if (/^ytcaps/i.test(n)) {
+        try {
+          fs.unlinkSync(path.join(destDir, n));
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  const args = [
+    "--skip-download",
+    "--no-warnings",
+    "--write-auto-sub",
+    "--write-sub",
+    "--sub-langs",
+    "en.*,pl.*,en,pl,en-US,en-GB",
+    "--convert-subs",
+    "srt",
+    "-o",
+    outTpl,
+    String(sourceUrl),
+  ];
+  log("Pobieram napisy YT (transkrypcja dla muzyki)…");
+  try {
+    await runYtDlpAsync(ytdlp, args, { timeoutMs: 90 * 1000 });
+  } catch (e) {
+    log("napisy YT:", String(e.message || e).slice(0, 120));
+  }
+  let best = null;
+  let bestLen = 0;
+  try {
+    for (const n of fs.readdirSync(destDir)) {
+      if (!/\.(srt|vtt)$/i.test(n)) continue;
+      if (!/^ytcaps/i.test(n) && !/ytcaps/i.test(n)) continue;
+      const p = path.join(destDir, n);
+      const t = captionsFileToText(p);
+      if (t.length > bestLen) {
+        bestLen = t.length;
+        best = { text: t, file: p };
+      }
+    }
+    // also any srt created in dir this second
+    if (!best) {
+      for (const n of fs.readdirSync(destDir)) {
+        if (!/\.(srt|vtt)$/i.test(n)) continue;
+        const p = path.join(destDir, n);
+        const t = captionsFileToText(p);
+        if (t.length > bestLen) {
+          bestLen = t.length;
+          best = { text: t, file: p };
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  if (best && best.text && best.text.length >= 20) {
+    log("Napisy YT OK:", best.text.length, "znaków z", path.basename(best.file));
+    return best;
+  }
+  log("Brak napisów YT (albo puste) — STT może nie złapać muzyki");
+  return null;
 }
 
 function isPlatformUrl(u) {
@@ -758,6 +880,51 @@ async function runJob(job) {
         inputSize +
         " B). Sprawdź upload na chmurze."
     );
+  }
+
+  // YouTube captions → transcript (music/singing: Google STT usually fails)
+  const platUrl = job.sourceUrl || job.options?.sourceUrl || null;
+  if (platUrl && isPlatformUrl(platUrl) && /youtube\.com|youtu\.be/i.test(platUrl)) {
+    await reportProgress(job.id, {
+      progress: 8,
+      stage: "Napisy YouTube…",
+      log: "Szukam auto-napisów / napisów (lepsze niż STT na muzyce)…",
+    });
+    const caps = await tryDownloadYoutubeCaptions(platUrl, workDir);
+    if (caps && caps.text && caps.text.length >= 20) {
+      job.options = job.options || {};
+      // Long enough to skip speech STT (userGaveScript threshold is 40)
+      if (!job.options.narratorScript || String(job.options.narratorScript).trim().length < 40) {
+        job.options.narratorScript = caps.text;
+        job.options.fromYoutubeCaptions = true;
+        log("Ustawiam lektor ze z napisów YT:", caps.text.length, "znaków");
+        await reportProgress(job.id, {
+          progress: 12,
+          stage: "Napisy YT gotowe",
+          log:
+            "Transkrypcja z napisów YouTube (" +
+            caps.text.length +
+            " znaków) — pomijam STT mowy (muzyka/śpiew).",
+          liveOriginal: caps.text.slice(0, 500),
+        });
+      }
+      if (caps.file && fs.existsSync(caps.file)) {
+        try {
+          const srtDest = path.join(workDir, "youtube_captions.srt");
+          fs.copyFileSync(caps.file, srtDest);
+          job.options.youtubeCaptionsPath = srtDest;
+        } catch {
+          /* ignore */
+        }
+      }
+    } else {
+      await reportProgress(job.id, {
+        progress: 10,
+        stage: "Bez napisów YT",
+        log:
+          "Brak napisów na YouTube — STT spróbuje mowy (na czystej muzyce często pusto).",
+      });
+    }
   }
 
   // Resolve ffmpeg and preflight probe BEFORE full pipeline
