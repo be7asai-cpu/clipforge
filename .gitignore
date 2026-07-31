@@ -15,10 +15,22 @@ data/studio/outputs/
 data/studio/work/
 data/studio/*.log
 data/studio/jobs.json
-tools/
+# Keep Real-ESRGAN essentials in git (PC agent AI upscale). Ignore bulky extras only.
+tools/realesrgan-windows.zip
+tools/realesrgan/input.jpg
+tools/realesrgan/input2.jpg
+tools/realesrgan/onepiece_demo.mp4
+tools/realesrgan/models/realesrgan-x4plus.bin
+tools/realesrgan/models/realesrgan-x4plus.param
+tools/realesrgan/models/realesrgan-x4plus-anime.bin
+tools/realesrgan/models/realesrgan-x4plus-anime.param
 *.part
 *.mp4
 .DS_Store
 .env
 .env.local
+data/auth/pc-agent.token
+data/auth/agent-tokens.json
+data/auth/sessions/
+data/auth/outbox/
 *.log
