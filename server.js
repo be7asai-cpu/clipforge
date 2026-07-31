@@ -1261,7 +1261,20 @@ app.post(
       { name: "preview", maxCount: 1 },
       { name: "srt", maxCount: 1 },
       { name: "original", maxCount: 1 },
-    ])(req, res, next);
+    ])(req, res, (err) => {
+      if (err) {
+        // Multer LIMIT_FILE_SIZE etc. — fail fast, don't hang the agent forever
+        console.error("agent complete multer:", err.code || err.message);
+        return res.status(413).json({
+          error:
+            err.code === "LIMIT_FILE_SIZE"
+              ? "Plik przekracza limit 500 MB na chmurze (wynik lub oryginał do porównania)."
+              : err.message || "Błąd uploadu",
+          code: err.code || "UPLOAD_ERROR",
+        });
+      }
+      next();
+    });
   },
   async (req, res) => {
     const row = await requireAgent(req, res);

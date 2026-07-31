@@ -660,13 +660,40 @@ async function runJob(job) {
     if (!files.video) throw new Error("Brak pliku wynikowego po pipeline");
 
     // Platform / no cloud input: upload original for before/after compare in UI
+    // Cloud multer limit is 500 MB per file — huge originals can hang/OOM free Render.
+    const CLOUD_FILE_LIMIT = 480 * 1024 * 1024; // stay under 500 MB
     const needOrig =
       job.sourceKind === "platform" ||
       job.options?.sourceKind === "platform" ||
       job.hasCloudInput === false ||
       isPlatformUrl(job.sourceUrl || job.options?.sourceUrl);
     if (needOrig && fs.existsSync(inputPath)) {
-      files.original = inputPath;
+      let origSize = 0;
+      try {
+        origSize = fs.statSync(inputPath).size;
+      } catch {
+        origSize = 0;
+      }
+      let outSize = 0;
+      try {
+        outSize = fs.statSync(files.video).size;
+      } catch {
+        outSize = 0;
+      }
+      if (origSize > CLOUD_FILE_LIMIT) {
+        log(
+          "Oryginał za duży na chmurę (" +
+            Math.round(origSize / 1e6) +
+            " MB > 480 MB) — porównanie PRZED bez uploadu oryginału"
+        );
+      } else if (origSize + outSize > 900 * 1024 * 1024) {
+        // Combined payload risk on free tier
+        log(
+          "Suma wynik+oryginał za duża na free tier — wysyłam tylko wynik"
+        );
+      } else {
+        files.original = inputPath;
+      }
     }
 
     const done = await reportProgress(job.id, {
@@ -677,7 +704,17 @@ async function runJob(job) {
         : "Wysyłam wynik do chmury…",
     });
     void done;
-    const up = await multipartComplete(job.id, files, localJob.result || {});
+    let up = await multipartComplete(job.id, files, localJob.result || {});
+    // If upload failed (e.g. limit / timeout) retry result-only so job still completes
+    if (up.status >= 400 && files.original) {
+      log(
+        "Upload z oryginałem nieudany (HTTP " +
+          up.status +
+          ") — retry tylko wynik…"
+      );
+      delete files.original;
+      up = await multipartComplete(job.id, files, localJob.result || {});
+    }
     if (up.status >= 400) {
       throw new Error(up.data?.error || "Upload wyniku nieudany");
     }
