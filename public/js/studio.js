@@ -448,6 +448,29 @@
     }
   }
 
+  function transcriptSource() {
+    return (
+      document.querySelector('input[name="transcript-source"]:checked')
+        ?.value || "stt"
+    );
+  }
+
+  function refreshTranscriptHint() {
+    const hint = $("#transcript-source-hint");
+    if (!hint) return;
+    if (transcriptSource() === "captions") {
+      hint.textContent = tr(
+        "narrator.transcriptHintCaps",
+        "Napisy z filmu (YouTube auto/CC) → transkrypcja z znacznikami czasu. Lepsze do muzyki i filmów z napisami."
+      );
+    } else {
+      hint.textContent = tr(
+        "narrator.transcriptHintStt",
+        "STT: rozpoznaje mowę z audio (segmenty). Dobre do mówionych shortów."
+      );
+    }
+  }
+
   function refreshLangBadge() {
     const sel = $("#opt-source-lang")?.value || "auto";
     const tgt = targetLang();
@@ -482,6 +505,11 @@
       refreshLangBadge();
     });
   });
+  document.querySelectorAll('input[name="transcript-source"]').forEach((el) => {
+    el.addEventListener("change", () => {
+      refreshTranscriptHint();
+    });
+  });
   $("#opt-source-lang")?.addEventListener("change", () => {
     refreshModeHint();
     refreshLangBadge();
@@ -493,6 +521,7 @@
   $("#opt-title").addEventListener("input", refreshLangBadge);
   $("#opt-script").addEventListener("input", refreshLangBadge);
   refreshModeHint();
+  refreshTranscriptHint();
   refreshLangBadge();
 
   // --- file + first frame for logo picker ---
@@ -805,6 +834,10 @@
       fadeEdges: narratorOnly ? false : !!$("#opt-fade-edges")?.checked,
       narrator: narratorOnly ? true : optNarrator.checked,
       narratorMode: narratorMode(),
+      /** stt = speech-to-text (default, as before); captions = video subs → timed transcript */
+      transcriptSource:
+        document.querySelector('input[name="transcript-source"]:checked')
+          ?.value || "stt",
       sourceLang: $("#opt-source-lang")?.value || "auto",
       targetLang: targetLang(),
       autoTranslate: $("#opt-auto-translate").checked,

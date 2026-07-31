@@ -462,6 +462,21 @@
                 Dokładne: 1) wyodrębnij tekst z audio → 2) tłumacz na żywo 1:1 (lektor + napisy).
               </p>
 
+              <div class="opt-block-title" data-i18n="narrator.transcriptTitle">Źródło transkrypcji</div>
+              <div class="seg" role="radiogroup" id="transcript-source-group">
+                <label>
+                  <input type="radio" name="transcript-source" value="stt" checked />
+                  <span data-i18n="narrator.transcriptStt">Z dźwięku (STT) — jak dotychczas</span>
+                </label>
+                <label>
+                  <input type="radio" name="transcript-source" value="captions" />
+                  <span data-i18n="narrator.transcriptCaps">Z napisów filmu → transkrypcja z czasem</span>
+                </label>
+              </div>
+              <p class="hint" id="transcript-source-hint" data-i18n="narrator.transcriptHintStt">
+                STT: rozpoznaje mowę z audio (segmenty). Dobre do mówionych shortów.
+              </p>
+
               <div class="grid2">
                 <label class="stack">
                   <span data-i18n="narrator.src">Język źródłowy</span>

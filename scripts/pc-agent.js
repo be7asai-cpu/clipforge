@@ -572,42 +572,93 @@ async function downloadPlatformSource(sourceUrl, destPath, hooks = {}) {
 }
 
 /**
- * Parse SRT/VTT into plain text (lyrics / auto-captions).
+ * Parse SRT/VTT timestamp → seconds
  */
-function captionsFileToText(filePath) {
+function parseCaptionTime(h, m, s, ms) {
+  const frac = String(ms || "0").padEnd(3, "0").slice(0, 3);
+  return (
+    Number(h) * 3600 +
+    Number(m) * 60 +
+    Number(s) +
+    Number(frac) / 1000
+  );
+}
+
+/**
+ * Parse SRT/VTT into timed segments + plain text (for lektor 1:1 timeline).
+ * @returns {{ text: string, segments: {start:number,end:number,text:string}[], file: string }}
+ */
+function parseCaptionsTimed(filePath) {
   try {
     let raw = fs.readFileSync(filePath, "utf8");
-    // strip WEBVTT header / tags
     raw = raw
       .replace(/\uFEFF/g, "")
-      .replace(/^WEBVTT[^\n]*\n+/i, "")
-      .replace(/<[^>]+>/g, " ");
+      .replace(/^WEBVTT[^\n]*\n+/i, "");
     const blocks = raw.split(/\n\s*\n+/);
-    const lines = [];
+    const segments = [];
+    const timeRe =
+      /(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})/;
     for (const b of blocks) {
       const ls = b
         .split(/\r?\n/)
         .map((x) => x.trim())
         .filter(Boolean);
+      if (!ls.length) continue;
+      let timeLine = null;
+      let textLines = [];
       for (const line of ls) {
         if (/^\d+$/.test(line)) continue;
-        if (/-->/.test(line)) continue;
         if (/^(NOTE|STYLE|REGION)\b/i.test(line)) continue;
-        if (line.length) lines.push(line);
+        if (timeRe.test(line)) {
+          timeLine = line;
+          continue;
+        }
+        // strip HTML / karaoke tags
+        const clean = line
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\{[^}]+\}/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (clean) textLines.push(clean);
       }
+      if (!timeLine || !textLines.length) continue;
+      const m = timeRe.exec(timeLine);
+      if (!m) continue;
+      const start = parseCaptionTime(m[1], m[2], m[3], m[4]);
+      const end = parseCaptionTime(m[5], m[6], m[7], m[8]);
+      const text = textLines.join(" ").replace(/\s+/g, " ").trim();
+      if (!text) continue;
+      segments.push({
+        start,
+        end: Math.max(end, start + 0.2),
+        text,
+        silent: false,
+      });
     }
-    return lines
+    // Deduplicate consecutive identical spam (auto-captions often repeat)
+    const deduped = [];
+    for (const s of segments) {
+      const prev = deduped[deduped.length - 1];
+      if (prev && prev.text === s.text && s.start - prev.end < 0.35) {
+        prev.end = Math.max(prev.end, s.end);
+        continue;
+      }
+      deduped.push({ ...s });
+    }
+    const text = deduped
+      .map((s) => s.text)
       .join(" ")
       .replace(/\s+/g, " ")
       .trim();
+    return { text, segments: deduped, file: filePath };
   } catch {
-    return "";
+    return { text: "", segments: [], file: filePath };
   }
 }
 
 /**
- * Download YouTube (auto)captions — much better for music than Google STT on singing.
- * @returns {{ text: string, file: string|null }|null}
+ * Download YouTube (auto)captions → timed transcription.
+ * @returns {{ text: string, segments: object[], file: string|null }|null}
  */
 async function tryDownloadYoutubeCaptions(sourceUrl, destDir) {
   if (!/youtube\.com|youtu\.be/i.test(String(sourceUrl || ""))) return null;
@@ -619,7 +670,6 @@ async function tryDownloadYoutubeCaptions(sourceUrl, destDir) {
   }
   fs.mkdirSync(destDir, { recursive: true });
   const outTpl = path.join(destDir, "ytcaps");
-  // Clean old
   try {
     for (const n of fs.readdirSync(destDir)) {
       if (/^ytcaps/i.test(n)) {
@@ -633,58 +683,56 @@ async function tryDownloadYoutubeCaptions(sourceUrl, destDir) {
   } catch {
     /* ignore */
   }
+  // Prefer manual + auto; broad lang list; convert to srt for timing
   const args = [
     "--skip-download",
     "--no-warnings",
     "--write-auto-sub",
     "--write-sub",
     "--sub-langs",
-    "en.*,pl.*,en,pl,en-US,en-GB",
+    "en.*,pl.*,en,pl,en-US,en-GB,es.*,de.*,fr.*,pt.*,ru.*,it.*,zh.*,ja.*,ko.*,all",
     "--convert-subs",
     "srt",
     "-o",
     outTpl,
     String(sourceUrl),
   ];
-  log("Pobieram napisy YT (transkrypcja dla muzyki)…");
+  log("Pobieram napisy YT → transkrypcja z czasem…");
   try {
-    await runYtDlpAsync(ytdlp, args, { timeoutMs: 90 * 1000 });
+    await runYtDlpAsync(ytdlp, args, { timeoutMs: 120 * 1000 });
   } catch (e) {
     log("napisy YT:", String(e.message || e).slice(0, 120));
   }
   let best = null;
-  let bestLen = 0;
+  let bestScore = 0;
   try {
     for (const n of fs.readdirSync(destDir)) {
       if (!/\.(srt|vtt)$/i.test(n)) continue;
-      if (!/^ytcaps/i.test(n) && !/ytcaps/i.test(n)) continue;
       const p = path.join(destDir, n);
-      const t = captionsFileToText(p);
-      if (t.length > bestLen) {
-        bestLen = t.length;
-        best = { text: t, file: p };
-      }
-    }
-    // also any srt created in dir this second
-    if (!best) {
-      for (const n of fs.readdirSync(destDir)) {
-        if (!/\.(srt|vtt)$/i.test(n)) continue;
-        const p = path.join(destDir, n);
-        const t = captionsFileToText(p);
-        if (t.length > bestLen) {
-          bestLen = t.length;
-          best = { text: t, file: p };
-        }
+      const parsed = parseCaptionsTimed(p);
+      // score: prefer more timed segments + longer text
+      const score =
+        parsed.segments.length * 10 + Math.min(parsed.text.length, 5000);
+      if (score > bestScore && parsed.text.length >= 12) {
+        bestScore = score;
+        best = parsed;
       }
     }
   } catch {
     /* ignore */
   }
-  if (best && best.text && best.text.length >= 20) {
-    log("Napisy YT OK:", best.text.length, "znaków z", path.basename(best.file));
+  if (best && best.text && best.segments.length) {
+    log(
+      "Napisy YT OK:",
+      best.segments.length,
+      "cue,",
+      best.text.length,
+      "znaków z",
+      path.basename(best.file)
+    );
     return best;
   }
-  log("Brak napisów YT (albo puste) — STT może nie złapać muzyki");
+  log("Brak napisów YT (albo puste)");
   return null;
 }
 
@@ -882,32 +930,67 @@ async function runJob(job) {
     );
   }
 
-  // YouTube captions → transcript (music/singing: Google STT usually fails)
+  // Captions mode only: YouTube subs → timed transcription (STT mode skips this)
+  job.options = job.options || {};
+  const wantCaptions =
+    String(job.options.transcriptSource || "stt").toLowerCase() === "captions";
   const platUrl = job.sourceUrl || job.options?.sourceUrl || null;
-  if (platUrl && isPlatformUrl(platUrl) && /youtube\.com|youtu\.be/i.test(platUrl)) {
+  if (
+    wantCaptions &&
+    platUrl &&
+    isPlatformUrl(platUrl) &&
+    /youtube\.com|youtu\.be/i.test(platUrl)
+  ) {
     await reportProgress(job.id, {
       progress: 8,
-      stage: "Napisy YouTube…",
-      log: "Szukam auto-napisów / napisów (lepsze niż STT na muzyce)…",
+      stage: "Napisy → transkrypcja…",
+      log: "Pobieram napisy z filmu i buduję transkrypcję z czasem…",
     });
     const caps = await tryDownloadYoutubeCaptions(platUrl, workDir);
-    if (caps && caps.text && caps.text.length >= 20) {
-      job.options = job.options || {};
-      // Long enough to skip speech STT (userGaveScript threshold is 40)
-      if (!job.options.narratorScript || String(job.options.narratorScript).trim().length < 40) {
+    if (caps && caps.text && caps.segments && caps.segments.length) {
+      if (
+        !job.options.narratorScript ||
+        String(job.options.narratorScript).trim().length < 40
+      ) {
         job.options.narratorScript = caps.text;
-        job.options.fromYoutubeCaptions = true;
-        log("Ustawiam lektor ze z napisów YT:", caps.text.length, "znaków");
-        await reportProgress(job.id, {
-          progress: 12,
-          stage: "Napisy YT gotowe",
-          log:
-            "Transkrypcja z napisów YouTube (" +
-            caps.text.length +
-            " znaków) — pomijam STT mowy (muzyka/śpiew).",
-          liveOriginal: caps.text.slice(0, 500),
-        });
       }
+      job.options.fromYoutubeCaptions = true;
+      job.options.transcriptSource = "captions";
+      // Timed cues for lektor/napisy 1:1 (seconds)
+      job.options.captionSegments = caps.segments.map((s, i) => ({
+        start: s.start,
+        end: s.end,
+        text: s.text,
+        silent: false,
+        sttIndex: i,
+      }));
+      log(
+        "Transkrypcja z napisów:",
+        caps.segments.length,
+        "okien,",
+        caps.text.length,
+        "znaków"
+      );
+      // Stream first cues to live UI
+      const preview = caps.segments
+        .slice(0, 8)
+        .map(
+          (s) =>
+            `[${s.start.toFixed(1)}–${s.end.toFixed(1)}s] ${s.text.slice(0, 80)}`
+        )
+        .join("\n");
+      await reportProgress(job.id, {
+        progress: 14,
+        stage: "Transkrypcja z napisów",
+        log:
+          "Napisy → " +
+          caps.segments.length +
+          " segmentów z czasem (" +
+          caps.text.length +
+          " znaków). Pomijam STT dźwięku.",
+        livePhase: "source",
+        liveOriginal: preview || caps.text.slice(0, 800),
+      });
       if (caps.file && fs.existsSync(caps.file)) {
         try {
           const srtDest = path.join(workDir, "youtube_captions.srt");
@@ -920,10 +1003,12 @@ async function runJob(job) {
     } else {
       await reportProgress(job.id, {
         progress: 10,
-        stage: "Bez napisów YT",
+        stage: "Brak napisów — STT",
         log:
-          "Brak napisów na YouTube — STT spróbuje mowy (na czystej muzyce często pusto).",
+          "Brak napisów na filmie. Przełączam na STT z dźwięku (jak dotychczas).",
       });
+      job.options.transcriptSource = "stt";
+      job.options.fromYoutubeCaptions = false;
     }
   }
 
