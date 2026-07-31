@@ -1,0 +1,42 @@
+{
+  "pl": {
+    "feat.menuAria": "Główne atuty ClipForge",
+    "feat.close": "Zamknij opis",
+    "feat.delogo.cardTitle": "1 · Czysty obraz",
+    "feat.delogo.cardDesc": "Usuwanie logo i znaków wodnych",
+    "feat.delogo.title": "1 · Czysty obraz",
+    "feat.delogo.html": "<p><strong>Usuwanie logo, watermarków i znaków wodnych</strong> — bez ręcznego montażu w CapCutcie.</p><ul><li><strong>Ręczny wybór</strong> — narysuj prostokąt(y) na klatce, gdzie siedzi logo.</li><li><strong>Auto (dół)</strong> — szybki retusz typowych watermarków na dole kadru.</li><li><strong>Metody:</strong> delogo (naturalne), czarny pasek (100% ukrycia), blur + mocniejsze krycie.</li><li>Wielokrotne obszary — kilka logo na jednym filmie.</li></ul><p class='feature-cta'>→ Kolumna 1 · Opcje wideo · „Usuń logo / znak wodny”</p>",
+    "feat.hd.cardTitle": "2 · Super HD / AI",
+    "feat.hd.cardDesc": "Szybki HD + Real-ESRGAN x4plus",
+    "feat.hd.title": "2 · Super HD / AI",
+    "feat.hd.html": "<p><strong>Podkręć jakość do ostrego HD</strong> — od szybkiego FFmpeg po mocny Real-ESRGAN.</p><ul><li><strong>Szybki HD</strong> — scale + ostrość + denoise + korekcja kolorów (auto lub ręczna).</li><li><strong>AI Real-ESRGAN</strong> na Twoim PC (agent): modele Anime/Video oraz <strong>Fotoreal x4plus</strong>.</li><li><strong>x4plus</strong> — lepszy na prawdziwe wideo/osoby; wymaga modelu na PC; wolniejszy niż Anime/Video.</li><li><strong>Style i kadr:</strong> Cartoon, Cinematic, VHS, Noir, 9:16 Reels, 1:1, stabilizacja, tempo, max 15/30/60 s.</li><li>Porównanie <strong>PRZED / PO</strong> dwoma odtwarzaczami w wyniku.</li></ul><p class='feature-cta'>→ Kolumna 1 · Jakość i rozdzielczość · Styl i kadr wideo</p>",
+    "feat.voice.cardTitle": "3 · Lektor i napisy",
+    "feat.voice.cardDesc": "STT · tłumaczenie · TTS · SRT",
+    "feat.voice.title": "3 · Lektor i napisy",
+    "feat.voice.html": "<p><strong>Z dźwięku wideo robisz lektora i napisy pod publikację</strong> — w wielu językach.</p><ul><li><strong>Rozpoznaj mowę z dźwięku</strong> — STT segmentami z oryginalnego audio.</li><li><strong>Weź napisy z filmu</strong> — YouTube/auto-CC → tekst z czasem.</li><li><strong>Tłumaczenie na żywo</strong> na język docelowy (np. PL, EN, ES…).</li><li><strong>Lektor neuralny</strong> (głos żeński / męski) zmikswany z tłem.</li><li><strong>Napisy SRT</strong> + opcjonalny burn-in w obrazie.</li><li><strong>Poprawa audio:</strong> głośność, bass/treble, denoise, fokus na głos, bitrate.</li></ul><p class='feature-cta'>→ Kolumna 2 · Lektor · Jakość audio · Napisy</p>",
+    "feat.pc.cardTitle": "4 · Twój PC",
+    "feat.pc.cardDesc": "Agent lokalny · prywatność · bez kolejki",
+    "feat.pc.title": "4 · Twój PC",
+    "feat.pc.html": "<p><strong>UI w chmurze, liczenie u Ciebie</strong> — bez wspólnej kolejki i bez trzymania filmów na zawsze na serwerze.</p><ul><li><strong>PC Agent</strong> — jeden plik ⬇ PC, instalacja z chmury, joby na Twoim komputerze.</li><li><strong>Chip PC · ON</strong> — wiesz, kiedy agent jest podłączony do Twojego konta.</li><li><strong>Prywatność</strong> — plik roboczy lokalnie; duże wyniki zostają na dysku (podgląd localhost), bez limitu 500 MB chmury.</li><li><strong>Multi-user</strong> — każdy ma swoje konto, swój token, swoje joby.</li></ul><p class='feature-cta'>→ Studio · przycisk ⬇ PC · RUN-AGENT.bat</p>"
+  },
+  "en": {
+    "feat.menuAria": "ClipForge main features",
+    "feat.close": "Close description",
+    "feat.delogo.cardTitle": "1 · Clean picture",
+    "feat.delogo.cardDesc": "Remove logos and watermarks",
+    "feat.delogo.title": "1 · Clean picture",
+    "feat.delogo.html": "<p><strong>Remove logos, watermarks and overlays</strong> — without manual CapCut editing.</p><ul><li><strong>Manual selection</strong> — draw rectangle(s) on the frame where the logo sits.</li><li><strong>Auto (bottom)</strong> — quick fix for typical bottom watermarks.</li><li><strong>Methods:</strong> delogo (natural), black bar (100% cover), blur + stronger cover.</li><li>Multiple regions — several logos on one video.</li></ul><p class='feature-cta'>→ Column 1 · Video options · “Remove logo / watermark”</p>",
+    "feat.hd.cardTitle": "2 · Super HD / AI",
+    "feat.hd.cardDesc": "Fast HD + Real-ESRGAN x4plus",
+    "feat.hd.title": "2 · Super HD / AI",
+    "feat.hd.html": "<p><strong>Boost quality to sharp HD</strong> — from fast FFmpeg to strong Real-ESRGAN.</p><ul><li><strong>Fast HD</strong> — scale + sharpen + denoise + color (auto or manual).</li><li><strong>AI Real-ESRGAN</strong> on your PC (agent): Anime/Video models and <strong>Photoreal x4plus</strong>.</li><li><strong>x4plus</strong> — better for real people/video; needs the model on the PC; slower than Anime/Video.</li><li><strong>Style & frame:</strong> Cartoon, Cinematic, VHS, Noir, 9:16 Reels, 1:1, stabilize, speed, max 15/30/60 s.</li><li><strong>BEFORE / AFTER</strong> compare with two result players.</li></ul><p class='feature-cta'>→ Column 1 · Quality & resolution · Video style & frame</p>",
+    "feat.voice.cardTitle": "3 · Narrator & captions",
+    "feat.voice.cardDesc": "STT · translate · TTS · SRT",
+    "feat.voice.title": "3 · Narrator & captions",
+    "feat.voice.html": "<p><strong>Turn video audio into a narrator and publish-ready captions</strong> — in many languages.</p><ul><li><strong>Recognize speech from audio</strong> — STT in segments from original audio.</li><li><strong>Use video captions</strong> — YouTube/auto-CC → timed text.</li><li><strong>Live translation</strong> into the target language (e.g. PL, EN, ES…).</li><li><strong>Neural narrator</strong> (female / male) mixed with background.</li><li><strong>SRT captions</strong> + optional burn-in.</li><li><strong>Audio enhance:</strong> volume, bass/treble, denoise, voice focus, bitrate.</li></ul><p class='feature-cta'>→ Column 2 · Narrator · Audio quality · Captions</p>",
+    "feat.pc.cardTitle": "4 · Your PC",
+    "feat.pc.cardDesc": "Local agent · privacy · no queue",
+    "feat.pc.title": "4 · Your PC",
+    "feat.pc.html": "<p><strong>UI in the cloud, processing on your machine</strong> — no shared queue and no forever storage of your videos on the server.</p><ul><li><strong>PC Agent</strong> — one ⬇ PC file, install from cloud, jobs on your computer.</li><li><strong>PC · ON chip</strong> — see when the agent is linked to your account.</li><li><strong>Privacy</strong> — work files stay local; large results stay on disk (localhost preview), no 500 MB cloud limit.</li><li><strong>Multi-user</strong> — each person has their own account, token, and jobs.</li></ul><p class='feature-cta'>→ Studio · ⬇ PC button · RUN-AGENT.bat</p>"
+  }
+}
