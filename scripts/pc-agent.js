@@ -290,7 +290,30 @@ function ffmpegDirForYtDlp() {
 /**
  * Download YouTube/TikTok/… with yt-dlp into destPath (.mp4 preferred).
  */
+function ensureFfmpegForAgent() {
+  try {
+    const ff = require("ffmpeg-static");
+    if (ff && fs.existsSync(ff) && fs.statSync(ff).size > 1000000) return ff;
+  } catch {
+    /* missing */
+  }
+  // After incomplete setup npm install may not have finished
+  throw new Error(
+    "Brak ffmpeg-static w agencie (npm install nie dokończony). " +
+      "W folderze %LOCALAPPDATA%\\ClipForge-Agent uruchom: npm install --omit=dev " +
+      "albo odpal setup .cmd ponownie i DOCEKAJ końca npm (bez zamykania okna)."
+  );
+}
+
 async function downloadPlatformSource(sourceUrl, destPath) {
+  // Need ffmpeg for merge (video+audio) on YouTube
+  let ffPath = null;
+  try {
+    ffPath = ensureFfmpegForAgent();
+  } catch (e) {
+    log(String(e.message || e));
+    throw e;
+  }
   const ytdlp = await ensureYtDlp();
   const dir = path.dirname(destPath);
   fs.mkdirSync(dir, { recursive: true });
@@ -300,34 +323,71 @@ async function downloadPlatformSource(sourceUrl, destPath) {
   } catch {
     /* ignore */
   }
+  // Clean old partial ytdlp files
+  try {
+    for (const n of fs.readdirSync(dir)) {
+      if (n.startsWith("ytdlp_dl.")) {
+        try {
+          fs.unlinkSync(path.join(dir, n));
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
   const outTpl = path.join(dir, "ytdlp_dl.%(ext)s");
-  const args = [
-    "--no-playlist",
-    "--no-warnings",
-    "-f",
+  // Prefer single progressive mp4 first (less ffmpeg merge issues), then best<=1080
+  const formatAttempts = [
+    "mp4[height<=1080]/best[height<=1080]/best",
     "bv*[height<=1080]+ba/b[height<=1080]/b",
-    "--merge-output-format",
-    "mp4",
-    "-o",
-    outTpl,
-    "--restrict-filenames",
-    String(sourceUrl),
+    "best",
   ];
-  const ffDir = ffmpegDirForYtDlp();
-  if (ffDir) {
-    args.unshift("--ffmpeg-location", ffDir);
+  let lastErr = "";
+  let r = null;
+  for (const fmt of formatAttempts) {
+    const args = [
+      "--no-playlist",
+      "--no-warnings",
+      "--ffmpeg-location",
+      path.dirname(ffPath),
+      "-f",
+      fmt,
+      "--merge-output-format",
+      "mp4",
+      "-o",
+      outTpl,
+      "--restrict-filenames",
+      "--retries",
+      "5",
+      "--fragment-retries",
+      "5",
+      String(sourceUrl),
+    ];
+    log("yt-dlp start…", fmt, String(sourceUrl).slice(0, 70));
+    r = spawnSync(ytdlp, args, {
+      encoding: "utf8",
+      windowsHide: true,
+      maxBuffer: 30 * 1024 * 1024,
+      timeout: 20 * 60 * 1000,
+    });
+    if (r.error) {
+      throw new Error(
+        "yt-dlp nie startuje: " +
+          (r.error.code || "") +
+          " " +
+          (r.error.message || r.error)
+      );
+    }
+    lastErr = String(r.stderr || r.stdout || "").slice(-500);
+    const found = fs
+      .readdirSync(dir)
+      .filter((n) => n.startsWith("ytdlp_dl."));
+    if (found.length) break;
+    log("yt-dlp format fail, next…", lastErr.replace(/\s+/g, " ").slice(-160));
   }
-  log("yt-dlp start…", sourceUrl.slice(0, 80));
-  const r = spawnSync(ytdlp, args, {
-    encoding: "utf8",
-    windowsHide: true,
-    maxBuffer: 20 * 1024 * 1024,
-    timeout: 15 * 60 * 1000,
-  });
-  if (r.error) {
-    throw new Error("yt-dlp nie startuje: " + (r.error.message || r.error));
-  }
-  const errTail = String(r.stderr || r.stdout || "").slice(-400);
+  const errTail = lastErr;
   // Find downloaded file
   const files = fs
     .readdirSync(dir)

@@ -864,6 +864,39 @@ try {
   }
   L 'FFmpeg OK'
 
+  # --- yt-dlp (YouTube/TikTok/…) — must exist before first job; agent can re-download if missing ---
+  $toolsDir = Join-Path $agentDir 'tools'
+  $ytdlpBin = Join-Path $toolsDir 'yt-dlp.exe'
+  New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+  $needYt = $true
+  if (Test-Path $ytdlpBin) {
+    try {
+      $ysz = (Get-Item -LiteralPath $ytdlpBin).Length
+      if ($ysz -gt 500000) { $needYt = $false; L ("yt-dlp juz jest: $ysz B") }
+    } catch { $needYt = $true }
+  }
+  if ($needYt) {
+    L 'Pobieram yt-dlp.exe (GitHub releases, YouTube/TikTok)...'
+    $ytUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+    $ytOk = $false
+    try {
+      & curl.exe -L --fail --retry 5 --retry-delay 2 --retry-all-errors -o $ytdlpBin $ytUrl
+      if ((Test-Path $ytdlpBin) -and ((Get-Item -LiteralPath $ytdlpBin).Length -gt 500000)) { $ytOk = $true }
+    } catch { L ('curl yt-dlp: ' + $_) }
+    if (-not $ytOk) {
+      try {
+        Invoke-WebRequest -Uri $ytUrl -OutFile $ytdlpBin -UseBasicParsing -TimeoutSec 300
+        if ((Test-Path $ytdlpBin) -and ((Get-Item -LiteralPath $ytdlpBin).Length -gt 500000)) { $ytOk = $true }
+      } catch { L ('iwr yt-dlp: ' + $_) }
+    }
+    if ($ytOk) {
+      try { Unblock-File -Path $ytdlpBin -ErrorAction SilentlyContinue } catch {}
+      L ('yt-dlp OK: ' + (Get-Item -LiteralPath $ytdlpBin).Length + ' B')
+    } else {
+      L '[OSTRZEZENIE] yt-dlp nie pobrany w setup — agent sprobue przy pierwszym YouTube'
+    }
+  }
+
   # RUN-AGENT.bat — only this PC + cloud URL (no other user paths)
   $runBat = Join-Path $agentDir 'RUN-AGENT.bat'
   $batLines = @(
