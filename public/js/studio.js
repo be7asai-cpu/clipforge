@@ -1016,6 +1016,23 @@
   /**
    * @param {boolean|object} pcState - true/false or health.pcAgent object
    */
+  /** Live flag for URL import (platform links need agent) */
+  let pcAgentOnline = false;
+
+  function updateUrlImportHint() {
+    const hint = $("#url-import-hint");
+    if (!hint) return;
+    if (pcAgentOnline) {
+      hint.innerHTML =
+        "<strong>PC · ON</strong> — możesz wkleić YouTube / TikTok / Instagram / Vimeo (agent pobierze yt-dlp) " +
+        "albo bezpośredni .mp4. Job liczy się na Twoim PC.";
+    } else {
+      hint.innerHTML =
+        "Plik .mp4/.webm — zawsze. YouTube/TikTok — tylko przy <strong>PC · ON</strong> " +
+        "(odpal agent / ⬇ PC). Bez agenta wklej bezpośredni link do pliku.";
+    }
+  }
+
   function ensurePcAgentUi(pcState) {
     const head = document.querySelector(".panel-progress-actions") ||
       document.querySelector(".panel-progress-head");
@@ -1025,6 +1042,8 @@
       pcState && typeof pcState === "object"
         ? pcState
         : { online: !!pcState };
+    pcAgentOnline = !!pc.online;
+    updateUrlImportHint();
 
     let chip = document.getElementById("pc-agent-chip");
     if (!chip) {
@@ -1233,6 +1252,22 @@
         data = await res.json();
         if (!res.ok) throw new Error(data.error || "Upload nieudany");
       } else {
+        const looksPlatform =
+          /youtube\.com|youtu\.be|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|vimeo\.com|twitter\.com|\bx\.com\b|reddit\.com|twitch\.tv/i.test(
+            url
+          );
+        if (looksPlatform && !pcAgentOnline) {
+          throw new Error(
+            "Link z platformy (YouTube/TikTok/…) wymaga PC · ON.\n\n" +
+              "1) Odpal RUN-AGENT.bat / ⬇ PC\n" +
+              "2) Poczekaj na zielony chip PC · ON\n" +
+              "3) Start ponownie\n\n" +
+              "Albo wklej bezpośredni plik .mp4."
+          );
+        }
+        btnStart.textContent = looksPlatform
+          ? "Kolejka PC (yt-dlp)…"
+          : "Pobieram z linku…";
         res = await fetch("/api/studio/jobs/from-url", {
           method: "POST",
           credentials: "same-origin",

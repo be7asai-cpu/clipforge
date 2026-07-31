@@ -1131,13 +1131,19 @@ app.post("/api/studio/agent/claim", async (req, res) => {
     job = studioJobs.claimPcJob(row.tokenUserId);
   }
   if (!job) return res.json({ ok: true, job: null });
+  const opts = job.options || {};
   res.json({
     ok: true,
     job: {
       id: job.id,
       originalName: job.originalName,
-      options: job.options || {},
+      options: opts,
       userId: job.userId,
+      /** Platform / remote source for PC agent (yt-dlp) when no cloud input file */
+      sourceUrl: opts.sourceUrl || null,
+      sourceKind: opts.sourceKind || null,
+      sourcePlatform: opts.sourcePlatform || null,
+      hasCloudInput: !!(job.inputPath && fs.existsSync(job.inputPath)),
     },
   });
 });
@@ -1157,6 +1163,14 @@ app.get("/api/studio/agent/jobs/:id/input", async (req, res) => {
     return res.status(404).json({ error: "Job not found" });
   }
   if (!job.inputPath || !fs.existsSync(job.inputPath)) {
+    // Platform jobs: agent must download itself
+    if (job.options?.sourceUrl && job.options?.sourceKind === "platform") {
+      return res.status(409).json({
+        error: "Brak pliku na chmurze — pobierz sourceUrl lokalnie (yt-dlp)",
+        sourceUrl: job.options.sourceUrl,
+        sourceKind: "platform",
+      });
+    }
     return res.status(404).json({ error: "Brak pliku źródłowego na serwerze" });
   }
   const st = fs.statSync(job.inputPath);
@@ -1402,8 +1416,9 @@ app.post("/api/studio/jobs", (req, res) => {
 });
 
 /**
- * Create job from a DIRECT video URL (.mp4 / .webm / …).
- * No YouTube scrapers — server downloads file to uploads, then PC agent or cloud processes it.
+ * Create job from URL:
+ * - direct .mp4/.webm… → cloud downloads, then PC or cloud processes
+ * - YouTube/TikTok/… → only when PC agent online; agent downloads with yt-dlp
  */
 app.post("/api/studio/jobs/from-url", async (req, res) => {
   try {
@@ -1416,9 +1431,9 @@ app.post("/api/studio/jobs/from-url", async (req, res) => {
       return res.status(400).json({ error: "Podaj URL wideo" });
     }
     const urlVideo = require("./lib/url-video");
-    const pre = urlVideo.looksLikeVideoUrl(url);
-    if (!pre.ok) {
-      return res.status(400).json({ error: pre.error });
+    const classified = urlVideo.classifyVideoUrl(url);
+    if (!classified.ok) {
+      return res.status(400).json({ error: classified.error });
     }
 
     let options = {};
@@ -1433,6 +1448,50 @@ app.post("/api/studio/jobs/from-url", async (req, res) => {
       options = {};
     }
 
+    const email = req.user?.email || null;
+
+    // ── Platform (YouTube/TikTok/…) → PC agent only ──
+    if (classified.kind === "platform") {
+      const online = pcAgent.isOnline(uid, email);
+      if (!online) {
+        return res.status(400).json({
+          error:
+            "Link " +
+            (classified.platform || "platformy") +
+            " wymaga PC · ON. Odpal agenta (⬇ PC / RUN-AGENT.bat), poczekaj na zielony chip i spróbuj ponownie. Bez agenta wklej bezpośredni plik .mp4.",
+          needPcAgent: true,
+          platform: classified.platform || null,
+        });
+      }
+      const titleGuess =
+        (classified.platform || "Platform") +
+        " " +
+        new Date().toISOString().slice(0, 10) +
+        ".mp4";
+      options = normalizeJobOptions(options, titleGuess);
+      options.sourceUrl = url.slice(0, 800);
+      options.sourceKind = "platform";
+      options.sourcePlatform = classified.platform || null;
+
+      const job = studioJobs.createJob({
+        originalName: titleGuess,
+        inputPath: null,
+        options,
+        userId: uid || "local",
+        email,
+        executor: "pc",
+      });
+      // no cloud pump — agent claims
+      return res.status(201).json({
+        job: studioJobs.publicJob(job),
+        fromUrl: true,
+        platform: classified.platform,
+        executor: "pc",
+        hint: "Agent PC pobierze wideo lokalnie (yt-dlp) i zacznie obróbkę.",
+      });
+    }
+
+    // ── Direct file URL → download on server ──
     studioJobs.ensureDirs();
     const tmpName =
       "url_" +
@@ -1460,13 +1519,14 @@ app.post("/api/studio/jobs/from-url", async (req, res) => {
     const inputPath = fs.existsSync(finalPath) ? finalPath : dest;
     options = normalizeJobOptions(options, finalName);
     options.sourceUrl = url.slice(0, 500);
+    options.sourceKind = "direct";
 
     const job = studioJobs.createJob({
       originalName: finalName,
       inputPath,
       options,
       userId: uid || "local",
-      email: req.user?.email || null,
+      email,
     });
     studioJobs.enqueuePump();
     res.status(201).json({

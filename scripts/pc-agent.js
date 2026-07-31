@@ -16,6 +16,7 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 const http = require("http");
+const { spawnSync } = require("child_process");
 
 const ROOT = path.join(__dirname, "..");
 // Load local .env if present (optional)
@@ -168,11 +169,208 @@ async function claim() {
   return res.data?.job || null;
 }
 
+function findYtDlp() {
+  const candidates = [
+    path.join(ROOT, "tools", "yt-dlp.exe"),
+    path.join(ROOT, "tools", "yt-dlp"),
+    process.env.YT_DLP_PATH,
+  ].filter(Boolean);
+  for (const c of candidates) {
+    if (c && fs.existsSync(c)) return c;
+  }
+  // PATH
+  const which = spawnSync(
+    process.platform === "win32" ? "where" : "which",
+    ["yt-dlp"],
+    { encoding: "utf8", windowsHide: true }
+  );
+  const line = String(which.stdout || "")
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .find(Boolean);
+  if (line && fs.existsSync(line)) return line;
+  return null;
+}
+
+async function ensureYtDlp() {
+  let bin = findYtDlp();
+  if (bin) return bin;
+  log("Brak yt-dlp — pobieram yt-dlp.exe (GitHub releases)…");
+  const toolsDir = path.join(ROOT, "tools");
+  fs.mkdirSync(toolsDir, { recursive: true });
+  const dest = path.join(toolsDir, "yt-dlp.exe");
+  const url =
+    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+  await new Promise((resolve, reject) => {
+    const lib = url.startsWith("https") ? https : http;
+    const file = fs.createWriteStream(dest);
+    const req = lib.get(url, { headers: { "User-Agent": "ClipForge-Agent" } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        https
+          .get(res.headers.location, (r2) => {
+            r2.pipe(file);
+            file.on("finish", () => {
+              file.close();
+              resolve();
+            });
+          })
+          .on("error", reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error("HTTP " + res.statusCode + " yt-dlp download"));
+      }
+      res.pipe(file);
+      file.on("finish", () => {
+        file.close();
+        resolve();
+      });
+    });
+    req.on("error", reject);
+  });
+  try {
+    fs.chmodSync(dest, 0o755);
+  } catch {
+    /* win */
+  }
+  if (!fs.existsSync(dest) || fs.statSync(dest).size < 10000) {
+    throw new Error("Nie udało się pobrać yt-dlp.exe");
+  }
+  log("yt-dlp gotowy:", dest);
+  return dest;
+}
+
+function ffmpegDirForYtDlp() {
+  try {
+    const ff = require("ffmpeg-static");
+    if (ff && fs.existsSync(ff)) return path.dirname(ff);
+  } catch {
+    /* optional */
+  }
+  return null;
+}
+
+/**
+ * Download YouTube/TikTok/… with yt-dlp into destPath (.mp4 preferred).
+ */
+async function downloadPlatformSource(sourceUrl, destPath) {
+  const ytdlp = await ensureYtDlp();
+  const dir = path.dirname(destPath);
+  fs.mkdirSync(dir, { recursive: true });
+  // Remove prior attempts
+  try {
+    if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+  } catch {
+    /* ignore */
+  }
+  const outTpl = path.join(dir, "ytdlp_dl.%(ext)s");
+  const args = [
+    "--no-playlist",
+    "--no-warnings",
+    "-f",
+    "bv*[height<=1080]+ba/b[height<=1080]/b",
+    "--merge-output-format",
+    "mp4",
+    "-o",
+    outTpl,
+    "--restrict-filenames",
+    String(sourceUrl),
+  ];
+  const ffDir = ffmpegDirForYtDlp();
+  if (ffDir) {
+    args.unshift("--ffmpeg-location", ffDir);
+  }
+  log("yt-dlp start…", sourceUrl.slice(0, 80));
+  const r = spawnSync(ytdlp, args, {
+    encoding: "utf8",
+    windowsHide: true,
+    maxBuffer: 20 * 1024 * 1024,
+    timeout: 15 * 60 * 1000,
+  });
+  if (r.error) {
+    throw new Error("yt-dlp nie startuje: " + (r.error.message || r.error));
+  }
+  const errTail = String(r.stderr || r.stdout || "").slice(-400);
+  // Find downloaded file
+  const files = fs
+    .readdirSync(dir)
+    .filter((n) => n.startsWith("ytdlp_dl."))
+    .map((n) => path.join(dir, n));
+  if (!files.length) {
+    throw new Error(
+      "yt-dlp nie pobrał pliku (kod " +
+        r.status +
+        "): " +
+        errTail.replace(/\s+/g, " ")
+    );
+  }
+  // Prefer mp4
+  files.sort((a, b) => {
+    const am = a.endsWith(".mp4") ? 0 : 1;
+    const bm = b.endsWith(".mp4") ? 0 : 1;
+    return am - bm;
+  });
+  const got = files[0];
+  if (got !== destPath) {
+    try {
+      fs.renameSync(got, destPath);
+    } catch {
+      fs.copyFileSync(got, destPath);
+      try {
+        fs.unlinkSync(got);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  // cleanup extras
+  for (const f of files) {
+    if (f !== destPath && fs.existsSync(f)) {
+      try {
+        fs.unlinkSync(f);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  const sz = fs.statSync(destPath).size;
+  if (sz < 64) throw new Error("yt-dlp: plik pusty");
+  log("yt-dlp OK", destPath, sz, "bytes");
+  return destPath;
+}
+
 async function downloadInput(job, destPath) {
+  // Platform URL → download on this PC (not from cloud)
+  const sourceUrl = job.sourceUrl || job.options?.sourceUrl;
+  const sourceKind = job.sourceKind || job.options?.sourceKind;
+  if (sourceKind === "platform" && sourceUrl) {
+    await downloadPlatformSource(sourceUrl, destPath);
+    return;
+  }
+  if (job.hasCloudInput === false && sourceUrl) {
+    await downloadPlatformSource(sourceUrl, destPath);
+    return;
+  }
+
   const res = await request("GET", `/api/studio/agent/jobs/${job.id}/input`, {
     token: agentToken,
     raw: true,
   });
+  if (res.status === 409) {
+    // Server says download locally
+    let data = null;
+    try {
+      data = JSON.parse(res.buf.toString("utf8"));
+    } catch {
+      data = {};
+    }
+    const u = data.sourceUrl || sourceUrl;
+    if (!u) throw new Error("409 bez sourceUrl");
+    await downloadPlatformSource(u, destPath);
+    return;
+  }
   if (res.status >= 400) {
     const hint = res.buf
       ? res.buf.toString("utf8").slice(0, 180)
@@ -260,6 +458,18 @@ function multipartComplete(jobId, files, result) {
 
 async function runJob(job) {
   log("Start job", job.id, job.originalName);
+  if (job.sourceKind === "platform" || job.options?.sourceKind === "platform") {
+    log(
+      "Źródło platformy:",
+      job.sourcePlatform || job.options?.sourcePlatform || "?",
+      (job.sourceUrl || job.options?.sourceUrl || "").slice(0, 80)
+    );
+    await reportProgress(job.id, {
+      progress: 2,
+      stage: "Pobieranie z platformy…",
+      log: "yt-dlp: " + (job.sourceUrl || job.options?.sourceUrl || "").slice(0, 100),
+    });
+  }
   // Short ASCII path — avoids Windows path/encoding issues in FFmpeg
   const workDir = path.join(ROOT, "data", "studio", "work", "pc_" + job.id);
   fs.mkdirSync(workDir, { recursive: true });
