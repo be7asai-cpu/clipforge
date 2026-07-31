@@ -491,6 +491,16 @@ function multipartComplete(jobId, files, result) {
   if (files.preview)
     addFile("preview", files.preview, path.basename(files.preview), "image/jpeg");
   if (files.srt) addFile("srt", files.srt, path.basename(files.srt), "text/plain");
+  // Original source (YouTube etc.) so cloud UI can show PRZED/PO compare
+  if (files.original && fs.existsSync(files.original)) {
+    const oname = path.basename(files.original) || "original.mp4";
+    const mime = /\.webm$/i.test(oname)
+      ? "video/webm"
+      : /\.mov$/i.test(oname)
+        ? "video/quicktime"
+        : "video/mp4";
+    addFile("original", files.original, oname, mime);
+  }
   parts.push(Buffer.from(`--${boundary}--\r\n`, "utf8"));
   const body = Buffer.concat(parts);
   return request("POST", `/api/studio/agent/jobs/${jobId}/complete`, {
@@ -649,10 +659,22 @@ async function runJob(job) {
 
     if (!files.video) throw new Error("Brak pliku wynikowego po pipeline");
 
+    // Platform / no cloud input: upload original for before/after compare in UI
+    const needOrig =
+      job.sourceKind === "platform" ||
+      job.options?.sourceKind === "platform" ||
+      job.hasCloudInput === false ||
+      isPlatformUrl(job.sourceUrl || job.options?.sourceUrl);
+    if (needOrig && fs.existsSync(inputPath)) {
+      files.original = inputPath;
+    }
+
     const done = await reportProgress(job.id, {
       progress: 98,
       stage: "Wysyłka wyniku…",
-      log: "Wysyłam wynik do chmury…",
+      log: files.original
+        ? "Wysyłam wynik + oryginał (porównanie) do chmury…"
+        : "Wysyłam wynik do chmury…",
     });
     void done;
     const up = await multipartComplete(job.id, files, localJob.result || {});

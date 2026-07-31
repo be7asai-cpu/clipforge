@@ -1235,15 +1235,23 @@ app.post(
     // multer for agent upload
     const agentOut = multer({
       storage: multer.diskStorage({
-        destination: (_req, _file, cb) => {
+        destination: (_req, file, cb) => {
           studioJobs.ensureDirs();
-          cb(null, studioJobs.OUTPUT_DIR);
+          // original (YouTube source) → uploads; results → outputs
+          if (file.fieldname === "original") {
+            cb(null, studioJobs.UPLOAD_DIR);
+          } else {
+            cb(null, studioJobs.OUTPUT_DIR);
+          }
         },
         filename: (_req, file, cb) => {
           const id = String(_req.params.id || "out");
           if (file.fieldname === "preview") cb(null, `studio_${id}_preview.jpg`);
           else if (file.fieldname === "srt") cb(null, `studio_${id}.srt`);
-          else cb(null, `studio_${id}.mp4`);
+          else if (file.fieldname === "original") {
+            const ext = path.extname(file.originalname || "") || ".mp4";
+            cb(null, `studio_${id}_original${ext}`);
+          } else cb(null, `studio_${id}.mp4`);
         },
       }),
       limits: { fileSize: 500 * 1024 * 1024 },
@@ -1252,6 +1260,7 @@ app.post(
       { name: "video", maxCount: 1 },
       { name: "preview", maxCount: 1 },
       { name: "srt", maxCount: 1 },
+      { name: "original", maxCount: 1 },
     ])(req, res, next);
   },
   async (req, res) => {
@@ -1271,8 +1280,10 @@ app.post(
     }
     const preview = req.files?.preview?.[0];
     const srt = req.files?.srt?.[0];
+    const original = req.files?.original?.[0];
     if (srt) result.srtPath = srt.path;
-    studioJobs.updateJob(job.id, {
+    // YouTube/platform: store source so UI can compare PRZED/PO
+    const patch = {
       status: "done",
       progress: 100,
       stage: "Gotowe",
@@ -1281,7 +1292,13 @@ app.post(
       previewPath: preview ? preview.path : job.previewPath,
       result: { ...(job.result || {}), ...result },
       log: "Wynik z Twojego PC zapisany w chmurze (UI bez przekierowania).",
-    });
+    };
+    if (original && original.path) {
+      patch.inputPath = original.path;
+      patch.log =
+        "Wynik + oryginał z PC zapisane w chmurze (porównanie PRZED/PO).";
+    }
+    studioJobs.updateJob(job.id, patch);
     res.json({ ok: true, job: studioJobs.publicJob(studioJobs.getJob(job.id)) });
   }
 );

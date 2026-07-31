@@ -1608,16 +1608,25 @@
     }
 
     if (metaOrig) {
-      metaOrig.textContent = origSrc
-        ? [
-            job.originalName || "oryginał",
-            selectedFile
-              ? (selectedFile.size / 1e6).toFixed(1) + " MB"
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")
-        : "Brak podglądu oryginału (odśwież po jobie — serwer musi trzymać upload)";
+      if (origSrc) {
+        metaOrig.textContent = [
+          job.originalName || "oryginał",
+          selectedFile
+            ? (selectedFile.size / 1e6).toFixed(1) + " MB"
+            : job.options?.sourcePlatform || null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      } else if (
+        job.options?.sourceKind === "platform" ||
+        /youtube|tiktok|instagram/i.test(job.options?.sourceUrl || "")
+      ) {
+        metaOrig.textContent =
+          "Oryginał z YouTube/platformy — pojawi się po zakończeniu joba (agent wyśle plik źródłowy). Odśwież wynik / poczekaj na 100%.";
+      } else {
+        metaOrig.textContent =
+          "Brak podglądu oryginału (brak pliku źródłowego na serwerze)";
+      }
     }
     if (metaOut) {
       const r = result || {};
