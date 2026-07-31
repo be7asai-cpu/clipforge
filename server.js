@@ -939,25 +939,86 @@ get(url, 8).then(() => process.exit(0)).catch((e) => { console.error(e.message |
   Set-Content -Path (Join-Path $authDir 'pc-agent.token') -Value $token -Encoding ascii -NoNewline
 
   function Test-Ffmpeg($bin) {
-    if (-not $bin -or -not (Test-Path $bin)) { return $false }
+    if (-not $bin -or -not (Test-Path -LiteralPath $bin)) { return $false }
+    try {
+      $sz = (Get-Item -LiteralPath $bin).Length
+      # Good win x64 ffmpeg-static ~80MB; broken TLS partials often ~20-40MB with MZ header
+      if ($sz -lt 20000000) { L ("FFmpeg za maly: $sz B (uszkodzony download?)"); return $false }
+      $fs = [IO.File]::OpenRead($bin)
+      try {
+        $mz = New-Object byte[] 2
+        [void]$fs.Read($mz, 0, 2)
+        if (-not ($mz[0] -eq 0x4D -and $mz[1] -eq 0x5A)) { return $false }
+      } finally { $fs.Close() }
+    } catch { return $false }
     try { Unblock-File -Path $bin -ErrorAction SilentlyContinue } catch {}
-    $outF = Join-Path $env:TEMP 'cf-ff-out.txt'
-    $errF = Join-Path $env:TEMP 'cf-ff-err.txt'
-    $proc = Start-Process -FilePath $bin -ArgumentList '-version' -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $outF -RedirectStandardError $errF -ErrorAction SilentlyContinue
-    if (-not $proc) { return $false }
-    return ($proc.ExitCode -eq 0)
-  }
-  if (-not (Test-Ffmpeg $ffBin)) {
-    L 'FFmpeg - ponowna instalacja z npm...'
-    Push-Location $agentDir
-    & npm.cmd install ffmpeg-static@5.3.0 --force
-    Pop-Location
-    try { Unblock-File -Path $ffBin -ErrorAction SilentlyContinue } catch {}
-    if (-not (Test-Ffmpeg $ffBin)) {
-      throw 'FFmpeg zablokowany (antywirus). Wyjatek na folder: %LOCALAPPDATA%\\ClipForge-Agent'
+    try {
+      $outF = Join-Path $env:TEMP 'cf-ff-out.txt'
+      $errF = Join-Path $env:TEMP 'cf-ff-err.txt'
+      $proc = Start-Process -FilePath $bin -ArgumentList '-version' -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $outF -RedirectStandardError $errF -ErrorAction Stop
+      if (-not $proc) { return $false }
+      if ($proc.ExitCode -ne 0) { return $false }
+      $ver = ''
+      try { $ver = Get-Content -LiteralPath $outF -Raw -ErrorAction SilentlyContinue } catch {}
+      return ($ver -match 'ffmpeg|FFmpeg')
+    } catch {
+      # "%1 is not a valid Win32 application" = corrupt PE after mid-TLS download
+      L ('FFmpeg nie startuje: ' + $_)
+      return $false
     }
   }
-  L 'FFmpeg OK'
+
+  function Repair-FfmpegBinary($destExe) {
+    # Direct binary from ffmpeg-static GitHub (gunzip) — more reliable than re-npm after TLS glitch
+    $gz = Join-Path $env:TEMP ('ffmpeg-static-' + [guid]::NewGuid().ToString('n').Substring(0,8) + '.gz')
+    $url = 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-win32-x64.gz'
+    L 'FFmpeg: pobieram oficjalny bin (win32-x64.gz)...'
+    $ok = Get-RobustFile -Url $url -Dest $gz -MinBytes 5000000
+    if (-not $ok) {
+      L 'FFmpeg gz fail — proboje npm force...'
+      Push-Location $agentDir
+      try { Remove-Item -LiteralPath $destExe -Force -ErrorAction SilentlyContinue } catch {}
+      & npm.cmd install ffmpeg-static@5.3.0 --force
+      Pop-Location
+      return (Test-Ffmpeg $destExe)
+    }
+    try {
+      $dir = Split-Path -Parent $destExe
+      New-Item -ItemType Directory -Path $dir -Force | Out-Null
+      if (Test-Path -LiteralPath $destExe) { Remove-Item -LiteralPath $destExe -Force -ErrorAction SilentlyContinue }
+      # gunzip via Node (always available — we require Node for agent)
+      $gunzipJs = @'
+const fs=require("fs");const zlib=require("zlib");
+const gz=process.argv[2], out=process.argv[3];
+const i=fs.createReadStream(gz);
+const o=fs.createWriteStream(out);
+i.pipe(zlib.createGunzip()).pipe(o);
+o.on("finish",()=>{const s=fs.statSync(out).size; if(s<20000000) process.exit(2); console.log("gunzip",s); process.exit(0);});
+o.on("error",e=>{console.error(e); process.exit(1);});
+i.on("error",e=>{console.error(e); process.exit(1);});
+'@
+      $jsPath = Join-Path $env:TEMP ('cf-gunzip-' + [guid]::NewGuid().ToString('n').Substring(0,8) + '.js')
+      Set-Content -Path $jsPath -Value $gunzipJs -Encoding UTF8
+      & $nodeExe $jsPath $gz $destExe
+      $gc = $LASTEXITCODE
+      try { Remove-Item $jsPath -Force -ErrorAction SilentlyContinue } catch {}
+      try { Remove-Item $gz -Force -ErrorAction SilentlyContinue } catch {}
+      if ($gc -ne 0) { L ("gunzip fail code=$gc"); return $false }
+      try { Unblock-File -Path $destExe -ErrorAction SilentlyContinue } catch {}
+      return (Test-Ffmpeg $destExe)
+    } catch {
+      L ('Repair-Ffmpeg: ' + $_)
+      return $false
+    }
+  }
+
+  if (-not (Test-Ffmpeg $ffBin)) {
+    L 'FFmpeg uszkodzony lub brak — naprawiam...'
+    if (-not (Repair-FfmpegBinary $ffBin)) {
+      throw 'FFmpeg nie dziala (uszkodzony download / antywirus). Wyjatek na folder: %LOCALAPPDATA%\\ClipForge-Agent i odpal setup ponownie.'
+    }
+  }
+  L ('FFmpeg OK: ' + (Get-Item -LiteralPath $ffBin).Length + ' B')
 
   # --- yt-dlp (YouTube/TikTok/…) — must exist before first job; agent can re-download if missing ---
   $toolsDir = Join-Path $agentDir 'tools'
