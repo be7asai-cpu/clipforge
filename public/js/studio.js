@@ -767,6 +767,23 @@
       targetHeight: Number($("#opt-height").value) || 1080,
       crf: Number($("#opt-crf").value) || 15,
       crfPreset: Number($("#opt-crf").value) <= 15 ? "slow" : "medium",
+      // Creative video FX (FFmpeg — free)
+      videoStyle: narratorOnly
+        ? "off"
+        : $("#opt-video-style")?.value || "off",
+      videoAspect: narratorOnly
+        ? "original"
+        : $("#opt-video-aspect")?.value || "original",
+      stabilize: narratorOnly
+        ? "off"
+        : $("#opt-stabilize")?.value || "off",
+      playbackSpeed: narratorOnly
+        ? 1
+        : Number($("#opt-playback-speed")?.value) || 1,
+      maxDurationSec: narratorOnly
+        ? 0
+        : Number($("#opt-max-duration")?.value) || 0,
+      fadeEdges: narratorOnly ? false : !!$("#opt-fade-edges")?.checked,
       narrator: narratorOnly ? true : optNarrator.checked,
       narratorMode: narratorMode(),
       sourceLang: $("#opt-source-lang")?.value || "auto",

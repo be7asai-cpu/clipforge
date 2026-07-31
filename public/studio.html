@@ -339,6 +339,69 @@
                   </div>
                 </div>
               </div>
+
+              <!-- Styl / kadr / tempo — darmowe FFmpeg -->
+              <div class="opt-block" id="video-fx-block">
+                <div class="opt-block-title">Styl i kadr wideo</div>
+                <p class="hint">
+                  Darmowe filtry FFmpeg na Twoim PC (cartoon, VHS, 9:16 Reels…). Działa z Szybki HD i AI.
+                </p>
+                <div class="grid2 mt-sm">
+                  <label class="stack">
+                    <span>Styl obrazu</span>
+                    <select id="opt-video-style">
+                      <option value="off" selected>Bez stylu (normalny)</option>
+                      <option value="cinematic">Cinematic (filmowy)</option>
+                      <option value="cartoon">Cartoon (kolorowy)</option>
+                      <option value="sketch">Szkic / ołówek</option>
+                      <option value="comic">Comic / punch</option>
+                      <option value="vhs">VHS / retro</option>
+                      <option value="noir">Noir (C/B)</option>
+                      <option value="warm">Ciepły</option>
+                      <option value="cold">Zimny</option>
+                    </select>
+                  </label>
+                  <label class="stack">
+                    <span>Format / kadrowanie</span>
+                    <select id="opt-video-aspect">
+                      <option value="original" selected>Oryginał</option>
+                      <option value="16:9">16:9 YouTube</option>
+                      <option value="9:16">9:16 Reels / TikTok</option>
+                      <option value="1:1">1:1 Kwadrat</option>
+                    </select>
+                  </label>
+                  <label class="stack">
+                    <span>Stabilizacja</span>
+                    <select id="opt-stabilize">
+                      <option value="off" selected>Wyłączona</option>
+                      <option value="light">Lekka</option>
+                      <option value="strong">Mocna (wolniej)</option>
+                    </select>
+                  </label>
+                  <label class="stack">
+                    <span>Prędkość wideo</span>
+                    <select id="opt-playback-speed">
+                      <option value="0.75">0.75× wolniej</option>
+                      <option value="1" selected>1× normalnie</option>
+                      <option value="1.25">1.25× szybciej</option>
+                      <option value="1.5">1.5×</option>
+                    </select>
+                  </label>
+                  <label class="stack">
+                    <span>Max długość</span>
+                    <select id="opt-max-duration">
+                      <option value="0" selected>Cały film</option>
+                      <option value="15">15 s (short)</option>
+                      <option value="30">30 s</option>
+                      <option value="60">60 s</option>
+                    </select>
+                  </label>
+                  <label class="inline" style="align-self: end; padding-bottom: 8px">
+                    <input type="checkbox" id="opt-fade-edges" />
+                    <span>Fade in / out (krawędzie)</span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
         </section>
