@@ -161,6 +161,27 @@
             <div class="dz-sub" id="file-label" data-i18n="drop.sub">max ~500&nbsp;MB · tymczasowa obróbka · wiele formatów → wynik MP4</div>
           </div>
 
+          <div class="url-import" id="url-import">
+            <div class="url-import-label">Albo wklej bezpośredni link do pliku wideo</div>
+            <div class="url-import-row">
+              <input
+                type="url"
+                id="opt-video-url"
+                class="url-import-input"
+                placeholder="https://…/film.mp4  (nie YouTube — tylko plik .mp4 / .webm / .mov…)"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="button" class="btn ghost sm" id="btn-url-clear" title="Wyczyść link">
+                ✕
+              </button>
+            </div>
+            <p class="hint url-import-hint">
+              Działa z bezpośrednim URL pliku (CDN, hosting). YouTube/TikTok — na razie nie.
+              Przy starcie plik ściąga chmura; jak agent PC · ON — job i tak liczy u Ciebie.
+            </p>
+          </div>
+
           <div class="video-opts-block">
             <div class="opt-block-title" data-i18n="quality.title">Opcje wideo</div>
             <div class="opts">
@@ -818,7 +839,7 @@
 
     <script src="/js/i18n.js?v=20260731compare"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260731compare"></script>
+    <script src="/js/studio.js?v=20260731url"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;

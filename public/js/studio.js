@@ -521,9 +521,9 @@
     selectedFileObjectUrl = URL.createObjectURL(file);
     fileLabel.textContent = `${file.name} · ${(file.size / 1e6).toFixed(1)} MB`;
     dropzone.classList.add("has-file");
-    btnStart.disabled = false;
     logoBoxes = [];
     loadVideoFrame(file);
+    updateStartEnabled();
   }
 
   function loadVideoFrame(file) {
@@ -1146,8 +1146,44 @@
   }, 4000);
   setTimeout(() => isStudioBusy().catch(() => {}), 400);
 
+  function videoUrlInput() {
+    return ($("#opt-video-url")?.value || "").trim();
+  }
+
+  function hasVideoSource() {
+    return !!(selectedFile || videoUrlInput());
+  }
+
+  function updateStartEnabled() {
+    if (btnStart) btnStart.disabled = !hasVideoSource();
+  }
+
+  $("#opt-video-url")?.addEventListener("input", () => {
+    updateStartEnabled();
+    const u = videoUrlInput();
+    if (u && !selectedFile && fileLabel) {
+      fileLabel.textContent = "Link: " + u.slice(0, 72) + (u.length > 72 ? "…" : "");
+      dropzone?.classList.add("has-file");
+    }
+  });
+  $("#btn-url-clear")?.addEventListener("click", () => {
+    const inp = $("#opt-video-url");
+    if (inp) inp.value = "";
+    if (!selectedFile) {
+      dropzone?.classList.remove("has-file");
+      if (fileLabel) {
+        fileLabel.textContent = tr(
+          "drop.sub",
+          "max ~500 MB · tymczasowa obróbka · wiele formatów → wynik MP4"
+        );
+      }
+    }
+    updateStartEnabled();
+  });
+
   btnStart.addEventListener("click", async () => {
-    if (!selectedFile) return;
+    const url = videoUrlInput();
+    if (!selectedFile && !url) return;
     if (
       !(optNarratorOnly && optNarratorOnly.checked) &&
       optDelogo.checked &&
@@ -1179,15 +1215,36 @@
     }
 
     btnStart.disabled = true;
-    btnStart.textContent = tr("btn.sending", "Wysyłanie…");
+    btnStart.textContent = selectedFile
+      ? tr("btn.sending", "Wysyłanie…")
+      : "Pobieram z linku…";
     try {
-      const fd = new FormData();
-      fd.append("video", selectedFile);
-      fd.append("options", JSON.stringify(collectOptions()));
-
-      const res = await fetch("/api/studio/jobs", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload nieudany");
+      let res;
+      let data;
+      if (selectedFile) {
+        const fd = new FormData();
+        fd.append("video", selectedFile);
+        fd.append("options", JSON.stringify(collectOptions()));
+        res = await fetch("/api/studio/jobs", {
+          method: "POST",
+          body: fd,
+          credentials: "same-origin",
+        });
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Upload nieudany");
+      } else {
+        res = await fetch("/api/studio/jobs/from-url", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url,
+            options: collectOptions(),
+          }),
+        });
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Pobieranie z linku nieudane");
+      }
 
       activeJobId = data.job.id;
       showJob(data.job);
@@ -1195,7 +1252,7 @@
     } catch (err) {
       alert(err.message || String(err));
     } finally {
-      btnStart.disabled = !selectedFile;
+      updateStartEnabled();
       btnStart.textContent = tr("btn.start", "Start obróbki");
     }
   });

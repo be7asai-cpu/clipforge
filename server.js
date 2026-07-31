@@ -1356,6 +1356,19 @@ app.get("/api/studio/jobs/:id/srt", (req, res) => {
   sendOwnedFile(req, res, srt, path.basename(srt));
 });
 
+function normalizeJobOptions(options, originalName) {
+  const opts = options && typeof options === "object" ? { ...options } : {};
+  if (opts.upscale == null) opts.upscale = "fast";
+  if (opts.targetHeight == null) opts.targetHeight = 1080;
+  if (opts.speedMode == null) opts.speedMode = "auto";
+  opts.originalName = originalName;
+  opts.filename = originalName;
+  if (opts.narrator == null) opts.narrator = true;
+  if (opts.autoTranslate == null) opts.autoTranslate = true;
+  if (!opts.targetLang) opts.targetLang = "pl";
+  return opts;
+}
+
 app.post("/api/studio/jobs", (req, res) => {
   studioUpload.single("video")(req, res, (err) => {
     if (err) {
@@ -1374,17 +1387,7 @@ app.post("/api/studio/jobs", (req, res) => {
     } catch {
       options = {};
     }
-    // sensible defaults
-    if (options.upscale == null) options.upscale = "fast";
-    if (options.targetHeight == null) options.targetHeight = 1080;
-    if (options.speedMode == null) options.speedMode = "auto";
-
-    // Ensure pipeline can read filename for auto narrator text
-    options.originalName = req.file.originalname;
-    options.filename = req.file.originalname;
-    if (options.narrator == null) options.narrator = true;
-    if (options.autoTranslate == null) options.autoTranslate = true;
-    if (!options.targetLang) options.targetLang = "pl";
+    options = normalizeJobOptions(options, req.file.originalname);
 
     const job = studioJobs.createJob({
       originalName: req.file.originalname,
@@ -1396,6 +1399,88 @@ app.post("/api/studio/jobs", (req, res) => {
     studioJobs.enqueuePump();
     res.status(201).json({ job: studioJobs.publicJob(job) });
   });
+});
+
+/**
+ * Create job from a DIRECT video URL (.mp4 / .webm / …).
+ * No YouTube scrapers — server downloads file to uploads, then PC agent or cloud processes it.
+ */
+app.post("/api/studio/jobs/from-url", async (req, res) => {
+  try {
+    const uid = studioUserId(req);
+    if (auth.isAuthRequired() && !uid) {
+      return res.status(401).json({ error: "Wymagane logowanie" });
+    }
+    const url = String(req.body?.url || "").trim();
+    if (!url) {
+      return res.status(400).json({ error: "Podaj URL wideo" });
+    }
+    const urlVideo = require("./lib/url-video");
+    const pre = urlVideo.looksLikeVideoUrl(url);
+    if (!pre.ok) {
+      return res.status(400).json({ error: pre.error });
+    }
+
+    let options = {};
+    try {
+      if (req.body?.options) {
+        options =
+          typeof req.body.options === "string"
+            ? JSON.parse(req.body.options)
+            : req.body.options;
+      }
+    } catch {
+      options = {};
+    }
+
+    studioJobs.ensureDirs();
+    const tmpName =
+      "url_" +
+      Date.now().toString(36) +
+      "_" +
+      Math.random().toString(36).slice(2, 8) +
+      ".bin";
+    const dest = path.join(studioJobs.UPLOAD_DIR, tmpName);
+
+    res.setTimeout(200000);
+    const info = await urlVideo.downloadDirectVideo(url, dest);
+    const finalName = info.originalName || "video.mp4";
+    const finalPath = path.join(
+      path.dirname(dest),
+      path.basename(dest, path.extname(dest)) +
+        (path.extname(finalName) || ".mp4")
+    );
+    try {
+      if (finalPath !== dest) {
+        fs.renameSync(dest, finalPath);
+      }
+    } catch {
+      /* keep dest */
+    }
+    const inputPath = fs.existsSync(finalPath) ? finalPath : dest;
+    options = normalizeJobOptions(options, finalName);
+    options.sourceUrl = url.slice(0, 500);
+
+    const job = studioJobs.createJob({
+      originalName: finalName,
+      inputPath,
+      options,
+      userId: uid || "local",
+      email: req.user?.email || null,
+    });
+    studioJobs.enqueuePump();
+    res.status(201).json({
+      job: studioJobs.publicJob(job),
+      fromUrl: true,
+      bytes: info.bytes,
+      executor: job.executor,
+    });
+  } catch (err) {
+    console.error("from-url:", err);
+    res.status(400).json({
+      error: err.message || "Nie udało się pobrać wideo z linku",
+    });
+  }
 });
 
 /** Retry / resume failed job — owner only */

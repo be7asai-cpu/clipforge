@@ -1461,7 +1461,53 @@ body.clipforge-only {
 #result-box.result-span.hidden {
   display: none !important;
 }
-/* video options sit directly under dropzone in col 1 */
+/* URL import under dropzone */
+.url-import {
+  margin-top: 14px;
+  padding: 12px 12px 10px;
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(0, 20, 35, 0.45);
+}
+.url-import-label {
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cyan, #00eaff);
+  margin-bottom: 8px;
+}
+.url-import-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.url-import-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 240, 255, 0.28);
+  background: rgba(0, 8, 16, 0.75);
+  color: var(--text, #e0f7ff);
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.82rem;
+}
+.url-import-input:focus {
+  outline: none;
+  border-color: var(--cyan, #00eaff);
+  box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.25);
+}
+.url-import-input::placeholder {
+  color: rgba(126, 184, 201, 0.55);
+  font-size: 0.75rem;
+}
+.url-import-hint {
+  margin: 8px 0 0 !important;
+  font-size: 0.78rem !important;
+  line-height: 1.4;
+}
+/* video options sit under dropzone / URL import in col 1 */
 .video-opts-block {
   margin-top: 14px;
   padding-top: 12px;
