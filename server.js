@@ -105,8 +105,10 @@ app.use(
     saveUninitialized: false,
     rolling: true, // refresh cookie on each request while active
     store: createSessionStore(),
+    proxy: behindProxy, // honor X-Forwarded-Proto for secure cookies on Render
     cookie: {
       httpOnly: true,
+      path: "/",
       sameSite: "lax",
       secure: cookieSecure,
       maxAge: sessionTtlMs,

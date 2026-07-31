@@ -37,6 +37,8 @@
     facebook_retry:
       "Facebook: kod jednorazowy — kliknij przycisk Facebook jeszcze raz (nie odświeżaj strony callback).",
     facebook_denied: "Anulowano logowanie Facebook lub Meta odrzuciła prośbę.",
+    session_expired:
+      "Sesja nie utrzymała się po logowaniu — kliknij Facebook/Google jeszcze raz.",
     facebook_not_configured:
       "Facebook nie jest skonfigurowany (brak kluczy w .env).",
     activate_missing: "Brak tokenu aktywacyjnego.",
