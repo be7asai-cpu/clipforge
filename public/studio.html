@@ -282,20 +282,20 @@
                     </select>
                   </label>
                   <label class="stack">
-                    <span>Model Real-ESRGAN</span>
-                    <select id="opt-ai-model" title="x4plus = mocniejszy fotoreal, zawsze ×4, wolniej">
-                      <option value="animevideov3" selected>
+                    <span data-i18n="quality.aiModelLab">Model Real-ESRGAN</span>
+                    <select id="opt-ai-model" data-i18n-title="quality.aiModelTitle" title="x4plus = mocniejszy fotoreal, zawsze ×4, wolniej">
+                      <option value="animevideov3" selected data-i18n="quality.aiModelAnime">
                         Anime/Video (szybki, ×2–4)
                       </option>
-                      <option value="x4plus">
+                      <option value="x4plus" data-i18n="quality.aiModelX4">
                         Fotoreal x4plus (mocny, ×4, ~wolniej)
                       </option>
-                      <option value="x4plus-anime">
+                      <option value="x4plus-anime" data-i18n="quality.aiModelX4Anime">
                         Anime x4plus (×4)
                       </option>
                     </select>
                   </label>
-                  <p class="hint" id="ai-model-hint">
+                  <p class="hint" id="ai-model-hint" data-i18n="quality.aiModelHint">
                     x4plus: lepszy na prawdziwe wideo/osoby. Wymaga modelu na PC (agent). Wolniejszy niż Anime/Video.
                   </p>
                   <label class="stack">
@@ -364,63 +364,63 @@
 
               <!-- Styl / kadr / tempo — darmowe FFmpeg -->
               <div class="opt-block" id="video-fx-block">
-                <div class="opt-block-title">Styl i kadr wideo</div>
-                <p class="hint">
+                <div class="opt-block-title" data-i18n="vfx.title">Styl i kadr wideo</div>
+                <p class="hint" data-i18n="vfx.hint">
                   Darmowe filtry FFmpeg na Twoim PC (cartoon, VHS, 9:16 Reels…). Działa z Szybki HD i AI.
                 </p>
                 <div class="grid2 mt-sm">
                   <label class="stack">
-                    <span>Styl obrazu</span>
+                    <span data-i18n="vfx.styleLab">Styl obrazu</span>
                     <select id="opt-video-style">
-                      <option value="off" selected>Bez stylu (normalny)</option>
-                      <option value="cinematic">Cinematic (filmowy)</option>
-                      <option value="cartoon">Cartoon (kolorowy)</option>
-                      <option value="sketch">Szkic / ołówek</option>
-                      <option value="comic">Comic / punch</option>
-                      <option value="vhs">VHS / retro</option>
-                      <option value="noir">Noir (C/B)</option>
-                      <option value="warm">Ciepły</option>
-                      <option value="cold">Zimny</option>
+                      <option value="off" selected data-i18n="vfx.styleOff">Bez stylu (normalny)</option>
+                      <option value="cinematic" data-i18n="vfx.styleCinematic">Cinematic (filmowy)</option>
+                      <option value="cartoon" data-i18n="vfx.styleCartoon">Cartoon (kolorowy)</option>
+                      <option value="sketch" data-i18n="vfx.styleSketch">Szkic / ołówek</option>
+                      <option value="comic" data-i18n="vfx.styleComic">Comic / punch</option>
+                      <option value="vhs" data-i18n="vfx.styleVhs">VHS / retro</option>
+                      <option value="noir" data-i18n="vfx.styleNoir">Noir (C/B)</option>
+                      <option value="warm" data-i18n="vfx.styleWarm">Ciepły</option>
+                      <option value="cold" data-i18n="vfx.styleCold">Zimny</option>
                     </select>
                   </label>
                   <label class="stack">
-                    <span>Format / kadrowanie</span>
+                    <span data-i18n="vfx.aspectLab">Format / kadrowanie</span>
                     <select id="opt-video-aspect">
-                      <option value="original" selected>Oryginał</option>
-                      <option value="16:9">16:9 YouTube</option>
-                      <option value="9:16">9:16 Reels / TikTok</option>
-                      <option value="1:1">1:1 Kwadrat</option>
+                      <option value="original" selected data-i18n="vfx.aspectOrig">Oryginał</option>
+                      <option value="16:9" data-i18n="vfx.aspect169">16:9 YouTube</option>
+                      <option value="9:16" data-i18n="vfx.aspect916">9:16 Reels / TikTok</option>
+                      <option value="1:1" data-i18n="vfx.aspect11">1:1 Kwadrat</option>
                     </select>
                   </label>
                   <label class="stack">
-                    <span>Stabilizacja</span>
+                    <span data-i18n="vfx.stabLab">Stabilizacja</span>
                     <select id="opt-stabilize">
-                      <option value="off" selected>Wyłączona</option>
-                      <option value="light">Lekka</option>
-                      <option value="strong">Mocna (wolniej)</option>
+                      <option value="off" selected data-i18n="vfx.stabOff">Wyłączona</option>
+                      <option value="light" data-i18n="vfx.stabLight">Lekka</option>
+                      <option value="strong" data-i18n="vfx.stabStrong">Mocna (wolniej)</option>
                     </select>
                   </label>
                   <label class="stack">
-                    <span>Prędkość wideo</span>
+                    <span data-i18n="vfx.speedLab">Prędkość wideo</span>
                     <select id="opt-playback-speed">
-                      <option value="0.75">0.75× wolniej</option>
-                      <option value="1" selected>1× normalnie</option>
-                      <option value="1.25">1.25× szybciej</option>
-                      <option value="1.5">1.5×</option>
+                      <option value="0.75" data-i18n="vfx.speed075">0.75× wolniej</option>
+                      <option value="1" selected data-i18n="vfx.speed1">1× normalnie</option>
+                      <option value="1.25" data-i18n="vfx.speed125">1.25× szybciej</option>
+                      <option value="1.5" data-i18n="vfx.speed15">1.5×</option>
                     </select>
                   </label>
                   <label class="stack">
-                    <span>Max długość</span>
+                    <span data-i18n="vfx.durLab">Max długość</span>
                     <select id="opt-max-duration">
-                      <option value="0" selected>Cały film</option>
-                      <option value="15">15 s (short)</option>
-                      <option value="30">30 s</option>
-                      <option value="60">60 s</option>
+                      <option value="0" selected data-i18n="vfx.durFull">Cały film</option>
+                      <option value="15" data-i18n="vfx.dur15">15 s (short)</option>
+                      <option value="30" data-i18n="vfx.dur30">30 s</option>
+                      <option value="60" data-i18n="vfx.dur60">60 s</option>
                     </select>
                   </label>
                   <label class="inline" style="align-self: end; padding-bottom: 8px">
                     <input type="checkbox" id="opt-fade-edges" />
-                    <span>Fade in / out (krawędzie)</span>
+                    <span data-i18n="vfx.fade">Fade in / out (krawędzie)</span>
                   </label>
                 </div>
               </div>
@@ -560,61 +560,61 @@
 
             <!-- Jakość audio — pod lektorem -->
             <div class="opt-block audio-enhance-block" id="audio-enhance-block">
-              <div class="opt-block-title">Jakość audio</div>
+              <div class="opt-block-title" data-i18n="audio.title">Jakość audio</div>
               <label class="opt">
                 <input type="checkbox" id="opt-audio" checked />
                 <span>
-                  <strong>Poprawa dźwięku</strong>
-                  <small>Głośność, tony, szumy, bitrate, fokus na głos</small>
+                  <strong data-i18n="audio.enable">Poprawa dźwięku</strong>
+                  <small data-i18n="audio.enableHint">Głośność, tony, szumy, bitrate, fokus na głos</small>
                 </span>
               </label>
               <div class="sub-opts" id="audio-opts">
-                <div class="opt-block-title">Tryb audio</div>
+                <div class="opt-block-title" data-i18n="audio.modeTitle">Tryb audio</div>
                 <div class="seg" role="radiogroup" aria-label="Audio mode">
                   <label>
                     <input type="radio" name="audio-mode" value="manual" />
-                    <span>Ręczna</span>
+                    <span data-i18n="audio.modeManual">Ręczna</span>
                   </label>
                   <label>
                     <input type="radio" name="audio-mode" value="auto" checked />
-                    <span>Automatyczna (analiza audio)</span>
+                    <span data-i18n="audio.modeAuto">Automatyczna (analiza audio)</span>
                   </label>
                 </div>
-                <p class="hint" id="audio-auto-hint">
+                <p class="hint" id="audio-auto-hint" data-i18n="audio.autoHint">
                   Aplikacja zbada głośność i poziom szumu, potem ustawi wzmocnienie, denoise i EQ.
                 </p>
                 <p class="hint polish-auto-result hidden" id="audio-auto-result" aria-live="polite"></p>
 
                 <label class="stack mt-sm">
-                  <span>Bitrate audio (kbps)</span>
+                  <span data-i18n="audio.bitrateLab">Bitrate audio (kbps)</span>
                   <select id="opt-audio-bitrate">
-                    <option value="96">96 · mniejszy plik</option>
-                    <option value="128">128 · standard</option>
-                    <option value="160" selected>160 · dobra (domyślna)</option>
-                    <option value="192">192 · wysoka</option>
-                    <option value="256">256 · bardzo wysoka</option>
-                    <option value="320">320 · max</option>
+                    <option value="96" data-i18n="audio.br96">96 · mniejszy plik</option>
+                    <option value="128" data-i18n="audio.br128">128 · standard</option>
+                    <option value="160" selected data-i18n="audio.br160">160 · dobra (domyślna)</option>
+                    <option value="192" data-i18n="audio.br192">192 · wysoka</option>
+                    <option value="256" data-i18n="audio.br256">256 · bardzo wysoka</option>
+                    <option value="320" data-i18n="audio.br320">320 · max</option>
                   </select>
                 </label>
 
                 <div class="sliders" id="audio-sliders">
                   <label class="inline">
-                    <span>Głośność</span>
+                    <span data-i18n="audio.vol">Głośność</span>
                     <input type="range" id="opt-audio-volume" min="0" max="100" value="55" />
                     <span id="opt-audio-volume-val">55</span>
                   </label>
                   <label class="inline">
-                    <span>Tony niskie (bass)</span>
+                    <span data-i18n="audio.bass">Tony niskie (bass)</span>
                     <input type="range" id="opt-audio-bass" min="0" max="100" value="50" />
                     <span id="opt-audio-bass-val">50</span>
                   </label>
                   <label class="inline">
-                    <span>Tony wysokie (treble)</span>
+                    <span data-i18n="audio.treble">Tony wysokie (treble)</span>
                     <input type="range" id="opt-audio-treble" min="0" max="100" value="52" />
                     <span id="opt-audio-treble-val">52</span>
                   </label>
                   <label class="inline">
-                    <span>Usuwanie szumu</span>
+                    <span data-i18n="audio.denoise">Usuwanie szumu</span>
                     <input type="range" id="opt-audio-denoise" min="0" max="100" value="25" />
                     <span id="opt-audio-denoise-val">25</span>
                   </label>
@@ -622,11 +622,11 @@
 
                 <label class="inline mt-sm">
                   <input type="checkbox" id="opt-audio-voice" />
-                  <span>Tylko głos ludzi (wycina bas/hałas, pasmo mowy)</span>
+                  <span data-i18n="audio.voiceOnly">Tylko głos ludzi (wycina bas/hałas, pasmo mowy)</span>
                 </label>
                 <label class="inline">
                   <input type="checkbox" id="opt-audio-normalize" checked />
-                  <span>Wyrównaj głośność (kompresja dynamiczna)</span>
+                  <span data-i18n="audio.normalize">Wyrównaj głośność (kompresja dynamiczna)</span>
                 </label>
               </div>
             </div>
