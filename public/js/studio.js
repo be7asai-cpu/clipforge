@@ -527,6 +527,8 @@
   }
 
   function loadVideoFrame(file) {
+    // Reuse selectedFileObjectUrl when possible — do NOT revoke it (needed for compare player)
+    const reused = !!selectedFileObjectUrl;
     const url = selectedFileObjectUrl || URL.createObjectURL(file);
     const video = document.createElement("video");
     video.preload = "auto";
@@ -554,7 +556,11 @@
         );
         redraw();
       } finally {
-        URL.revokeObjectURL(url);
+        if (!reused) {
+          try {
+            URL.revokeObjectURL(url);
+          } catch (_) {}
+        }
       }
     };
 
@@ -565,7 +571,11 @@
     });
     video.addEventListener("seeked", done, { once: true });
     video.addEventListener("error", () => {
-      URL.revokeObjectURL(url);
+      if (!reused) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (_) {}
+      }
       logoPicker.classList.add("hidden");
     });
   }
