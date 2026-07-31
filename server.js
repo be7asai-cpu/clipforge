@@ -687,51 +687,148 @@ try {
     } catch { return $false }
   }
 
-  function Get-AgentZip($dest) {
-    if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue }
-    # 1) curl with retries (best on Windows TLS mid-stream fails)
-    $curlArgs = @(
-      '-L', '--fail', '--retry', '5', '--retry-all-errors', '--retry-delay', '2',
-      '--connect-timeout', '30', '--max-time', '600',
-      '-H', ('Authorization: Bearer ' + $token),
-      '-o', $dest, $uri
+  # Windows curl uses Schannel — SEC_E_DECRYPT_FAILURE (0x80090330) mid-download is common.
+  # Mitigations: --ssl-no-revoke, HTTP/1.1, resume (-C -), Node OpenSSL fallback, BITS, IWR.
+  function Get-RobustFile {
+    param(
+      [string]$Url,
+      [string]$Dest,
+      [hashtable]$Headers = @{},
+      [long]$MinBytes = 10000,
+      [scriptblock]$Validate = $null
     )
-    try {
-      & curl.exe @curlArgs
-      if ($LASTEXITCODE -eq 0 -and (Test-ZipOk $dest)) { L 'Pobrano: curl (+retry)'; return $true }
-      L ('curl exit=' + $LASTEXITCODE + ' validZip=' + (Test-ZipOk $dest))
-    } catch { L ('curl fail: ' + $_) }
-    # 2) curl resume if partial
-    if ((Test-Path $dest) -and (Get-Item $dest).Length -gt 10000) {
+    function Ok-File([string]$p) {
+      if (-not (Test-Path -LiteralPath $p)) { return $false }
       try {
-        & curl.exe -L --fail -C - --retry 5 --retry-all-errors --max-time 600 -o $dest $uri
-        if ($LASTEXITCODE -eq 0 -and (Test-ZipOk $dest)) { L 'Pobrano: curl -C resume'; return $true }
-      } catch { L ('curl resume fail: ' + $_) }
+        if ((Get-Item -LiteralPath $p).Length -lt $MinBytes) { return $false }
+      } catch { return $false }
+      if ($Validate) { return [bool](& $Validate $p) }
+      return $true
     }
-    if (Test-Path $dest) { Remove-Item $dest -Force -ErrorAction SilentlyContinue }
-    # 3) BitsTransfer (often more stable than IWR on schannel)
+    $hdrArgs = @()
+    foreach ($k in $Headers.Keys) {
+      $hdrArgs += @('-H', ($k + ': ' + $Headers[$k]))
+    }
+    # Common curl flags against schannel decrypt failures
+    $curlBase = @(
+      '-L', '--fail',
+      '--ssl-no-revoke',
+      '--http1.1',
+      '--retry', '8',
+      '--retry-all-errors',
+      '--retry-delay', '3',
+      '--connect-timeout', '45',
+      '--max-time', '900'
+    )
+
+    # 1) Fresh curl download
     try {
+      if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue }
+      $args1 = $curlBase + $hdrArgs + @('-o', $Dest, $Url)
+      & curl.exe @args1
+      if ($LASTEXITCODE -eq 0 -and (Ok-File $Dest)) { L 'Pobrano: curl (ssl-no-revoke + http1.1)'; return $true }
+      L ('curl exit=' + $LASTEXITCODE + ' size=' + $(if (Test-Path $Dest) { (Get-Item $Dest).Length } else { 0 }))
+    } catch { L ('curl fail: ' + $_) }
+
+    # 2) Resume partial (SEC_E_DECRYPT often leaves a good prefix)
+    for ($ri = 1; $ri -le 4; $ri++) {
+      if (-not (Test-Path $Dest) -or (Get-Item $Dest).Length -lt 5000) { break }
+      try {
+        L ("curl resume proba $ri (partial $((Get-Item $Dest).Length) B)...")
+        $argsR = $curlBase + $hdrArgs + @('-C', '-', '-o', $Dest, $Url)
+        & curl.exe @argsR
+        if ($LASTEXITCODE -eq 0 -and (Ok-File $Dest)) { L 'Pobrano: curl -C resume'; return $true }
+      } catch { L ('curl resume: ' + $_) }
+      Start-Sleep -Seconds (2 * $ri)
+    }
+
+    # 3) Node.js https (OpenSSL — omija Windows Schannel)
+    if ($nodeExe -and (Test-Path $nodeExe)) {
+      try {
+        if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue }
+        L 'Pobieram przez Node (OpenSSL, bez Schannel)...'
+        $hdrJson = ($Headers | ConvertTo-Json -Compress)
+        if (-not $hdrJson) { $hdrJson = '{}' }
+        $nodeDl = @'
+const https = require("https");
+const http = require("http");
+const fs = require("fs");
+const { URL } = require("url");
+const dest = process.argv[2];
+const url = process.argv[3];
+let headers = {};
+try { headers = JSON.parse(process.argv[4] || "{}"); } catch(e) {}
+function get(u, redirects) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(u);
+    const lib = parsed.protocol === "https:" ? https : http;
+    const req = lib.get({
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      headers: Object.assign({ "User-Agent": "ClipForge-Setup/1.0" }, headers),
+      timeout: 600000
+    }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
+        res.resume();
+        return resolve(get(new URL(res.headers.location, u).href, redirects - 1));
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error("HTTP " + res.statusCode));
+      }
+      const f = fs.createWriteStream(dest);
+      res.pipe(f);
+      f.on("finish", () => f.close(() => resolve(dest)));
+      f.on("error", reject);
+    });
+    req.on("error", reject);
+    req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+  });
+}
+get(url, 8).then(() => process.exit(0)).catch((e) => { console.error(e.message || e); process.exit(1); });
+'@
+        $ndPath = Join-Path $env:TEMP ('cf-dl-' + [guid]::NewGuid().ToString('n').Substring(0,8) + '.js')
+        Set-Content -Path $ndPath -Value $nodeDl -Encoding UTF8
+        & $nodeExe $ndPath $Dest $Url $hdrJson
+        $nc = $LASTEXITCODE
+        try { Remove-Item $ndPath -Force -ErrorAction SilentlyContinue } catch {}
+        if ($nc -eq 0 -and (Ok-File $Dest)) { L 'Pobrano: Node OpenSSL'; return $true }
+        L ('Node download exit=' + $nc)
+      } catch { L ('Node download fail: ' + $_) }
+    }
+
+    # 4) BITS
+    try {
+      if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue }
       Import-Module BitsTransfer -ErrorAction SilentlyContinue
-      Start-BitsTransfer -Source $uri -Destination $dest -ErrorAction Stop
-      if (Test-ZipOk $dest) { L 'Pobrano: BitsTransfer'; return $true }
+      Start-BitsTransfer -Source $Url -Destination $Dest -ErrorAction Stop
+      if (Ok-File $Dest) { L 'Pobrano: BitsTransfer'; return $true }
     } catch { L ('BITS fail: ' + $_) }
-    if (Test-Path $dest) { Remove-Item $dest -Force -ErrorAction SilentlyContinue }
-    # 4) IWR last
+
+    # 5) IWR last
     try {
-      Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Bearer $token" } -OutFile $dest -UseBasicParsing -TimeoutSec 600
-      if (Test-ZipOk $dest) { L 'Pobrano: IWR'; return $true }
+      if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue }
+      $iwrHdr = @{}
+      foreach ($k in $Headers.Keys) { $iwrHdr[$k] = $Headers[$k] }
+      Invoke-WebRequest -Uri $Url -Headers $iwrHdr -OutFile $Dest -UseBasicParsing -TimeoutSec 900
+      if (Ok-File $Dest) { L 'Pobrano: IWR'; return $true }
     } catch { L ('IWR fail: ' + $_) }
     return $false
   }
 
+  function Get-AgentZip($dest) {
+    return (Get-RobustFile -Url $uri -Dest $dest -Headers @{ Authorization = ('Bearer ' + $token) } -MinBytes 50000 -Validate { param($p) Test-ZipOk $p })
+  }
+
   $dlOk = $false
-  for ($attempt = 1; $attempt -le 3; $attempt++) {
-    L ("Download proba $attempt/3 ...")
+  for ($attempt = 1; $attempt -le 5; $attempt++) {
+    L ("Download proba $attempt/5 ...")
     if (Get-AgentZip $zip) { $dlOk = $true; break }
-    Start-Sleep -Seconds (2 * $attempt)
+    Start-Sleep -Seconds (3 * $attempt)
   }
   if (-not $dlOk) {
-    throw 'Download z chmury nieudany lub ZIP uszkodzony (TLS urywa pobieranie). Sprobuj ponownie / inna siec. Nie uzywaj starego .cmd z Pobranych.'
+    throw 'Download z chmury nieudany (Windows TLS/Schannel SEC_E_DECRYPT). Sprobuj: 1) odpal setup jeszcze raz 2) inna siec/VPN off 3) wyjatki antywirusa. Node fallback powinien ominac Schannel.'
   }
   $head = Get-Content -LiteralPath $zip -Encoding Byte -TotalCount 4 -ErrorAction SilentlyContinue
   if ($head -and $head[0] -eq 0x3C) {
@@ -782,10 +879,8 @@ try {
     $esrUrl = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip'
     try {
       if (Test-Path $esrZip) { Remove-Item $esrZip -Force -ErrorAction SilentlyContinue }
-      & curl.exe -L --fail --retry 4 --retry-all-errors --max-time 600 -o $esrZip $esrUrl
-      if ($LASTEXITCODE -ne 0 -or -not (Test-Path $esrZip)) {
-        Invoke-WebRequest -Uri $esrUrl -OutFile $esrZip -UseBasicParsing -TimeoutSec 600
-      }
+      $esrOk = Get-RobustFile -Url $esrUrl -Dest $esrZip -MinBytes 1000000
+      if (-not $esrOk) { throw 'Real-ESRGAN ZIP download fail (TLS/Schannel?)' }
       $esrTmp = Join-Path $env:TEMP ('cf-esrgan-' + [guid]::NewGuid().ToString('n').Substring(0,8))
       New-Item -ItemType Directory -Path $esrTmp -Force | Out-Null
       Expand-Archive -LiteralPath $esrZip -DestinationPath $esrTmp -Force
@@ -878,16 +973,12 @@ try {
   if ($needYt) {
     L 'Pobieram yt-dlp.exe (GitHub releases, YouTube/TikTok)...'
     $ytUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-    $ytOk = $false
-    try {
-      & curl.exe -L --fail --retry 5 --retry-delay 2 --retry-all-errors -o $ytdlpBin $ytUrl
-      if ((Test-Path $ytdlpBin) -and ((Get-Item -LiteralPath $ytdlpBin).Length -gt 500000)) { $ytOk = $true }
-    } catch { L ('curl yt-dlp: ' + $_) }
+    $ytOk = Get-RobustFile -Url $ytUrl -Dest $ytdlpBin -MinBytes 500000
     if (-not $ytOk) {
-      try {
-        Invoke-WebRequest -Uri $ytUrl -OutFile $ytdlpBin -UseBasicParsing -TimeoutSec 300
-        if ((Test-Path $ytdlpBin) -and ((Get-Item -LiteralPath $ytdlpBin).Length -gt 500000)) { $ytOk = $true }
-      } catch { L ('iwr yt-dlp: ' + $_) }
+      # pinned release if /latest fails mid-stream
+      $ytUrl2 = 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp.exe'
+      L 'yt-dlp latest fail — proboje pinned 2026.07.04...'
+      $ytOk = Get-RobustFile -Url $ytUrl2 -Dest $ytdlpBin -MinBytes 500000
     }
     if ($ytOk) {
       try { Unblock-File -Path $ytdlpBin -ErrorAction SilentlyContinue } catch {}
