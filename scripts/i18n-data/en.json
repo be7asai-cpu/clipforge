@@ -278,5 +278,6 @@
   "quality.polishAuto": "Automatic (video analysis)",
   "quality.polishAutoHint": "The app samples frames for brightness, contrast and saturation and sets the best correction.",
   "stage.autoColor": "Auto color correction",
-  "quality.polishAutoResult": "Auto set"
+  "quality.polishAutoResult": "Auto set",
+  "quality.aiHint": "AI: shorts and clips up to ~60 s, scale ×2. Longer videos / music → Fast HD (AI makes thousands of frames and may run out of disk)."
 }
