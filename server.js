@@ -660,31 +660,84 @@ try {
   $zip = Join-Path $env:TEMP ('clipforge-agent-' + [guid]::NewGuid().ToString('n').Substring(0,8) + '.zip')
   $uri = $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.zip?token=' + [uri]::EscapeDataString($token)
   L ("URL: " + $cloud.TrimEnd('/') + '/api/studio/pc-agent-bundle.zip?token=***')
-  $dlOk = $false
-  try {
-    Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Bearer $token" } -OutFile $zip -UseBasicParsing -TimeoutSec 180
-    $dlOk = $true
-  } catch { L ('IWR+auth fail: ' + $_) }
-  if (-not $dlOk) {
+
+  function Test-ZipOk($path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $false }
+    $len = (Get-Item -LiteralPath $path).Length
+    if ($len -lt 50000) { return $false }
     try {
-      Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing -TimeoutSec 180
-      $dlOk = $true
-    } catch { L ('IWR fail: ' + $_) }
+      $fs = [IO.File]::OpenRead($path)
+      try {
+        $buf = New-Object byte[] 4
+        [void]$fs.Read($buf, 0, 4)
+        # PK\\x03\\x04 or PK\\x05\\x06
+        if (-not ($buf[0] -eq 0x50 -and $buf[1] -eq 0x4B)) { return $false }
+        # End of central directory signature near end
+        $fs.Seek([Math]::Max(0, $len - 65557), 'Begin') | Out-Null
+        $tail = New-Object byte[] ([Math]::Min(65557, $len))
+        $n = $fs.Read($tail, 0, $tail.Length)
+        $ok = $false
+        for ($i = 0; $i -le $n - 4; $i++) {
+          if ($tail[$i] -eq 0x50 -and $tail[$i+1] -eq 0x4B -and $tail[$i+2] -eq 0x05 -and $tail[$i+3] -eq 0x06) {
+            $ok = $true; break
+          }
+        }
+        return $ok
+      } finally { $fs.Close() }
+    } catch { return $false }
   }
-  if (-not $dlOk) {
+
+  function Get-AgentZip($dest) {
+    if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue }
+    # 1) curl with retries (best on Windows TLS mid-stream fails)
+    $curlArgs = @(
+      '-L', '--fail', '--retry', '5', '--retry-all-errors', '--retry-delay', '2',
+      '--connect-timeout', '30', '--max-time', '600',
+      '-H', ('Authorization: Bearer ' + $token),
+      '-o', $dest, $uri
+    )
     try {
-      curl.exe -L --fail --connect-timeout 30 --max-time 180 -o $zip $uri
-      if ((Test-Path $zip) -and (Get-Item $zip).Length -gt 1000) { $dlOk = $true; L 'Pobrano: curl.exe' }
+      & curl.exe @curlArgs
+      if ($LASTEXITCODE -eq 0 -and (Test-ZipOk $dest)) { L 'Pobrano: curl (+retry)'; return $true }
+      L ('curl exit=' + $LASTEXITCODE + ' validZip=' + (Test-ZipOk $dest))
     } catch { L ('curl fail: ' + $_) }
+    # 2) curl resume if partial
+    if ((Test-Path $dest) -and (Get-Item $dest).Length -gt 10000) {
+      try {
+        & curl.exe -L --fail -C - --retry 5 --retry-all-errors --max-time 600 -o $dest $uri
+        if ($LASTEXITCODE -eq 0 -and (Test-ZipOk $dest)) { L 'Pobrano: curl -C resume'; return $true }
+      } catch { L ('curl resume fail: ' + $_) }
+    }
+    if (Test-Path $dest) { Remove-Item $dest -Force -ErrorAction SilentlyContinue }
+    # 3) BitsTransfer (often more stable than IWR on schannel)
+    try {
+      Import-Module BitsTransfer -ErrorAction SilentlyContinue
+      Start-BitsTransfer -Source $uri -Destination $dest -ErrorAction Stop
+      if (Test-ZipOk $dest) { L 'Pobrano: BitsTransfer'; return $true }
+    } catch { L ('BITS fail: ' + $_) }
+    if (Test-Path $dest) { Remove-Item $dest -Force -ErrorAction SilentlyContinue }
+    # 4) IWR last
+    try {
+      Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Bearer $token" } -OutFile $dest -UseBasicParsing -TimeoutSec 600
+      if (Test-ZipOk $dest) { L 'Pobrano: IWR'; return $true }
+    } catch { L ('IWR fail: ' + $_) }
+    return $false
   }
-  if (-not $dlOk -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 1000) {
-    throw 'Download z chmury nieudany. Sprawdz internet / czy Render dziala / zaloguj sie i pobierz SWIEZY .cmd.'
+
+  $dlOk = $false
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
+    L ("Download proba $attempt/3 ...")
+    if (Get-AgentZip $zip) { $dlOk = $true; break }
+    Start-Sleep -Seconds (2 * $attempt)
+  }
+  if (-not $dlOk) {
+    throw 'Download z chmury nieudany lub ZIP uszkodzony (TLS urywa pobieranie). Sprobuj ponownie / inna siec. Nie uzywaj starego .cmd z Pobranych.'
   }
   $head = Get-Content -LiteralPath $zip -Encoding Byte -TotalCount 4 -ErrorAction SilentlyContinue
   if ($head -and $head[0] -eq 0x3C) {
     throw 'Serwer zwrocil HTML zamiast ZIP (zly token). Zaloguj sie na stronie i kliknij ⬇ PC ponownie.'
   }
-  L ("ZIP z chmury OK: " + (Get-Item $zip).Length + " B")
+  L ("ZIP z chmury OK: " + (Get-Item $zip).Length + " B (sprawdzony)")
 
   # Wipe old code; keep only data/ (token, local work folders)
   if (Test-Path $agentDir) {
@@ -692,7 +745,12 @@ try {
       Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
   }
   New-Item -ItemType Directory -Path $agentDir -Force | Out-Null
-  Expand-AgentZip $zip $agentDir
+  try {
+    Expand-AgentZip $zip $agentDir
+  } catch {
+    L ('Rozpakowanie fail: ' + $_)
+    throw 'ZIP uszkodzony mimo checku. Odpal setup jeszcze raz (swiezy ⬇ PC).'
+  }
   try { Remove-Item $zip -Force -ErrorAction SilentlyContinue } catch {}
 
   if (-not (Test-Path (Join-Path $agentDir 'package.json'))) {
@@ -715,12 +773,19 @@ try {
   # --- Real-ESRGAN (AI upscale) for this PC ---
   $esrganExe = Join-Path $agentDir 'tools\\realesrgan\\realesrgan-ncnn-vulkan.exe'
   $esrganModel = Join-Path $agentDir 'tools\\realesrgan\\models\\realesr-animevideov3-x2.bin'
-  if (-not (Test-Path $esrganExe) -or -not (Test-Path $esrganModel)) {
-    L 'Real-ESRGAN brak w paczce - pobieram oficjalny build (Windows)...'
+  $x4plus = Join-Path $agentDir 'tools\\realesrgan\\models\\realesrgan-x4plus.bin'
+  $needEsrgan = (-not (Test-Path $esrganExe)) -or (-not (Test-Path $esrganModel))
+  $needX4 = -not (Test-Path $x4plus)
+  if ($needEsrgan -or $needX4) {
+    L 'Real-ESRGAN: dociagam modele z GitHub (osobno od paczki agenta)...'
     $esrZip = Join-Path $env:TEMP 'realesrgan-ncnn-windows.zip'
     $esrUrl = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip'
     try {
-      Invoke-WebRequest -Uri $esrUrl -OutFile $esrZip -UseBasicParsing -TimeoutSec 300
+      if (Test-Path $esrZip) { Remove-Item $esrZip -Force -ErrorAction SilentlyContinue }
+      & curl.exe -L --fail --retry 4 --retry-all-errors --max-time 600 -o $esrZip $esrUrl
+      if ($LASTEXITCODE -ne 0 -or -not (Test-Path $esrZip)) {
+        Invoke-WebRequest -Uri $esrUrl -OutFile $esrZip -UseBasicParsing -TimeoutSec 600
+      }
       $esrTmp = Join-Path $env:TEMP ('cf-esrgan-' + [guid]::NewGuid().ToString('n').Substring(0,8))
       New-Item -ItemType Directory -Path $esrTmp -Force | Out-Null
       Expand-Archive -LiteralPath $esrZip -DestinationPath $esrTmp -Force
@@ -729,9 +794,11 @@ try {
       $srcRoot = $found.Directory.FullName
       $dest = Join-Path $agentDir 'tools\\realesrgan'
       New-Item -ItemType Directory -Path (Join-Path $dest 'models') -Force | Out-Null
-      Copy-Item (Join-Path $srcRoot 'realesrgan-ncnn-vulkan.exe') $dest -Force
-      if (Test-Path (Join-Path $srcRoot 'vcomp140.dll')) { Copy-Item (Join-Path $srcRoot 'vcomp140.dll') $dest -Force }
-      if (Test-Path (Join-Path $srcRoot 'vcomp140d.dll')) { Copy-Item (Join-Path $srcRoot 'vcomp140d.dll') $dest -Force }
+      if ($needEsrgan) {
+        Copy-Item (Join-Path $srcRoot 'realesrgan-ncnn-vulkan.exe') $dest -Force
+        if (Test-Path (Join-Path $srcRoot 'vcomp140.dll')) { Copy-Item (Join-Path $srcRoot 'vcomp140.dll') $dest -Force }
+        if (Test-Path (Join-Path $srcRoot 'vcomp140d.dll')) { Copy-Item (Join-Path $srcRoot 'vcomp140d.dll') $dest -Force }
+      }
       $modelsSrc = Join-Path $srcRoot 'models'
       if (Test-Path $modelsSrc) {
         Get-ChildItem $modelsSrc -File | Where-Object {
@@ -744,12 +811,12 @@ try {
       try { Unblock-File -Path (Join-Path $dest 'realesrgan-ncnn-vulkan.exe') -ErrorAction SilentlyContinue } catch {}
       Remove-Item $esrTmp -Recurse -Force -ErrorAction SilentlyContinue
       Remove-Item $esrZip -Force -ErrorAction SilentlyContinue
-      L 'Real-ESRGAN zainstalowany (AI upscale gotowy)'
+      L 'Real-ESRGAN modele OK (animevideov3 + x4plus jesli byly w paczce GitHub)'
     } catch {
-      L ('[OSTRZEZENIE] Real-ESRGAN nie zainstalowany: ' + $_ + ' - joby AI pojda w Szybki HD')
+      L ('[OSTRZEZENIE] Real-ESRGAN extra modele: ' + $_ + ' - AI animevideov3 z paczki agenta / Szybki HD')
     }
   } else {
-    L 'Real-ESRGAN OK (AI upscale)'
+    L 'Real-ESRGAN OK (AI upscale + x4plus)'
   }
 
   # --- npm install dependencies from internet (npm registry), not from local project ---
