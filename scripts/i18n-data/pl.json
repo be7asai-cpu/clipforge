@@ -403,5 +403,15 @@
   "pc.needAgentErr": "Link z platformy (YouTube/TikTok/…) wymaga PC · ON.\\n\\n1) Odpal RUN-AGENT.bat / ⬇ PC\\n2) Poczekaj na zielony chip PC · ON\\n3) Start ponownie\\n\\nAlbo wklej bezpośredni plik .mp4.",
   "pc.queueYtdlp": "Kolejka PC (yt-dlp)…",
   "pc.fetchUrl": "Pobieram z linku…",
-  "narrator.onlyBadge": "⚡ tylko lektor — poprawa wideo wyłączona"
+  "narrator.onlyBadge": "⚡ tylko lektor — poprawa wideo wyłączona",
+  "narrator.describeStyleTitle": "Styl opisu sytuacji",
+  "narrator.describeStyleHint": "Tylko w trybie «Opis sytuacji» — zmienia ton monologu lektora (długość i tak zależy od czasu filmu).",
+  "narrator.styleNeutral": "Neutralny (relacja)",
+  "narrator.styleFunny": "Humorystyczny",
+  "narrator.styleCritical": "Krytyczny / ostry",
+  "narrator.styleEpic": "Epicki / dramatyczny",
+  "narrator.styleCalm": "Spokojny / spokojna narracja",
+  "narrator.styleSarcastic": "Sarkastyczny",
+  "narrator.styleDoc": "Dokumentalny",
+  "narrator.styleHype": "Hype / komentator"
 }

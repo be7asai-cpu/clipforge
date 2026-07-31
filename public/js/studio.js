@@ -452,6 +452,27 @@
     return $("#opt-target-lang")?.value || "pl";
   }
 
+  function describeStyle() {
+    const v = $("#opt-describe-style")?.value || "neutral";
+    const ok = [
+      "neutral",
+      "funny",
+      "critical",
+      "epic",
+      "calm",
+      "sarcastic",
+      "doc",
+      "hype",
+    ];
+    return ok.includes(v) ? v : "neutral";
+  }
+
+  function refreshDescribeStyleUi() {
+    const wrap = $("#describe-style-wrap");
+    if (!wrap) return;
+    wrap.classList.toggle("hidden", narratorMode() !== "describe");
+  }
+
   function refreshModeHint() {
     const hint = $("#mode-hint");
     if (!hint) return;
@@ -463,6 +484,7 @@
       hint.textContent =
         tr("narrator.modeHintT", "Exact live translation") + ` → ${tgt}`;
     }
+    refreshDescribeStyleUi();
   }
 
   function transcriptSource() {
@@ -522,6 +544,7 @@
       refreshLangBadge();
     });
   });
+  refreshDescribeStyleUi();
   document.querySelectorAll('input[name="transcript-source"]').forEach((el) => {
     el.addEventListener("change", () => {
       refreshTranscriptHint();
@@ -851,6 +874,7 @@
       fadeEdges: narratorOnly ? false : !!$("#opt-fade-edges")?.checked,
       narrator: narratorOnly ? true : optNarrator.checked,
       narratorMode: narratorMode(),
+      describeStyle: describeStyle(),
       /** stt = speech-to-text (default, as before); captions = video subs → timed transcript */
       transcriptSource:
         document.querySelector('input[name="transcript-source"]:checked')

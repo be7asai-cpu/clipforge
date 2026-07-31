@@ -403,5 +403,15 @@
   "pc.needAgentErr": "A platform link (YouTube/TikTok/…) requires PC · ON.\\n\\n1) Run RUN-AGENT.bat / ⬇ PC\\n2) Wait for the green PC · ON chip\\n3) Start again\\n\\nOr paste a direct .mp4 file.",
   "pc.queueYtdlp": "Coda PC (yt-dlp)…",
   "pc.fetchUrl": "Scarico dal link…",
-  "narrator.onlyBadge": "⚡ solo narratore — miglioramento video off"
+  "narrator.onlyBadge": "⚡ solo narratore — miglioramento video off",
+  "narrator.describeStyleTitle": "Situation description style",
+  "narrator.describeStyleHint": "Only in «Situation description» mode — changes narrator tone (length still follows video duration).",
+  "narrator.styleNeutral": "Neutral (report)",
+  "narrator.styleFunny": "Humorous",
+  "narrator.styleCritical": "Critical / sharp",
+  "narrator.styleEpic": "Epic / dramatic",
+  "narrator.styleCalm": "Calm / soft narration",
+  "narrator.styleSarcastic": "Sarcastic",
+  "narrator.styleDoc": "Documentary",
+  "narrator.styleHype": "Hype / play-by-play"
 }
