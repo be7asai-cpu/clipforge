@@ -715,6 +715,18 @@ function multipartComplete(jobId, files, result) {
 
 async function runJob(job) {
   log("Start job", job.id, job.originalName);
+  // Immediate ack so UI leaves 1% even if yt-dlp is slow / agent dies mid-way can reclaim
+  const workDir = path.join(ROOT, "data", "studio", "work", "pc_" + job.id);
+  try {
+    fs.mkdirSync(workDir, { recursive: true });
+  } catch (e) {
+    log("mkdir work:", e.message || e);
+  }
+  await reportProgress(job.id, {
+    progress: 2,
+    stage: "Start na PC…",
+    log: "Agent start — id " + job.id,
+  });
   if (job.sourceKind === "platform" || job.options?.sourceKind === "platform") {
     log(
       "Źródło platformy:",
@@ -722,14 +734,12 @@ async function runJob(job) {
       (job.sourceUrl || job.options?.sourceUrl || "").slice(0, 80)
     );
     await reportProgress(job.id, {
-      progress: 2,
+      progress: 3,
       stage: "Pobieranie z platformy…",
       log: "yt-dlp: " + (job.sourceUrl || job.options?.sourceUrl || "").slice(0, 100),
     });
   }
   // Short ASCII path — avoids Windows path/encoding issues in FFmpeg
-  const workDir = path.join(ROOT, "data", "studio", "work", "pc_" + job.id);
-  fs.mkdirSync(workDir, { recursive: true });
   const ext = (path.extname(job.originalName || "") || ".mp4").toLowerCase();
   const safeExt = /^\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(ext) ? ext : ".mp4";
   const inputPath = path.join(workDir, "input" + safeExt);
@@ -928,11 +938,33 @@ async function main() {
   log("Label:", LABEL);
   log("UI zostaje w przeglądarce na adresie chmury — tu liczy Twój PC.");
   await ensureToken();
+  // One agent only: avoid two processes claiming then abandoning jobs
+  try {
+    const { spawnSync: ss } = require("child_process");
+    if (process.platform === "win32") {
+      ss(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-Command",
+          `$me=${process.pid}; Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'pc-agent\\.js' -and $_.ProcessId -ne $me } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+        ],
+        { windowsHide: true, timeout: 8000 }
+      );
+    }
+  } catch {
+    /* best-effort */
+  }
+  log("Agent gotowy — czekam na joby (YouTube wymaga tego okna otwartego).");
   for (;;) {
     try {
-      await heartbeat();
+      const hb = await heartbeat();
+      if (hb && hb.reclaimed > 0) {
+        log("Odzyskano stuck jobów:", hb.reclaimed);
+      }
       const job = await claim();
       if (job) {
+        log("Claim OK", job.id, job.sourceKind || job.options?.sourceKind || "");
         await runJob(job);
       }
     } catch (err) {

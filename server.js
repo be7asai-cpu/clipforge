@@ -1149,7 +1149,14 @@ app.post("/api/studio/agent/heartbeat", async (req, res) => {
       userId: row.userId,
       email: row.email,
     });
-    res.json({ ok: true, ...st });
+    // While agent is alive, unstick orphans claimed then abandoned (setup reinstall etc.)
+    let reclaimed = 0;
+    try {
+      reclaimed = studioJobs.reclaimStalePcJobs(row.userId, row.email) || 0;
+    } catch {
+      reclaimed = 0;
+    }
+    res.json({ ok: true, ...st, reclaimed });
   } catch (err) {
     res.status(500).json({ error: err.message || "heartbeat" });
   }
