@@ -1100,67 +1100,77 @@ async function runJob(job) {
     );
   }
 
-  // Captions mode only: YouTube subs → timed transcription (STT mode skips this)
+  // YouTube captions: primary when user picks «napisy», else backup if STT fails
   job.options = job.options || {};
   const wantCaptions =
     String(job.options.transcriptSource || "stt").toLowerCase() === "captions";
   const platUrl = job.sourceUrl || job.options?.sourceUrl || null;
   if (
-    wantCaptions &&
     platUrl &&
     isPlatformUrl(platUrl) &&
     /youtube\.com|youtu\.be/i.test(platUrl)
   ) {
     await reportProgress(job.id, {
       progress: 8,
-      stage: "Napisy → transkrypcja…",
-      log: "Pobieram napisy z filmu i buduję transkrypcję z czasem…",
+      stage: wantCaptions ? "Napisy → transkrypcja…" : "Napisy YT (backup)…",
+      log: wantCaptions
+        ? "Pobieram napisy z filmu i buduję transkrypcję z czasem…"
+        : "Pobieram napisy YT na wypadek gdyby STT nie złapało mowy…",
     });
     const caps = await tryDownloadYoutubeCaptions(platUrl, workDir);
     if (caps && caps.text && caps.segments && caps.segments.length) {
-      if (
-        !job.options.narratorScript ||
-        String(job.options.narratorScript).trim().length < 40
-      ) {
-        job.options.narratorScript = caps.text;
-      }
-      job.options.fromYoutubeCaptions = true;
-      job.options.transcriptSource = "captions";
-      // Timed cues for lektor/napisy 1:1 (seconds)
-      job.options.captionSegments = caps.segments.map((s, i) => ({
+      const segs = caps.segments.map((s, i) => ({
         start: s.start,
         end: s.end,
         text: s.text,
         silent: false,
         sttIndex: i,
       }));
-      log(
-        "Transkrypcja z napisów:",
-        caps.segments.length,
-        "okien,",
-        caps.text.length,
-        "znaków"
-      );
-      // Stream first cues to live UI
-      const preview = caps.segments
-        .slice(0, 8)
-        .map(
-          (s) =>
-            `[${s.start.toFixed(1)}–${s.end.toFixed(1)}s] ${s.text.slice(0, 80)}`
-        )
-        .join("\n");
-      await reportProgress(job.id, {
-        progress: 14,
-        stage: "Transkrypcja z napisów",
-        log:
-          "Napisy → " +
-          caps.segments.length +
-          " segmentów z czasem (" +
-          caps.text.length +
-          " znaków). Pomijam STT dźwięku.",
-        livePhase: "source",
-        liveOriginal: preview || caps.text.slice(0, 800),
-      });
+      job.options.captionSegmentsBackup = segs;
+      job.options.narratorScriptBackup = caps.text;
+      if (wantCaptions) {
+        if (
+          !job.options.narratorScript ||
+          String(job.options.narratorScript).trim().length < 40
+        ) {
+          job.options.narratorScript = caps.text;
+        }
+        job.options.fromYoutubeCaptions = true;
+        job.options.transcriptSource = "captions";
+        job.options.captionSegments = segs;
+        log(
+          "Transkrypcja z napisów:",
+          caps.segments.length,
+          "okien,",
+          caps.text.length,
+          "znaków"
+        );
+        const preview = caps.segments
+          .slice(0, 8)
+          .map(
+            (s) =>
+              `[${s.start.toFixed(1)}–${s.end.toFixed(1)}s] ${s.text.slice(0, 80)}`
+          )
+          .join("\n");
+        await reportProgress(job.id, {
+          progress: 14,
+          stage: "Transkrypcja z napisów",
+          log:
+            "Napisy → " +
+            caps.segments.length +
+            " segmentów z czasem (" +
+            caps.text.length +
+            " znaków). Pomijam STT dźwięku.",
+          livePhase: "source",
+          liveOriginal: preview || caps.text.slice(0, 800),
+        });
+      } else {
+        log(
+          "Napisy YT backup:",
+          caps.segments.length,
+          "cue (użyte gdy STT puste)"
+        );
+      }
       if (caps.file && fs.existsSync(caps.file)) {
         try {
           const srtDest = path.join(workDir, "youtube_captions.srt");
@@ -1170,7 +1180,7 @@ async function runJob(job) {
           /* ignore */
         }
       }
-    } else {
+    } else if (wantCaptions) {
       await reportProgress(job.id, {
         progress: 10,
         stage: "Brak napisów — STT",
