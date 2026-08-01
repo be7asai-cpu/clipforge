@@ -1888,10 +1888,16 @@ async function runJob(job) {
       transcriptMode = "even-timeline";
     }
 
-    // Field gets continuous plain text only (no [mm:ss] lines).
-    // Timed cues stay in timedText for lektor internals / optional use.
-    const outText = text;
-    const outOriginal = originalText;
+    // Timed ON → exact clocks in field (same system as STT / video / YT cues).
+    // Timed OFF → continuous plain only.
+    const outText =
+      useTimedForm && timedText
+        ? timedText
+        : useTimedForm && timedOriginal
+          ? timedOriginal
+          : text;
+    const outOriginal =
+      useTimedForm && timedOriginal ? timedOriginal : originalText;
 
     await reportProgress(job.id, {
       progress: 95,
@@ -1902,11 +1908,11 @@ async function runJob(job) {
       log:
         "Tekst OK · " +
         outText.length +
-        " znaków (ciągły, bez czasu)" +
-        (translated ? " · przetłumaczono" : "") +
-        (useTimedForm && exactCueCount
-          ? " · STT ułoży " + exactCueCount + " cue przy lektorze"
-          : ""),
+        " znaków" +
+        (useTimedForm
+          ? " · z czasem 1:1 (" + exactCueCount + " cue = STT/wideo)"
+          : " · ciągły, bez czasu") +
+        (translated ? " · przetłumaczono" : ""),
     });
 
     const up = await request(
@@ -1917,8 +1923,8 @@ async function runJob(job) {
         body: {
           text: outText,
           originalText: outOriginal,
-          plainText: outText,
-          plainOriginal: outOriginal,
+          plainText: text,
+          plainOriginal: originalText,
           timedText: useTimedForm ? timedText : "",
           timedOriginal: useTimedForm ? timedOriginal : "",
           translated,

@@ -550,12 +550,18 @@
                 <input type="checkbox" id="opt-auto-translate" checked />
                 <span data-i18n="narrator.autoTrLab">Tłumacz na język docelowy (można wyłączyć = oryginał)</span>
               </label>
-              <label class="inline" title="Dokładna transkrypcja STT z prawdziwymi czasami mowy.">
+              <label
+                class="inline"
+                title="W polu tekstu: linie [mm:ss → mm:ss] z tymi samymi czasami co STT / wideo / napisy."
+              >
                 <input type="checkbox" id="opt-timed-transcript" checked />
-                <span data-i18n="narrator.timedTrLab">Tekst jako transkrypcja z czasem (użyj przy lektorze)</span>
+                <span data-i18n="narrator.timedTrLab"
+                  >Tekst z czasem 1:1 jak STT / wideo (w polu tłumaczenia)</span
+                >
               </label>
               <p class="hint" data-i18n="narrator.timedTrHint">
-                Zaznaczone: Wyodrębnij → dokładna transkrypcja STT (N cue z prawdziwymi czasami mowy); przy Start lektor mówi w tych oknach. Odznacz = ciągły tekst bez osi czasu.
+                Działa z oboma źródłami wyodrębniania (STT i napisy YT). Zaznaczone: w polu linie
+                [00:01.20 → 00:04.50] tekst — te same zegary co w źródle. Odznacz = jeden ciągły akapit bez czasów.
               </p>
               <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
 
@@ -613,7 +619,8 @@
                 <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
               </div>
               <p class="hint" data-i18n="narrator.extractHint">
-                Wyodrębnij → tekst ciągły w polu → popraw → Start. Źródło: opcja powyżej (dźwięk STT albo napisy YT).
+                Wyodrębnij → tekst w polu (z czasem 1:1 jeśli włączone wyżej, albo ciągły) → popraw → Start.
+                Źródło: STT z dźwięku albo napisy YT.
               </p>
 
               <label class="stack">
@@ -631,11 +638,11 @@
                   id="opt-script"
                   rows="6"
                   data-i18n-placeholder="narrator.scriptPh"
-                  placeholder="Cały tekst ciągły, bez znaczników czasu. Puste = STT/napisy przy Start. YouTube/Wyodrębnij wstawia pełny tekst."
+                  placeholder="Puste = STT/napisy przy Start. Z czasem: [00:01.20 → 00:04.50] tekst — te same zegary co STT/wideo."
                 ></textarea>
               </label>
               <p class="hint" data-i18n="narrator.scriptHint">
-                Zawsze tekst ciągły (bez [czasów]). YouTube i napisy wstawiają pełny tekst. «Rozpoznaj mowę» sam analizuje dźwięk i układa lektora.
+                Opcja «Tekst z czasem 1:1» → linie z zegarami jak STT/wideo. Bez niej → ciągły akapit. Źródło: STT albo napisy YT przy Wyodrębnij.
               </p>
 
               <div class="opt-block text-speed-block" id="text-speed-block">
@@ -987,9 +994,9 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801extractSrc"></script>
+    <script src="/js/i18n.js?v=20260801timedField"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260801noMusic"></script>
+    <script src="/js/studio.js?v=20260801timedField"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;

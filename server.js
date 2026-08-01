@@ -1882,11 +1882,17 @@ async function runPreTranscribeOnFile(videoPath, {
     transcriptMode = "even-timeline";
   }
 
-  // Field always gets continuous plain text (YouTube / napisy / STT).
-  // Times stay internal for lektor (timedText) — never dumped into the edit box.
+  // When timedTranscript ON → field gets exact [mm:ss → mm:ss] same clocks as STT/video.
+  // When OFF → continuous plain paragraph.
   const useTimed = timedTranscript !== false;
-  const primaryText = text;
-  const primaryOriginal = originalText;
+  const primaryText =
+    useTimed && timedText
+      ? timedText
+      : useTimed && timedOriginal
+        ? timedOriginal
+        : text;
+  const primaryOriginal =
+    useTimed && timedOriginal ? timedOriginal : originalText;
 
   const trLineCount = timedText
     ? timedText.split(/\r?\n/).filter((l) => l.trim()).length

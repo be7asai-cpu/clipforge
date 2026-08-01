@@ -878,9 +878,31 @@
   }
 
   /**
-   * Apply extract payload into script field as continuous PLAIN text
-   * (YouTube / napisy / STT — never [mm:ss] time markers in the box).
-   * STT / napisy arrange timing themselves on Start for the lektor.
+   * Clean timed lines: keep [mm:ss → mm:ss], strip [Music]/non-speech from body.
+   */
+  function cleanTimedScriptText(raw) {
+    const lines = [];
+    for (const line of String(raw || "").split(/\r?\n/)) {
+      const t = String(line || "").trim();
+      if (!t) continue;
+      const m = t.match(
+        /^(\[\s*\d{1,2}:\d{2}(?:[.,]\d{1,3})?\s*[–—→\-]+\s*\d{1,2}:\d{2}(?:[.,]\d{1,3})?\s*s?\s*\])\s*(.*)$/i
+      );
+      if (m) {
+        const body = stripNonSpeechLabelsClient(m[2] || "");
+        if (body) lines.push(m[1].replace(/\s+/g, " ").trim() + " " + body);
+        continue;
+      }
+      const plain = stripNonSpeechLabelsClient(t);
+      if (plain) lines.push(plain);
+    }
+    return lines.join("\n");
+  }
+
+  /**
+   * Apply extract → script field.
+   * wantTimed ON  → exact [mm:ss.xx → mm:ss.xx] same clocks as STT / video / captions
+   * wantTimed OFF → continuous plain paragraph
    */
   function applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt) {
     const plainPrefer = String(
@@ -888,9 +910,21 @@
     ).trim();
     const raw = String(data.text || data.script || "").trim();
     const timed = String(data.timedText || data.timedScript || "").trim();
-    // Always continuous paragraph for the edit field
-    let useText = toPlainScriptText(plainPrefer || raw);
-    if (!useText && timed) useText = toPlainScriptText(timed);
+    const timedClean = cleanTimedScriptText(timed || (countExactCues(raw) ? raw : ""));
+    const plainClean = toPlainScriptText(plainPrefer || raw || timed);
+    // Timed option → same clock system as source video / STT (or YT cue times)
+    let useText = "";
+    let isTimed = false;
+    if (wantTimed && timedClean && countExactCues(timedClean) >= 1) {
+      useText = timedClean;
+      isTimed = true;
+      if ($("#opt-timed-transcript")) {
+        $("#opt-timed-transcript").checked = true;
+      }
+    } else {
+      useText = plainClean || toPlainScriptText(timedClean);
+      isTimed = false;
+    }
     if (!useText) {
       setSt(
         data.error ||
@@ -913,8 +947,14 @@
       titleEl.dispatchEvent(new Event("input", { bubbles: true }));
     }
     refreshLangBadge();
+    const nCues = isTimed ? countExactCues(useText) : 0;
     const meta = [
-      tr("narrator.extractMetaPlain", "tekst ciągły · bez czasu"),
+      isTimed
+        ? tr(
+            "narrator.extractMetaExact",
+            "transkrypcja z czasem · {n} cue = STT/wideo"
+          ).replace("{n}", String(nCues || data.exactCueCount || "?"))
+        : tr("narrator.extractMetaPlain", "tekst ciągły · bez czasu"),
       data.translated && !onlyOriginal
         ? tr("narrator.extractMetaTr", "przetłumaczono") +
           " → " +
@@ -926,9 +966,6 @@
       data.durationSec
         ? "~" + Math.round(Number(data.durationSec)) + "s"
         : null,
-      data.exactCueCount || data.segments
-        ? (data.exactCueCount || data.segments) + " seg. (lektor)"
-        : null,
       data.translateError
         ? tr("narrator.extractTrWarn", "tłum. ostrzeżenie")
         : null,
@@ -936,15 +973,24 @@
     ]
       .filter(Boolean)
       .join(" · ");
-    const okMsg =
-      data.translated && !onlyOriginal
+    const okMsg = isTimed
+      ? data.translated && !onlyOriginal
+        ? tr(
+            "narrator.extractOkExactTr",
+            "Tłumaczenie z czasami 1:1 jak STT/wideo — możesz poprawić, potem Start."
+          )
+        : tr(
+            "narrator.extractOkExact",
+            "Transkrypcja z czasami 1:1 jak STT/wideo — możesz poprawić, potem Start."
+          )
+      : data.translated && !onlyOriginal
         ? tr(
             "narrator.extractOkTr",
             "Cały tekst w polu (bez czasu) — możesz poprawić, potem Start."
           )
         : tr(
             "narrator.extractOk",
-            "Cały tekst w polu (bez czasu) — możesz poprawić. STT/napisy ułożą lektora przy Start."
+            "Cały tekst w polu (bez czasu) — możesz poprawić."
           );
     setSt(okMsg + (meta ? " (" + meta + ")" : ""), "ok");
     return true;
