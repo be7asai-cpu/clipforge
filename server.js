@@ -1644,7 +1644,8 @@ async function runPreTranscribeOnFile(videoPath, {
     extractSpeechFromVideoSegmented,
     translateText,
     joinSpeechTexts,
-    translateSegments1to1,
+    distributeTextOnTimeline,
+    stripTimedMarkers,
   } = require("./lib/lang-utils");
   // joinSpeechTexts may not exist on older agent copies — local fallback
   const stitch =
@@ -1788,51 +1789,40 @@ async function runPreTranscribeOnFile(videoPath, {
   let translateError = null;
   const srcForTr = stt.langCode || sourceLang || "auto";
 
+  // Exact translate: whole text NMT once, then spread words evenly on full film (3s)
+  const filmDur = Math.max(
+    1,
+    durationSec > 0.5
+      ? durationSec
+      : stt.audioDuration || maxScan || 30
+  );
   if (autoTranslate) {
-    // Exact translate: ONLY per-segment NMT — same count as transcription (1:1)
-    if (segs.length && typeof translateSegments1to1 === "function") {
-      try {
-        const one = await translateSegments1to1(segs, srcForTr, targetLang, {});
-        const timedSegs = one.segments || [];
-        // Hard assert same length
-        while (timedSegs.length < segs.length) {
-          const s = segs[timedSegs.length];
-          timedSegs.push({
-            start: s.start,
-            end: s.end,
-            text: String(s.text || "").trim(),
-            silent: !String(s.text || "").trim(),
-          });
-        }
-        if (timedSegs.length > segs.length) timedSegs.length = segs.length;
-        text = one.plainText || stitch(timedSegs.map((s) => s.text));
-        timedText = formatTimed(timedSegs);
-        translated = !!one.translated;
-        translateEngine = one.engine || "nmt-seg-1to1";
-      } catch (te) {
-        translateError = (te && te.message) || String(te);
+    try {
+      const plainSrc =
+        typeof stripTimedMarkers === "function"
+          ? stripTimedMarkers(originalText)
+          : originalText;
+      const tr = await translateText(plainSrc, srcForTr, targetLang, null, {
+        force: true,
+      });
+      if (tr && tr.ok && tr.text && String(tr.text).trim()) {
+        text = stitch([tr.text]);
+        translated = !tr.skipped;
+        translateEngine = (tr.engine || "nmt") + "+timeline";
+      } else if (tr && tr.error) {
+        translateError = tr.error;
       }
-    } else {
-      // Fallback whole-text (no segment list)
-      try {
-        const tr = await translateText(
-          originalText,
-          srcForTr,
-          targetLang,
-          null,
-          { force: true }
-        );
-        if (tr && tr.ok && tr.text && String(tr.text).trim()) {
-          text = stitch([tr.text]);
-          translated = !tr.skipped;
-          translateEngine = tr.engine || "nmt";
-        } else if (tr && tr.error) {
-          translateError = tr.error;
-        }
-      } catch (te) {
-        translateError = (te && te.message) || String(te);
-      }
+    } catch (te) {
+      translateError = (te && te.message) || String(te);
     }
+  }
+
+  // Proportional timeline: full text → equal word packs on 0…filmDur every 3s
+  if (typeof distributeTextOnTimeline === "function") {
+    const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3);
+    timedOriginal = formatTimed(srcSpread);
+    const tgtSpread = distributeTextOnTimeline(text, filmDur, 3);
+    timedText = formatTimed(tgtSpread);
   }
 
   // Primary field for the script box: transcription form when enabled
@@ -1849,9 +1839,9 @@ async function runPreTranscribeOnFile(videoPath, {
   const trLineCount = timedText
     ? timedText.split(/\r?\n/).filter((l) => l.trim()).length
     : 0;
-  const srcLineCount = timedOriginal
-    ? timedOriginal.split(/\r?\n/).filter((l) => l.trim()).length
-    : segs.length;
+  const wordCount = String(text || "")
+    .split(/\s+/)
+    .filter(Boolean).length;
 
   return {
     ok: true,
@@ -1870,16 +1860,13 @@ async function runPreTranscribeOnFile(videoPath, {
     engine: stt.engine || null,
     langCode: stt.langCode || sourceLang || null,
     targetLang,
-    durationSec: durationSec || stt.audioDuration || null,
-    /** Full timeline slots (incl. silent) — translation has the same count */
-    segments: segs.length,
-    transcriptSegments: srcLineCount,
-    translationSegments: trLineCount || (translated ? segs.length : 0),
-    sameSegmentCount:
-      !translated ||
-      segs.length === 0 ||
-      trLineCount === srcLineCount ||
-      trLineCount === segs.length,
+    durationSec: filmDur,
+    /** Timeline slots for proportional layout (ceil(duration/3)) */
+    segments: trLineCount || Math.ceil(filmDur / 3),
+    wordsPerSegment:
+      trLineCount > 0
+        ? Math.round((wordCount / trLineCount) * 10) / 10
+        : null,
     error: null,
     musicLikely: !!stt.musicLikely,
     workDir: wd,

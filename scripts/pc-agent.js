@@ -1408,7 +1408,8 @@ async function runJob(job) {
       extractSpeechFromVideoSegmented,
       translateText,
       joinSpeechTexts,
-      translateSegments1to1,
+      distributeTextOnTimeline,
+      stripTimedMarkers,
     } = require(path.join(ROOT, "lib", "lang-utils.js"));
     const stitch =
       typeof joinSpeechTexts === "function"
@@ -1565,81 +1566,65 @@ async function runJob(job) {
     const useTimedForm = job.options.timedTranscript !== false;
     const srcForTr = langCode || job.options.sourceLang || "auto";
 
+    const filmDur = Math.max(
+      1,
+      durationSec > 0.5
+        ? durationSec
+        : segs.length
+          ? Math.max(...segs.map((s) => Number(s.end) || 0))
+          : 30
+    );
+
     if (autoTranslate) {
       await reportProgress(job.id, {
         progress: 78,
-        stage: "Tłumaczenie 1:1…",
+        stage: "Tłumaczenie całości…",
         livePhase: "translating",
         liveOriginal: originalText.slice(0, 1200),
         log:
-          "Dokładne tłumaczenie segment po segmencie → " +
+          "Tłumaczę cały tekst → " +
           targetLang +
-          " (" +
-          segs.length +
-          " = tyle samo co transkrypcja)",
+          ", potem rozkładam proporcjonalnie na oś (" +
+          Math.round(filmDur) +
+          "s, co 3s)",
       });
-      // 1:1 with transcription — never whole-blob NMT that changes segment count
-      if (segs.length && typeof translateSegments1to1 === "function") {
-        try {
-          const one = await translateSegments1to1(
-            segs,
-            srcForTr,
-            targetLang,
-            {
-              onSegment: (info) => {
-                if (info.phase === "done") {
-                  reportProgress(job.id, {
-                    progress: Math.min(
-                      92,
-                      78 + Math.round(((info.index + 1) / info.total) * 14)
-                    ),
-                    stage: `Tłumaczę ${info.index + 1}/${info.total}`,
-                    livePhase: "translating",
-                  }).catch(() => null);
-                }
-              },
-            }
-          );
-          const timedSegs = one.segments || [];
-          while (timedSegs.length < segs.length) {
-            const s = segs[timedSegs.length];
-            timedSegs.push({
-              start: s.start,
-              end: s.end,
-              text: String(s.text || "").trim(),
-              silent: !String(s.text || "").trim(),
-            });
-          }
-          if (timedSegs.length > segs.length) timedSegs.length = segs.length;
-          text = one.plainText || stitch(timedSegs.map((s) => s.text));
-          timedText = formatTimedAll(timedSegs);
-          translated = !!one.translated;
-          log(
-            "Tłumaczenie 1:1:",
-            timedSegs.length,
-            "seg = transkrypcja",
-            segs.length
-          );
-        } catch (te) {
-          log("translate 1:1 pre-stt:", te.message || te);
+      try {
+        const plainSrc =
+          typeof stripTimedMarkers === "function"
+            ? stripTimedMarkers(originalText)
+            : originalText;
+        const tr = await translateText(
+          plainSrc,
+          srcForTr,
+          targetLang,
+          null,
+          { force: true }
+        );
+        if (tr && tr.ok && tr.text && String(tr.text).trim()) {
+          text = stitch([tr.text]);
+          translated = !tr.skipped;
         }
-      } else {
-        try {
-          const tr = await translateText(
-            originalText,
-            srcForTr,
-            targetLang,
-            null,
-            { force: true }
-          );
-          if (tr && tr.ok && tr.text && String(tr.text).trim()) {
-            text = stitch([tr.text]);
-            translated = !tr.skipped;
-          }
-        } catch (te) {
-          log("translate pre-stt:", te.message || te);
-        }
+      } catch (te) {
+        log("translate pre-stt:", te.message || te);
       }
+    }
+
+    // Full text → equal word packs on entire timeline (e.g. ~3 words/seg)
+    if (typeof distributeTextOnTimeline === "function") {
+      const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3);
+      timedOriginal = formatTimedAll(srcSpread);
+      const tgtSpread = distributeTextOnTimeline(text, filmDur, 3);
+      timedText = formatTimedAll(tgtSpread);
+      const wc = String(text || "")
+        .split(/\s+/)
+        .filter(Boolean).length;
+      log(
+        "Oś czasu proporcjonalna:",
+        tgtSpread.length,
+        "seg × 3s · ~",
+        tgtSpread.length ? (wc / tgtSpread.length).toFixed(1) : 0,
+        "słów/seg"
+      );
     }
 
     // Primary payload: transcription form when enabled (default)
