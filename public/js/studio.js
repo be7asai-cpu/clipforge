@@ -654,14 +654,22 @@
     if (transcriptSource() === "captions") {
       hint.textContent = tr(
         "narrator.transcriptHintCaps",
-        "Bierze gotowe napisy z filmu / YouTube (bez słuchania dźwięku). Wstawia cały tekst ciągły."
+        "Przy Start (pole puste): gotowe napisy z filmu / YouTube."
       );
     } else {
       hint.textContent = tr(
         "narrator.transcriptHintStt",
-        "Słucha ścieżki audio i rozpoznaje mowę (STT) — NIE bierze napisów z YouTube. Działa dla pliku i linku (agent PC)."
+        "Przy Start (pole puste): STT z dźwięku. Osobna opcja «Źródło wyodrębniania» jest przy przycisku Wyodrębnij."
       );
     }
+  }
+
+  /** Extract-only: stt = audio STT, captions = YouTube/film subs */
+  function extractSource() {
+    return (
+      document.querySelector('input[name="extract-source"]:checked')?.value ||
+      "stt"
+    );
   }
 
   /** Continuous paragraph only — strip [mm:ss → mm:ss] lines if present */
@@ -1026,10 +1034,11 @@
       if (autoTr) autoTr.checked = true;
     }
     if (btn) btn.disabled = true;
-    const srcModeBusy = transcriptSource();
+    // Dedicated extract option (not the Start/lektor radios above)
+    const srcMode = extractSource(); // stt | captions
     setSt(
       selectedFile
-        ? srcModeBusy === "captions"
+        ? srcMode === "captions"
           ? tr(
               "narrator.extractBusyCaps",
               "Pobieram napisy z filmu… (może potrwać)"
@@ -1043,7 +1052,7 @@
                 "narrator.extractBusyTr",
                 "STT z dźwięku + tłumaczenie… (może potrwać)"
               )
-        : srcModeBusy === "captions"
+        : srcMode === "captions"
           ? tr(
               "narrator.extractBusyFromUrlCaps",
               "Z linku: napisy YouTube… (PC · ON)"
@@ -1057,7 +1066,6 @@
     try {
       let res;
       let data;
-      const srcMode = transcriptSource(); // stt | captions
       if (selectedFile) {
         const fd = new FormData();
         fd.append("video", selectedFile, selectedFile.name || "video.mp4");
@@ -1103,10 +1111,15 @@
       // Platform URL → agent job — poll until script ready
       if (data.pending && data.jobId) {
         setSt(
-          tr(
-            "narrator.extractBusyAgent",
-            "Agent PC: pobieranie + STT z linku…"
-          ),
+          srcMode === "captions"
+            ? tr(
+                "narrator.extractBusyAgentCaps",
+                "Agent PC: napisy YouTube z linku…"
+              )
+            : tr(
+                "narrator.extractBusyAgent",
+                "Agent PC: pobieranie + STT z dźwięku…"
+              ),
           "busy"
         );
         await pollPreTranscribeJob(

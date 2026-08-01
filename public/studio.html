@@ -494,19 +494,19 @@
                 </p>
               </div>
 
-              <div class="opt-block-title" data-i18n="narrator.transcriptTitle">Skąd wziąć tekst (Wyodrębnij / Start)</div>
+              <div class="opt-block-title" data-i18n="narrator.transcriptTitle">Skąd wziąć tekst przy Start (lektor)</div>
               <div class="seg" role="radiogroup" id="transcript-source-group">
-                <label title="STT — słucha audio, nie bierze napisów YouTube">
+                <label title="STT — słucha audio przy Start">
                   <input type="radio" name="transcript-source" value="stt" checked />
                   <span data-i18n="narrator.transcriptStt">🎤 Z dźwięku (STT)</span>
                 </label>
-                <label title="Gotowe napisy z filmu / YouTube">
+                <label title="Gotowe napisy z filmu / YouTube przy Start">
                   <input type="radio" name="transcript-source" value="captions" />
                   <span data-i18n="narrator.transcriptCaps">📝 Z napisów YouTube / filmu</span>
                 </label>
               </div>
               <p class="hint" id="transcript-source-hint" data-i18n="narrator.transcriptHintStt">
-                Słucha ścieżki audio i rozpoznaje mowę (STT) — NIE bierze napisów z YouTube. Działa dla pliku i linku (agent PC).
+                Przy Start (gdy pole tekstu puste): STT z dźwięku albo napisy z filmu. Osobna opcja przy «Wyodrębnij» poniżej.
               </p>
 
               <div class="grid2">
@@ -586,18 +586,34 @@
               <p class="hint" id="voice-hint" data-i18n="narrator.voiceHint">
                 Lista głosów zależy od języka docelowego (Edge neural).
               </p>
+              <div class="opt-block extract-source-block" id="extract-source-block">
+                <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">Źródło wyodrębniania tekstu</div>
+                <div class="seg" role="radiogroup" id="extract-source-group">
+                  <label title="Rozpoznaj mowę z audio (plik lub YouTube po pobraniu) — bez napisów YT">
+                    <input type="radio" name="extract-source" value="stt" checked />
+                    <span data-i18n="narrator.extractSrcStt">🎤 Z dźwięku (STT)</span>
+                  </label>
+                  <label title="Pobierz gotowe napisy z YouTube / filmu">
+                    <input type="radio" name="extract-source" value="captions" />
+                    <span data-i18n="narrator.extractSrcCaps">📝 Z napisów YouTube / filmu</span>
+                  </label>
+                </div>
+                <p class="hint" data-i18n="narrator.extractSrcHint">
+                  Tylko przycisk «Wyodrębnij»: wybierz skąd wstawić tekst do pola. «Z dźwięku» = STT z audio, nie napisy YT.
+                </p>
+              </div>
               <div class="pre-stt-bar" id="pre-stt-bar">
                 <button type="button" class="btn ghost sm" id="btn-extract-transcript">
                   <span data-i18n="narrator.extractBtn">🎤 Wyodrębnij + dokładne tłumaczenie</span>
                 </button>
-                <label class="inline pre-stt-timed" title="Zostaw oryginał STT bez tłumaczenia (transkrypcja zostaje)">
+                <label class="inline pre-stt-timed" title="Zostaw oryginał bez tłumaczenia">
                   <input type="checkbox" id="opt-extract-no-tr" />
                   <span data-i18n="narrator.extractNoTr">tylko oryginał</span>
                 </label>
                 <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
               </div>
               <p class="hint" data-i18n="narrator.extractHint">
-                Z pliku/linku → cały tekst ciągły w polu (bez czasu) → możesz poprawić → Start. STT/napisy same układają lektora.
+                Wyodrębnij → tekst ciągły w polu → popraw → Start. Źródło: opcja powyżej (dźwięk STT albo napisy YT).
               </p>
 
               <label class="stack">
@@ -971,9 +987,9 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801sttSrc"></script>
+    <script src="/js/i18n.js?v=20260801extractSrc"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260801sttSrc"></script>
+    <script src="/js/studio.js?v=20260801extractSrc"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;
