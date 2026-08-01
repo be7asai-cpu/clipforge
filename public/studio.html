@@ -592,7 +592,54 @@
                 </p>
               </div>
 
-              <!-- Translator languages first; text source tools live under «Tekst do edytora» -->
+              <!-- 1) NAJPIERW: goły tekst — skąd wziąć (zawsze widoczne) -->
+              <div class="opt-block extract-source-block" id="extract-source-block">
+                <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">
+                  1. Skąd wziąć goły tekst
+                </div>
+                <div class="seg" role="radiogroup" id="extract-source-group">
+                  <label title="Napisy YT → Whisper → Google STT">
+                    <input type="radio" name="extract-source" value="auto" checked />
+                    <span data-i18n="narrator.extractSrcAuto">⚡ Auto</span>
+                  </label>
+                  <label title="Google Web Speech">
+                    <input type="radio" name="extract-source" value="stt" />
+                    <span data-i18n="narrator.extractSrcStt">🎤 Google STT</span>
+                  </label>
+                  <label title="Whisper — muzyka / memy">
+                    <input type="radio" name="extract-source" value="whisper" />
+                    <span data-i18n="narrator.extractSrcWhisper">🎧 Whisper</span>
+                  </label>
+                  <label title="Napisy YouTube (link + PC·ON)">
+                    <input type="radio" name="extract-source" value="captions" />
+                    <span data-i18n="narrator.extractSrcCaps">📝 Napisy YT</span>
+                  </label>
+                </div>
+                <div class="hidden" id="transcript-source-group" aria-hidden="true">
+                  <input type="radio" name="transcript-source" value="stt" checked />
+                  <input type="radio" name="transcript-source" value="captions" />
+                </div>
+                <label class="stack mt-sm" id="whisper-model-wrap" hidden>
+                  <span data-i18n="narrator.whisperModelLab">Model Whisper</span>
+                  <select id="opt-whisper-model" title="Większy = lepsza jakość, wolniej">
+                    <option value="tiny">tiny (szybki)</option>
+                    <option value="base" selected>base (zalecany)</option>
+                    <option value="small">small (lepszy)</option>
+                    <option value="medium">medium (wolny, dokładny)</option>
+                  </select>
+                </label>
+                <p class="hint compact" data-i18n="narrator.extractSrcHint">
+                  Najpierw goły tekst z filmu (Auto / STT / Whisper / napisy). Tłumaczenie i segmentacja
+                  dopiero potem przy Start.
+                </p>
+                <p class="hint compact" id="whisper-status" data-i18n="narrator.whisperStatusWait">
+                  Sprawdzam Whisper…
+                </p>
+                <p class="hint compact" id="transcript-source-hint" hidden></p>
+              </div>
+
+              <!-- 2) Tłumacz / język (po źródle tekstu) -->
+              <div class="opt-block-title" data-i18n="narrator.translateBlock">2. Tłumaczenie</div>
               <div class="grid2">
                 <label class="stack">
                   <span data-i18n="narrator.src">Język źródłowy</span>
@@ -664,11 +711,10 @@
                 Lista głosów zależy od języka docelowego (Edge neural).
               </p>
 
-              <!-- 3) Pro lektor = segmentacja przy Start (niezależna od edytora) -->
               <div class="opt-block pro-narrator-block" id="pro-narrator-block">
                 <label
                   class="inline"
-                  title="Przy Start: segmenty, cisze, tempo pod język — niezależnie od edytora"
+                  title="Przy Start: segmenty, cisze, tempo — niezależnie od edytora"
                 >
                   <input type="checkbox" id="opt-pro-narrator" checked />
                   <span data-i18n="narrator.proLab"
@@ -676,8 +722,8 @@
                   >
                 </label>
                 <p class="hint compact" data-i18n="narrator.proHint">
-                  Segmentacja i tempo lektora/napisów przy <strong>Start</strong> (profile PL/EN/DE…).
-                  Niezależne od «Tekst do edytora». Lokalnie, bez tokenów.
+                  Przy <strong>Start</strong>: segmentacja lektora/napisów. Nie przy samym wyciąganiu
+                  gołego tekstu. Lokalnie, bez tokenów.
                 </p>
               </div>
 
@@ -729,100 +775,52 @@
                 <span id="opt-bg-val">12%</span>
               </label>
 
-              <!-- Tekst do edytora: opcjonalnie — tu wszystkie narzędzia odczytu + pole -->
+              <!-- Opcjonalnie: popraw goły tekst w polu (narzędzia odczytu są WYŻEJ) -->
               <label
                 class="inline editor-master"
-                title="Opcjonalnie: wybierz narzędzie odczytu, wyciągnij tekst i popraw. Bez tego Start = Auto."
+                title="Opcjonalnie: pokaż pole i Wyodrębnij goły tekst do ręcznej poprawy"
               >
                 <input type="checkbox" id="opt-timed-transcript" />
                 <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora (opcjonalna poprawa)</span>
               </label>
               <p class="hint compact" data-i18n="narrator.timedTrHintOff" id="timed-tr-hint-off">
-                Wyłączone (domyślnie): Start sam bierze tekst (Auto: napisy → Whisper → STT). Zaznacz,
-                gdy chcesz wybrać narzędzie i ręcznie poprawić tekst.
+                Wyłączone: Start sam wyciąga goły tekst ze źródła wyżej, potem tłumaczy. Zaznacz, by
+                najpierw wkleić/poprawić tekst w polu.
               </p>
 
               <div class="editor-advanced hidden" id="editor-advanced">
                 <p class="hint compact" data-i18n="narrator.timedTrHint">
-                  Tu są wszystkie narzędzia odczytu. Wybierz → Wyodrębnij → popraw ciągły tekst → Start.
-                  Bez checkboxa Start leci Auto. Segmentacja = Pro lektor przy Start.
+                  Źródło wybierz wyżej. Tu: Wyodrębnij goły tekst → popraw → Start (tłumaczenie + Pro lektor).
                 </p>
 
-                <!-- Wszystkie narzędzia odczytu tekstu (tylko w edytorze) -->
-                <div class="opt-block extract-source-block" id="extract-source-block">
-                  <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">
-                    Narzędzia odczytu tekstu
-                  </div>
-                  <div class="seg" role="radiogroup" id="extract-source-group">
-                    <label title="Napisy YT → Whisper → Google STT">
-                      <input type="radio" name="extract-source" value="auto" checked />
-                      <span data-i18n="narrator.extractSrcAuto">⚡ Auto (wszystkie)</span>
-                    </label>
-                    <label title="Google Web Speech">
-                      <input type="radio" name="extract-source" value="stt" />
-                      <span data-i18n="narrator.extractSrcStt">🎤 Google STT</span>
-                    </label>
-                    <label title="Whisper lokalnie — muzyka / memy">
-                      <input type="radio" name="extract-source" value="whisper" />
-                      <span data-i18n="narrator.extractSrcWhisper">🎧 Whisper</span>
-                    </label>
-                    <label title="Napisy YouTube (link + PC·ON)">
-                      <input type="radio" name="extract-source" value="captions" />
-                      <span data-i18n="narrator.extractSrcCaps">📝 Napisy YT</span>
-                    </label>
-                  </div>
-                  <div class="hidden" id="transcript-source-group" aria-hidden="true">
-                    <input type="radio" name="transcript-source" value="stt" checked />
-                    <input type="radio" name="transcript-source" value="captions" />
-                  </div>
-                  <label class="stack mt-sm" id="whisper-model-wrap" hidden>
-                    <span data-i18n="narrator.whisperModelLab">Model Whisper</span>
-                    <select id="opt-whisper-model" title="Większy = lepsza jakość, wolniej">
-                      <option value="tiny">tiny (szybki)</option>
-                      <option value="base" selected>base (zalecany)</option>
-                      <option value="small">small (lepszy)</option>
-                      <option value="medium">medium (wolny, dokładny)</option>
-                    </select>
+                <div class="pre-stt-bar" id="pre-stt-bar">
+                  <button type="button" class="btn ghost sm" id="btn-extract-transcript">
+                    <span data-i18n="narrator.extractBtn">📥 Wyodrębnij goły tekst</span>
+                  </button>
+                  <label class="inline pre-stt-timed" title="Bez tłumaczenia przy wyciąganiu">
+                    <input type="checkbox" id="opt-extract-no-tr" checked />
+                    <span data-i18n="narrator.extractNoTr">tylko oryginał (goły)</span>
                   </label>
-                  <p class="hint compact" data-i18n="narrator.extractSrcHint">
-                    Wszystkie narzędzia w edytorze: Auto / STT / Whisper / napisy YT → Wyodrębnij do pola.
-                  </p>
-                  <p class="hint compact" id="whisper-status" data-i18n="narrator.whisperStatusWait">
-                    Sprawdzam Whisper…
-                  </p>
-                  <p class="hint compact" id="transcript-source-hint" hidden></p>
+                  <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
                 </div>
 
                 <div class="opt-block extract-rewrite-block" id="extract-rewrite-block">
                   <div class="opt-block-title" data-i18n="narrator.smartRewriteTitle">
-                    Przeredagowanie do długości filmu
+                    Przeredagowanie (opcjonalnie, po wyciągnięciu)
                   </div>
-                  <label class="inline" title="Tekst w polu nie będzie dłuższy niż film">
-                    <input type="checkbox" id="opt-smart-rewrite" checked />
+                  <label class="inline" title="Skróć tekst do długości filmu">
+                    <input type="checkbox" id="opt-smart-rewrite" />
                     <span data-i18n="narrator.smartRewriteLab"
-                      >🧠 Inteligentne przeredagowanie (≤ długość filmu)</span
+                      >🧠 Przeredagowanie (≤ długość filmu)</span
                     >
                   </label>
                   <label class="inline" id="opt-use-ollama-wrap" title="Wymaga Ollamy na PC">
-                    <input type="checkbox" id="opt-use-ollama" checked />
-                    <span data-i18n="narrator.useOllamaLab"
-                      >🦙 Ollama (lokalny AI) — jeśli włączona</span
-                    >
+                    <input type="checkbox" id="opt-use-ollama" />
+                    <span data-i18n="narrator.useOllamaLab">🦙 Ollama (jeśli włączona)</span>
                   </label>
                   <p class="hint compact" id="ollama-status" data-i18n="narrator.ollamaStatusWait">
                     Sprawdzam Ollamę…
                   </p>
-                </div>
-
-                <div class="pre-stt-bar" id="pre-stt-bar">
-                  <button type="button" class="btn ghost sm" id="btn-extract-transcript">
-                    <span data-i18n="narrator.extractBtn">📥 Wyodrębnij do edytora</span>
-                  </button>
-                  <label class="inline pre-stt-timed" title="Zostaw oryginał bez tłumaczenia">
-                    <input type="checkbox" id="opt-extract-no-tr" />
-                    <span data-i18n="narrator.extractNoTr">tylko oryginał</span>
-                  </label>
-                  <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
                 </div>
 
                 <label class="stack">
@@ -835,16 +833,16 @@
                   />
                 </label>
                 <label class="stack">
-                  <span data-i18n="narrator.scriptLab">Tekst (edycja)</span>
+                  <span data-i18n="narrator.scriptLab">Goły tekst (edycja)</span>
                   <textarea
                     id="opt-script"
                     rows="6"
                     data-i18n-placeholder="narrator.scriptPh"
-                    placeholder="Wyodrębnij lub wklej ciągły tekst do poprawy"
+                    placeholder="Wyodrębnij goły tekst ze źródła wyżej, potem popraw"
                   ></textarea>
                 </label>
                 <p class="hint compact" data-i18n="narrator.scriptHint">
-                  Ciągły tekst do edycji. Start z polem = używa tego tekstu (segmentacja = Pro lektor).
+                  Najpierw goły tekst. Tłumaczenie i segmentacja (Pro lektor) przy Start.
                 </p>
               </div>
             </div>
