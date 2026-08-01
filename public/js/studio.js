@@ -2160,20 +2160,19 @@
       narratorMode: narratorMode(),
       describeStyle: describeStyle(),
       /**
-       * Editor ON + text → Start from field.
-       * Editor OFF → Auto at Start (agent: captions/STT as needed).
-       * Editor ON, empty field → use chosen extract-source (auto/stt/whisper/caps).
+       * Text in editor field → Start uses it (regardless of «Tekst do edytora» panel).
+       * Empty field → extract-source (Auto / STT / Whisper / captions) always available above.
        */
       transcriptSource: (() => {
         const script = String($("#opt-script")?.value || "").trim();
-        if (script.length >= 8 && wantEditorFill()) return "stt";
-        if (!wantEditorFill()) return "stt"; // silent auto/STT path
+        if (script.length >= 8) return "stt"; // plain field = source, no re-STT
         const ex = extractSource();
         if (ex === "whisper" || ex === "captions" || ex === "auto") return ex;
         return "stt";
       })(),
       sttEngine: (() => {
-        if (!wantEditorFill()) return "google";
+        const script = String($("#opt-script")?.value || "").trim();
+        if (script.length >= 8) return "google";
         const ex = extractSource();
         if (ex === "whisper") return "whisper";
         if (ex === "auto") return "auto";
@@ -2183,13 +2182,13 @@
       sourceLang: $("#opt-source-lang")?.value || "auto",
       targetLang: targetLang(),
       autoTranslate: $("#opt-auto-translate").checked,
-      /** Pro lektor: per-language segmentation / rate / silence merge */
+      /** Pro lektor: segmentacja przy Start — niezależna od edytora */
       proNarrator: $("#opt-pro-narrator")?.checked !== false,
       /**
-       * Editor ON + text in field → Start builds hop segments AFTER processing
-       * (from continuous editor text). Extract itself never forces hop lines.
+       * Hop/timeline przy Start: zawsze włączone dla lektora (nie zależy od «Tekst do edytora»).
+       * Extract nadal wstawia ciągły tekst; siatka buduje się w pipeline.
        */
-      timedTranscript: wantEditorFill(),
+      timedTranscript: true,
       textSpeedMode: getTextSpeedMode(),
       speechPace: getTextSpeedMode(),
       textSpeechPace: getTextSpeedMode(),
