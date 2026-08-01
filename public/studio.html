@@ -552,17 +552,17 @@
               </label>
               <label
                 class="inline"
-                title="Tylko edycja: cała długość filmu podzielona na 8 równych segmentów. Nie zmienia lektora."
+                title="8 równych segmentów z edytora = źródło i tłumaczenie (te same czasy)."
               >
                 <input type="checkbox" id="opt-timed-transcript" checked />
                 <span data-i18n="narrator.timedTrLab"
-                  >W polu edycji: 8 równych segmentów (długość / 8)</span
+                  >8 segmentów z edytora (źródło = tłumaczenie, te same czasy)</span
                 >
               </label>
               <p class="hint" data-i18n="narrator.timedTrHint">
-                Tylko «Tekst do tłumaczenia» po Wyodrębnij: zawsze 8 linii —
-                cała ścieżka podzielona na 8 równych części (np. film 80 s → po 10 s).
-                Lektor / głos bez zmian. Odznacz = ciągły tekst w polu.
+                Zaznaczone: po Wyodrębnij pole ma 8 równych części filmu (długość÷8).
+                Przy Start źródło na żywo bierze się z edytora; tłumaczenie/lektor/napisy =
+                te same 8 segmentów i te same start/end (bez ponownego STT i bez drugiego NMT, jeśli tekst już przetłumaczony).
               </p>
               <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
 
@@ -995,7 +995,7 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801parts8"></script>
+    <script src="/js/i18n.js?v=20260801ed8src"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
     <script src="/js/studio.js?v=20260801fieldOnly"></script>
     <script>
