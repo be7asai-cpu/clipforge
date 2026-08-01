@@ -1226,22 +1226,28 @@ async function runJob(job) {
     );
   }
 
-  // YouTube captions: primary when user picks «napisy», else backup if STT fails
+  // Text source: «stt» = audio only; «captions» = YouTube / film subs
   job.options = job.options || {};
   const wantCaptions =
     String(job.options.transcriptSource || "stt").toLowerCase() === "captions";
+  // Force pure STT — never pull YouTube caption text into the script
+  if (!wantCaptions) {
+    job.options.fromYoutubeCaptions = false;
+    job.options.captionSegments = null;
+    job.options.captionSegmentsBackup = null;
+    job.options.narratorScriptBackup = null;
+  }
   const platUrl = job.sourceUrl || job.options?.sourceUrl || null;
   if (
+    wantCaptions &&
     platUrl &&
     isPlatformUrl(platUrl) &&
     /youtube\.com|youtu\.be/i.test(platUrl)
   ) {
     await reportProgress(job.id, {
       progress: 8,
-      stage: wantCaptions ? "Napisy → transkrypcja…" : "Napisy YT (backup)…",
-      log: wantCaptions
-        ? "Pobieram napisy z filmu i buduję transkrypcję z czasem…"
-        : "Pobieram napisy YT na wypadek gdyby STT nie złapało mowy…",
+      stage: "Napisy YouTube…",
+      log: "Pobieram napisy z filmu (opcja «Z napisów»)…",
     });
     const caps = await tryDownloadYoutubeCaptions(platUrl, workDir);
     if (caps && caps.text && caps.segments && caps.segments.length) {
@@ -1252,46 +1258,38 @@ async function runJob(job) {
         silent: false,
         sttIndex: i,
       }));
-      job.options.captionSegmentsBackup = segs;
-      job.options.narratorScriptBackup = caps.text;
-      if (wantCaptions) {
-        // Continuous plain text only (no time markers in script field)
-        const plainCaps = String(caps.text || "")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (
-          !job.options.narratorScript ||
-          String(job.options.narratorScript).trim().length < 40
-        ) {
-          job.options.narratorScript = plainCaps;
-        }
-        job.options.fromYoutubeCaptions = true;
-        job.options.transcriptSource = "captions";
-        job.options.captionSegments = segs;
-        log(
-          "Napisy → tekst ciągły:",
-          plainCaps.length,
-          "znaków,",
-          caps.segments.length,
-          "cue wewn. do lektora"
-        );
-        await reportProgress(job.id, {
-          progress: 14,
-          stage: "Tekst z napisów",
-          log:
-            "Napisy YouTube → cały tekst ciągły (" +
-            plainCaps.length +
-            " znaków, bez czasu). Pomijam STT dźwięku.",
-          livePhase: "source",
-          liveOriginal: plainCaps.slice(0, 1200),
-        });
-      } else {
-        log(
-          "Napisy YT backup:",
-          caps.segments.length,
-          "cue (użyte gdy STT puste)"
-        );
+      // Continuous plain text only (no time markers in script field)
+      const plainCaps = String(caps.text || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (
+        !job.options.narratorScript ||
+        String(job.options.narratorScript).trim().length < 40
+      ) {
+        job.options.narratorScript = plainCaps;
       }
+      job.options.fromYoutubeCaptions = true;
+      job.options.transcriptSource = "captions";
+      job.options.captionSegments = segs;
+      job.options.captionSegmentsBackup = segs;
+      job.options.narratorScriptBackup = plainCaps;
+      log(
+        "Napisy → tekst ciągły:",
+        plainCaps.length,
+        "znaków,",
+        caps.segments.length,
+        "cue wewn. do lektora"
+      );
+      await reportProgress(job.id, {
+        progress: 14,
+        stage: "Tekst z napisów",
+        log:
+          "Napisy YouTube → cały tekst ciągły (" +
+          plainCaps.length +
+          " znaków). Pomijam STT dźwięku.",
+        livePhase: "source",
+        liveOriginal: plainCaps.slice(0, 1200),
+      });
       if (caps.file && fs.existsSync(caps.file)) {
         try {
           const srtDest = path.join(workDir, "youtube_captions.srt");
@@ -1301,16 +1299,27 @@ async function runJob(job) {
           /* ignore */
         }
       }
-    } else if (wantCaptions) {
+    } else {
       await reportProgress(job.id, {
         progress: 10,
-        stage: "Brak napisów — STT",
+        stage: "Brak napisów — STT z dźwięku",
         log:
-          "Brak napisów na filmie. Przełączam na STT z dźwięku (jak dotychczas).",
+          "Brak napisów na filmie. Przełączam na rozpoznawanie mowy z audio.",
       });
       job.options.transcriptSource = "stt";
       job.options.fromYoutubeCaptions = false;
     }
+  } else if (
+    !wantCaptions &&
+    platUrl &&
+    isPlatformUrl(platUrl)
+  ) {
+    await reportProgress(job.id, {
+      progress: 8,
+      stage: "STT z dźwięku…",
+      log:
+        "Opcja «Z dźwięku (STT)» — pomijam napisy YouTube, rozpoznaję mowę z audio po pobraniu wideo.",
+    });
   }
 
   // Resolve ffmpeg and preflight probe BEFORE full pipeline
@@ -1522,7 +1531,15 @@ async function runJob(job) {
       engine = stt.engine || "stt";
       langCode = stt.langCode || langCode;
       segs = Array.isArray(stt.timelineSegments) ? stt.timelineSegments : [];
-      if (!originalText && Array.isArray(job.options.captionSegmentsBackup)) {
+      // Only fall back to captions when user asked for captions (or STT empty after captions→STT fallback)
+      const allowCapsFallback =
+        String(job.options.transcriptSource || "stt").toLowerCase() ===
+          "captions" || !!job.options.fromYoutubeCaptions;
+      if (
+        !originalText &&
+        allowCapsFallback &&
+        Array.isArray(job.options.captionSegmentsBackup)
+      ) {
         segs = job.options.captionSegmentsBackup;
         originalText = stitch(segs.map((s) => s.text));
         engine = "youtube-captions-backup";

@@ -494,19 +494,19 @@
                 </p>
               </div>
 
-              <div class="opt-block-title" data-i18n="narrator.transcriptTitle">Skąd wziąć tekst do lektora</div>
+              <div class="opt-block-title" data-i18n="narrator.transcriptTitle">Skąd wziąć tekst (Wyodrębnij / Start)</div>
               <div class="seg" role="radiogroup" id="transcript-source-group">
-                <label>
+                <label title="STT — słucha audio, nie bierze napisów YouTube">
                   <input type="radio" name="transcript-source" value="stt" checked />
-                  <span data-i18n="narrator.transcriptStt">🎤 Rozpoznaj mowę z dźwięku</span>
+                  <span data-i18n="narrator.transcriptStt">🎤 Z dźwięku (STT)</span>
                 </label>
-                <label>
+                <label title="Gotowe napisy z filmu / YouTube">
                   <input type="radio" name="transcript-source" value="captions" />
-                  <span data-i18n="narrator.transcriptCaps">📝 Weź napisy z filmu</span>
+                  <span data-i18n="narrator.transcriptCaps">📝 Z napisów YouTube / filmu</span>
                 </label>
               </div>
               <p class="hint" id="transcript-source-hint" data-i18n="narrator.transcriptHintStt">
-                Sam analizuje dźwięk (STT) i układa tekst do lektora. Pole możesz zostawić puste albo wkleić ciągły tekst.
+                Słucha ścieżki audio i rozpoznaje mowę (STT) — NIE bierze napisów z YouTube. Działa dla pliku i linku (agent PC).
               </p>
 
               <div class="grid2">
@@ -971,9 +971,9 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801plainField"></script>
+    <script src="/js/i18n.js?v=20260801sttSrc"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260801plainField"></script>
+    <script src="/js/studio.js?v=20260801sttSrc"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;

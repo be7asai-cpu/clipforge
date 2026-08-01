@@ -654,12 +654,12 @@
     if (transcriptSource() === "captions") {
       hint.textContent = tr(
         "narrator.transcriptHintCaps",
-        "Pobiera napisy z filmu (np. YouTube) i wstawia cały tekst ciągły — bez znaczników czasu. Dobre do muzyki i filmów z napisami."
+        "Bierze gotowe napisy z filmu / YouTube (bez słuchania dźwięku). Wstawia cały tekst ciągły."
       );
     } else {
       hint.textContent = tr(
         "narrator.transcriptHintStt",
-        "Sam analizuje dźwięk (STT) i układa tekst do lektora. Pole możesz zostawić puste albo wkleić ciągły tekst do poprawy."
+        "Słucha ścieżki audio i rozpoznaje mowę (STT) — NIE bierze napisów z YouTube. Działa dla pliku i linku (agent PC)."
       );
     }
   }
@@ -1026,23 +1026,38 @@
       if (autoTr) autoTr.checked = true;
     }
     if (btn) btn.disabled = true;
+    const srcModeBusy = transcriptSource();
     setSt(
       selectedFile
-        ? onlyOriginal
-          ? tr("narrator.extractBusy", "Transkrypcja w toku… (może potrwać)")
-          : tr(
-              "narrator.extractBusyTr",
-              "STT + dokładne tłumaczenie… (może potrwać)"
+        ? srcModeBusy === "captions"
+          ? tr(
+              "narrator.extractBusyCaps",
+              "Pobieram napisy z filmu… (może potrwać)"
             )
-        : tr(
-            "narrator.extractBusyFromUrl",
-            "Pobieram z linku + STT… (PC · ON przy YouTube)"
-          ),
+          : onlyOriginal
+            ? tr(
+                "narrator.extractBusy",
+                "Rozpoznaję mowę z dźwięku… (może potrwać)"
+              )
+            : tr(
+                "narrator.extractBusyTr",
+                "STT z dźwięku + tłumaczenie… (może potrwać)"
+              )
+        : srcModeBusy === "captions"
+          ? tr(
+              "narrator.extractBusyFromUrlCaps",
+              "Z linku: napisy YouTube… (PC · ON)"
+            )
+          : tr(
+              "narrator.extractBusyFromUrl",
+              "Z linku: pobieram wideo + STT z dźwięku… (PC · ON)"
+            ),
       "busy"
     );
     try {
       let res;
       let data;
+      const srcMode = transcriptSource(); // stt | captions
       if (selectedFile) {
         const fd = new FormData();
         fd.append("video", selectedFile, selectedFile.name || "video.mp4");
@@ -1050,6 +1065,7 @@
         fd.append("targetLang", tgtLang);
         fd.append("autoTranslate", onlyOriginal ? "0" : "1");
         fd.append("timedTranscript", wantTimed ? "1" : "0");
+        fd.append("transcriptSource", srcMode);
         const speedMode = getTextSpeedMode();
         fd.append("speechPace", speedMode);
         fd.append("textSpeedMode", speedMode);
@@ -1072,6 +1088,7 @@
             targetLang: tgtLang,
             autoTranslate: !onlyOriginal,
             timedTranscript: wantTimed,
+            transcriptSource: srcMode,
             speechPace: speedMode,
             textSpeechPace: speedMode,
             textSpeedMode: speedMode,

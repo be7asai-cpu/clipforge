@@ -1963,6 +1963,12 @@ app.post("/api/studio/transcribe", (req, res) => {
     )
       .trim()
       .toLowerCase() || "normal";
+    // stt = speech from audio; captions = YouTube / video subtitles
+    const transcriptSource =
+      String(body?.transcriptSource || "stt").trim().toLowerCase() ===
+      "captions"
+        ? "captions"
+        : "stt";
     const url = String(body?.url || "").trim();
 
     // ── URL path (no uploaded file) ──
@@ -2006,6 +2012,7 @@ app.post("/api/studio/transcribe", (req, res) => {
             targetLang,
             autoTranslate: !!autoTranslate,
             timedTranscript: !!timedTranscript,
+            transcriptSource,
             speechPace,
             textSpeechPace: speechPace,
             textSpeedMode: speechPace,
@@ -2026,8 +2033,11 @@ app.post("/api/studio/transcribe", (req, res) => {
           pending: true,
           jobId: job.id,
           job: studioJobs.publicJob(job),
+          transcriptSource,
           hint:
-            "Agent PC pobiera wideo (yt-dlp) i robi STT — poczekaj, tekst wpadnie do pola.",
+            transcriptSource === "captions"
+              ? "Agent PC pobiera napisy z filmu (YouTube) — tekst wpadnie do pola."
+              : "Agent PC pobiera wideo i rozpoznaje mowę z dźwięku (STT) — bez napisów YouTube.",
         });
       }
 
@@ -2394,6 +2404,13 @@ function normalizeJobOptions(options, originalName) {
   if (opts.autoTranslate == null) opts.autoTranslate = true;
   // Default: text for translation as timed transcription; false = plain paragraph
   if (opts.timedTranscript == null) opts.timedTranscript = true;
+  // stt = recognize speech from audio; captions = YouTube / video subs
+  if (
+    opts.transcriptSource == null ||
+    (opts.transcriptSource !== "captions" && opts.transcriptSource !== "stt")
+  ) {
+    opts.transcriptSource = "stt";
+  }
   // Tempo: auto | off | manual (+ textSpeed 0.5–2.0 step 0.1)
   if (opts.textSpeedMode == null && opts.speechPace == null) {
     opts.textSpeedMode = "manual";
