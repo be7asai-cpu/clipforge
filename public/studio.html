@@ -694,17 +694,31 @@
               <div class="opt-block extract-source-block" id="extract-source-block">
                 <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">Źródło wyodrębniania tekstu</div>
                 <div class="seg" role="radiogroup" id="extract-source-group">
-                  <label title="Rozpoznaj mowę z audio (plik lub YouTube po pobraniu) — bez napisów YT">
+                  <label title="Google Web Speech (szybkie, wymaga netu) — domyślne STT">
                     <input type="radio" name="extract-source" value="stt" checked />
-                    <span data-i18n="narrator.extractSrcStt">🎤 Z dźwięku (STT)</span>
+                    <span data-i18n="narrator.extractSrcStt">🎤 STT Google (online)</span>
+                  </label>
+                  <label title="OpenAI Whisper lokalnie na PC — osobna opcja, nie Ollama. pip install openai-whisper">
+                    <input type="radio" name="extract-source" value="whisper" />
+                    <span data-i18n="narrator.extractSrcWhisper">🎧 Whisper (lokalny AI)</span>
                   </label>
                   <label title="Pobierz gotowe napisy z YouTube / filmu">
                     <input type="radio" name="extract-source" value="captions" />
                     <span data-i18n="narrator.extractSrcCaps">📝 Z napisów YouTube / filmu</span>
                   </label>
                 </div>
+                <label class="stack mt-sm" id="whisper-model-wrap" hidden>
+                  <span data-i18n="narrator.whisperModelLab">Model Whisper</span>
+                  <select id="opt-whisper-model" title="Większy model = lepsza jakość, wolniej">
+                    <option value="tiny">tiny (szybki)</option>
+                    <option value="base" selected>base (zalecany)</option>
+                    <option value="small">small (lepszy)</option>
+                    <option value="medium">medium (wolny, dokładny)</option>
+                  </select>
+                </label>
                 <p class="hint" data-i18n="narrator.extractSrcHint">
-                  Tylko przycisk «Wyodrębnij»: wybierz skąd wstawić tekst do pola. «Z dźwięku» = STT z audio, nie napisy YT.
+                  «Wyodrębnij»: STT Google = online · Whisper = lokalny model (osobno od Ollamy) · Napisy = YT/film.
+                  Whisper: pip install openai-whisper (albo faster-whisper).
                 </p>
               </div>
               <div class="opt-block extract-rewrite-block" id="extract-rewrite-block">

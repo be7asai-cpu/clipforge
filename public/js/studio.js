@@ -834,13 +834,27 @@
     }
   }
 
-  /** Extract-only: stt = audio STT, captions = YouTube/film subs */
+  /** Extract-only: stt = Google, whisper = local Whisper, captions = YT subs */
   function extractSource() {
-    return (
+    const v =
       document.querySelector('input[name="extract-source"]:checked')?.value ||
-      "stt"
-    );
+      "stt";
+    if (v === "whisper" || v === "captions") return v;
+    return "stt";
   }
+
+  function whisperModel() {
+    return $("#opt-whisper-model")?.value || "base";
+  }
+
+  function syncExtractSourceUi() {
+    const wrap = $("#whisper-model-wrap");
+    if (wrap) wrap.hidden = extractSource() !== "whisper";
+  }
+  document.querySelectorAll('input[name="extract-source"]').forEach((el) => {
+    el.addEventListener("change", syncExtractSourceUi);
+  });
+  syncExtractSourceUi();
 
   /** Drop [Music], [muzyka], (Applause), ♪ — non-speech caption tags */
   function stripNonSpeechLabelsClient(text) {
@@ -1288,7 +1302,8 @@
     }
     if (btn) btn.disabled = true;
     // Dedicated extract option (not the Start/lektor radios above)
-    const srcMode = extractSource(); // stt | captions
+    const srcMode = extractSource(); // stt | whisper | captions
+    const wModel = whisperModel();
     setSt(
       selectedFile
         ? srcMode === "captions"
@@ -1296,24 +1311,34 @@
               "narrator.extractBusyCaps",
               "Pobieram napisy z filmu… (może potrwać)"
             )
-          : onlyOriginal
+          : srcMode === "whisper"
             ? tr(
-                "narrator.extractBusy",
-                "Rozpoznaję mowę z dźwięku… (może potrwać)"
-              )
-            : tr(
-                "narrator.extractBusyTr",
-                "STT z dźwięku + tłumaczenie… (może potrwać)"
-              )
+                "narrator.extractBusyWhisper",
+                "Whisper lokalny ({model})… pierwsze uruchomienie może ściągnąć model"
+              ).replace("{model}", wModel)
+            : onlyOriginal
+              ? tr(
+                  "narrator.extractBusy",
+                  "Rozpoznaję mowę z dźwięku… (może potrwać)"
+                )
+              : tr(
+                  "narrator.extractBusyTr",
+                  "STT z dźwięku + tłumaczenie… (może potrwać)"
+                )
         : srcMode === "captions"
           ? tr(
               "narrator.extractBusyFromUrlCaps",
               "Z linku: napisy YouTube… (PC · ON)"
             )
-          : tr(
-              "narrator.extractBusyFromUrl",
-              "Z linku: pobieram wideo + STT z dźwięku… (PC · ON)"
-            ),
+          : srcMode === "whisper"
+            ? tr(
+                "narrator.extractBusyFromUrlWhisper",
+                "Z linku: Whisper lokalny… (PC · ON)"
+              )
+            : tr(
+                "narrator.extractBusyFromUrl",
+                "Z linku: pobieram wideo + STT z dźwięku… (PC · ON)"
+              ),
       "busy"
     );
     try {
@@ -1329,6 +1354,11 @@
         fd.append("smartRewrite", smartRewrite ? "1" : "0");
         fd.append("useOllama", useOllama ? "1" : "0");
         fd.append("transcriptSource", srcMode);
+        fd.append(
+          "sttEngine",
+          srcMode === "whisper" ? "whisper" : "google"
+        );
+        fd.append("whisperModel", wModel);
         const speedMode = getTextSpeedMode();
         fd.append("speechPace", speedMode);
         fd.append("textSpeedMode", speedMode);
@@ -1354,6 +1384,8 @@
             smartRewrite,
             useOllama,
             transcriptSource: srcMode,
+            sttEngine: srcMode === "whisper" ? "whisper" : "google",
+            whisperModel: wModel,
             speechPace: speedMode,
             textSpeechPace: speedMode,
             textSpeedMode: speedMode,
@@ -1813,9 +1845,17 @@
       narratorMode: narratorMode(),
       describeStyle: describeStyle(),
       /** stt = speech-to-text (default, as before); captions = video subs → timed transcript */
-      transcriptSource:
-        document.querySelector('input[name="transcript-source"]:checked')
-          ?.value || "stt",
+      transcriptSource: (() => {
+        // Prefer extract-source if user set Whisper for STT path
+        const ex = extractSource();
+        if (ex === "whisper") return "whisper";
+        return (
+          document.querySelector('input[name="transcript-source"]:checked')
+            ?.value || "stt"
+        );
+      })(),
+      sttEngine: extractSource() === "whisper" ? "whisper" : "google",
+      whisperModel: whisperModel(),
       sourceLang: $("#opt-source-lang")?.value || "auto",
       targetLang: targetLang(),
       autoTranslate: $("#opt-auto-translate").checked,

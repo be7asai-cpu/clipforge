@@ -1657,6 +1657,9 @@ async function runPreTranscribeOnFile(videoPath, {
   workDir = null,
   smartRewrite = true,
   useOllama = true,
+  sttEngine = "google",
+  whisperModel = null,
+  transcriptSource = "stt",
 } = {}) {
   const {
     extractSpeechFromVideoSegmented,
@@ -1738,6 +1741,13 @@ async function runPreTranscribeOnFile(videoPath, {
       : hardMax;
   // Full-film STT: long recognition windows (15s) + hop 8s — 3s was too short (incomplete text)
   // After STT, text is packed onto 3s timeline for display/lektor separately
+  // whisper | google — separate engines (Whisper ≠ Ollama)
+  const engine =
+    String(sttEngine || transcriptSource || "google").toLowerCase() ===
+      "whisper" ||
+    String(transcriptSource || "").toLowerCase() === "whisper"
+      ? "whisper"
+      : "google";
   const sttOpts = {
     maxSeconds: maxScan,
     noEarlyExit: true,
@@ -1745,6 +1755,9 @@ async function runPreTranscribeOnFile(videoPath, {
     hopSec: 8,
     segmentSec: 8,
     sttWindowSec: 15,
+    sttEngine: engine,
+    whisperModel:
+      whisperModel || process.env.WHISPER_MODEL || "base",
   };
   let stt = extractSpeechFromVideoSegmented(videoPath, {
     sourceLang,
@@ -1752,7 +1765,8 @@ async function runPreTranscribeOnFile(videoPath, {
     ...sttOpts,
   });
   let originalText = stitch([stt.text]);
-  if (!originalText && sourceLang && sourceLang !== "auto") {
+  // Google: retry lang variants. Whisper already did full pass — skip multi-lang spam.
+  if (!originalText && engine !== "whisper" && sourceLang && sourceLang !== "auto") {
     stt = extractSpeechFromVideoSegmented(videoPath, {
       sourceLang: "auto",
       workDir: path.join(wd, "stt_auto"),
@@ -1760,7 +1774,7 @@ async function runPreTranscribeOnFile(videoPath, {
     });
     originalText = stitch([stt.text]);
   }
-  if (!originalText) {
+  if (!originalText && engine !== "whisper") {
     for (const langTry of ["en", "pl"]) {
       if (sourceLang === langTry) continue;
       stt = extractSpeechFromVideoSegmented(videoPath, {
@@ -2030,12 +2044,21 @@ app.post("/api/studio/transcribe", (req, res) => {
     )
       .trim()
       .toLowerCase() || "normal";
-    // stt = speech from audio; captions = YouTube / video subtitles
-    const transcriptSource =
-      String(body?.transcriptSource || "stt").trim().toLowerCase() ===
-      "captions"
-        ? "captions"
-        : "stt";
+    // stt/google | whisper | captions
+    let transcriptSource = String(body?.transcriptSource || "stt")
+      .trim()
+      .toLowerCase();
+    if (transcriptSource !== "captions" && transcriptSource !== "whisper") {
+      transcriptSource = "stt";
+    }
+    const sttEngine =
+      transcriptSource === "whisper" ||
+      String(body?.sttEngine || "").toLowerCase() === "whisper"
+        ? "whisper"
+        : "google";
+    const whisperModel = String(
+      body?.whisperModel || process.env.WHISPER_MODEL || "base"
+    ).trim() || "base";
     const url = String(body?.url || "").trim();
 
     // ── URL path (no uploaded file) ──
@@ -2082,6 +2105,8 @@ app.post("/api/studio/transcribe", (req, res) => {
             smartRewrite: !!smartRewrite,
             useOllama: !!useOllama,
             transcriptSource,
+            sttEngine,
+            whisperModel,
             speechPace,
             textSpeechPace: speechPace,
             textSpeedMode: speechPace,
@@ -2132,6 +2157,9 @@ app.post("/api/studio/transcribe", (req, res) => {
           timedTranscript,
           smartRewrite,
           useOllama,
+          sttEngine,
+          whisperModel,
+          transcriptSource,
           speechPace,
           textSpeechPace: speechPace,
           maxSeconds,
@@ -2177,6 +2205,9 @@ app.post("/api/studio/transcribe", (req, res) => {
         timedTranscript,
         smartRewrite,
         useOllama,
+        sttEngine,
+        whisperModel,
+        transcriptSource,
         speechPace,
         textSpeechPace: speechPace,
         maxSeconds,
