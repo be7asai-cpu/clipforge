@@ -348,6 +348,34 @@
                   <span data-i18n="quality.polish">Korekcja kolorów / ostrość / denoise</span>
                 </label>
                 <div class="sub-opts" id="polish-opts">
+                  <div class="opt-block-title" data-i18n="quality.lookPresetsTitle">Presety 1‑klik (grafika)</div>
+                  <p class="hint" data-i18n="quality.lookPresetsHint">
+                    Ustawiają korekcję ręczną (suwaki + RGB). Auto nadal działa, jeśli wrócisz do trybu automatycznego.
+                  </p>
+                  <div class="look-presets" id="look-presets" role="group" aria-label="Look presets">
+                    <button type="button" class="btn ghost sm look-preset" data-look="clean" data-i18n="quality.lookClean">
+                      ✨ Clean Social
+                    </button>
+                    <button type="button" class="btn ghost sm look-preset" data-look="punch" data-i18n="quality.lookPunch">
+                      💥 Punch
+                    </button>
+                    <button type="button" class="btn ghost sm look-preset" data-look="night" data-i18n="quality.lookNight">
+                      🌙 Night Fix
+                    </button>
+                    <button type="button" class="btn ghost sm look-preset" data-look="warm" data-i18n="quality.lookWarm">
+                      🌅 Warm
+                    </button>
+                    <button type="button" class="btn ghost sm look-preset" data-look="natural" data-i18n="quality.lookNatural">
+                      🎞 Natural
+                    </button>
+                  </div>
+                  <label class="inline mt-sm">
+                    <input type="checkbox" id="opt-deblock" />
+                    <span data-i18n="quality.deblock">Deblock (kompresja YT/TikTok)</span>
+                  </label>
+                  <p class="hint" data-i18n="quality.deblockHint">
+                    Łagodzi bloki i banding z mocno skompresowanych shortów. Lekko spowalnia encode.
+                  </p>
                   <div class="opt-block-title" data-i18n="quality.polishMode">Tryb korekcji</div>
                   <div class="seg" role="radiogroup" aria-label="Polish mode">
                     <label>

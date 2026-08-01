@@ -2071,6 +2071,17 @@ input[type="range"] {
   opacity: 0.45;
   pointer-events: none;
 }
+.look-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+.look-presets .look-preset.is-active {
+  border-color: rgba(0, 240, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.35);
+  color: var(--cyan, #7ef0ff);
+}
 .rgb-block {
   margin-top: 14px;
   padding-top: 10px;

@@ -425,6 +425,150 @@
     });
   });
 
+  /** 1-click graphics looks → fill manual polish sliders */
+  const LOOK_PRESETS = {
+    clean: {
+      qualityPreset: "soft",
+      brightness: 52,
+      shadows: 56,
+      highlights: 48,
+      temperature: 52,
+      contrast: 52,
+      saturation: 54,
+      sharpen: 42,
+      denoise: 22,
+      rgbR: 50,
+      rgbG: 50,
+      rgbB: 50,
+      deblock: true,
+    },
+    punch: {
+      qualityPreset: "punch",
+      brightness: 52,
+      shadows: 54,
+      highlights: 46,
+      temperature: 54,
+      contrast: 68,
+      saturation: 66,
+      sharpen: 62,
+      denoise: 12,
+      rgbR: 52,
+      rgbG: 50,
+      rgbB: 48,
+      deblock: false,
+    },
+    night: {
+      qualityPreset: "balanced",
+      brightness: 60,
+      shadows: 68,
+      highlights: 44,
+      temperature: 46,
+      contrast: 58,
+      saturation: 52,
+      sharpen: 48,
+      denoise: 32,
+      rgbR: 48,
+      rgbG: 50,
+      rgbB: 54,
+      deblock: true,
+    },
+    warm: {
+      qualityPreset: "balanced",
+      brightness: 54,
+      shadows: 54,
+      highlights: 50,
+      temperature: 64,
+      contrast: 54,
+      saturation: 60,
+      sharpen: 48,
+      denoise: 14,
+      rgbR: 56,
+      rgbG: 51,
+      rgbB: 44,
+      deblock: false,
+    },
+    natural: {
+      qualityPreset: "balanced",
+      brightness: 50,
+      shadows: 50,
+      highlights: 50,
+      temperature: 50,
+      contrast: 52,
+      saturation: 55,
+      sharpen: 45,
+      denoise: 15,
+      rgbR: 50,
+      rgbG: 50,
+      rgbB: 50,
+      deblock: false,
+    },
+  };
+
+  function setSliderPair(id, valId, v) {
+    const el = $("#" + id);
+    const lab = $("#" + valId);
+    if (el && v != null) {
+      el.value = String(Math.round(Number(v)));
+      if (lab) lab.textContent = el.value;
+    }
+  }
+
+  function applyLookPreset(name) {
+    const p = LOOK_PRESETS[name];
+    if (!p) return;
+    // Enable polish + switch to manual so sliders apply
+    const polish = $("#opt-polish");
+    if (polish) polish.checked = true;
+    const man = document.querySelector('input[name="polish-mode"][value="manual"]');
+    if (man) {
+      man.checked = true;
+      man.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    const preset = $("#opt-quality-preset");
+    if (preset && p.qualityPreset) {
+      preset.disabled = false;
+      if (![...preset.options].some((o) => o.value === p.qualityPreset)) {
+        const o = document.createElement("option");
+        o.value = p.qualityPreset;
+        o.textContent = p.qualityPreset;
+        preset.appendChild(o);
+      }
+      preset.value = p.qualityPreset;
+    }
+    setSliderPair("opt-brightness", "opt-brightness-val", p.brightness);
+    setSliderPair("opt-shadows", "opt-shadows-val", p.shadows);
+    setSliderPair("opt-highlights", "opt-highlights-val", p.highlights);
+    setSliderPair("opt-temperature", "opt-temperature-val", p.temperature);
+    setSliderPair("opt-contrast", "opt-contrast-val", p.contrast);
+    setSliderPair("opt-sat", "opt-sat-val", p.saturation);
+    setSliderPair("opt-sharpen", "opt-sharpen-val", p.sharpen);
+    setSliderPair("opt-denoise", "opt-denoise-val", p.denoise);
+    setSliderPair("opt-rgb-r", "opt-rgb-r-val", p.rgbR);
+    setSliderPair("opt-rgb-g", "opt-rgb-g-val", p.rgbG);
+    setSliderPair("opt-rgb-b", "opt-rgb-b-val", p.rgbB);
+    const deb = $("#opt-deblock");
+    if (deb) deb.checked = !!p.deblock;
+    syncPolishModeUi();
+    // Highlight active preset button
+    document.querySelectorAll(".look-preset").forEach((b) => {
+      b.classList.toggle("is-active", b.getAttribute("data-look") === name);
+    });
+    const box = $("#polish-auto-result");
+    if (box) {
+      box.classList.remove("hidden");
+      box.textContent =
+        tr("quality.lookApplied", "Preset grafiki") +
+        ": " +
+        (tr("quality.look." + name, name) || name);
+    }
+  }
+
+  document.querySelectorAll(".look-preset").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      applyLookPreset(btn.getAttribute("data-look"));
+    });
+  });
+
   const LANG_NAMES = {
     auto: "auto",
     en: "angielski",
@@ -1634,6 +1778,7 @@
         polishMode() === "auto" || narratorOnly
           ? null
           : Number($("#opt-rgb-b")?.value ?? 50),
+      deblock: narratorOnly ? false : !!$("#opt-deblock")?.checked,
       upscale: narratorOnly ? "off" : upscale,
       aiScale: Number($("#opt-ai-scale").value) || 2,
       aiModel: $("#opt-ai-model")?.value || "animevideov3",
