@@ -1836,11 +1836,20 @@ async function runPreTranscribeOnFile(videoPath, {
   let exactCueCount = 0;
   let transcriptMode = "plain";
   if (typeof buildTimedScriptFromText === "function") {
+    // Force exact STT hop clocks (default 8s) — field matches source video windows 1:1
+    const hopSec =
+      Number(stt.hopSec) > 0.5
+        ? Number(stt.hopSec)
+        : typeof require("./lib/lang-utils").detectSttHopSec === "function"
+          ? require("./lib/lang-utils").detectSttHopSec(sttSlots) || 8
+          : 8;
     const exactOrig = buildTimedScriptFromText({
       text: originalText,
       sttSegments: sttSlots,
       durationSec: filmDur,
       speechPace: paceKey,
+      hopSec,
+      lockHop: true,
     });
     timedOriginal = formatTimed(exactOrig.segments || []);
     exactCueCount = (exactOrig.segments || []).filter((s) => s && s.text).length;
@@ -1850,6 +1859,8 @@ async function runPreTranscribeOnFile(videoPath, {
       sttSegments: sttSlots,
       durationSec: filmDur,
       speechPace: paceKey,
+      hopSec,
+      lockHop: true,
     });
     timedText = formatTimed(exactTr.segments || []);
     if (exactTr.mode) transcriptMode = exactTr.mode;

@@ -208,7 +208,7 @@
   "quality.crfLab": "Jakość kodowania (CRF)",
   "narrator.autoTrLab": "Tłumacz na język docelowy (można wyłączyć = oryginał)",
   "narrator.timedTrLab": "Tekst z czasem 1:1 jak STT / wideo (w polu tłumaczenia)",
-  "narrator.timedTrHint": "Działa z oboma źródłami (STT i napisy YT). Zaznaczone: w polu linie [00:01.20 → 00:04.50] tekst — te same zegary co w źródle. Odznacz = ciągły akapit bez czasów.",
+  "narrator.timedTrHint": "Zaznaczone: w polu dokładnie okna jak STT źródła — zwykle co 8 s ([00:00.00 → 00:08.00], [00:08.00 → 00:16.00]…). Ta sama siatka co skan wideo. Odznacz = ciągły akapit bez czasów.",
   "narrator.speedTitle": "Tempo mowy (lektor)",
   "narrator.speedSlow": "Wolno",
   "narrator.speedNormal": "Normalnie",
