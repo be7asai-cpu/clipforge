@@ -111,6 +111,7 @@
       "Frames + delogo": "stage.extractDelogo",
       "AI upscale (Real-ESRGAN)": "stage.ai",
       "AI upscale": "stage.aiShort",
+      // Live AI progress uses "AI realesr-… x2 n/total (pct%) · turbo" — leave as-is via prefix rule below
       "Składanie wideo HD": "stage.assemble",
       "Assembling HD video": "stage.assemble",
       "Poprawa wideo HD": "stage.fast",
@@ -150,6 +151,16 @@
       Captions: "stage.subs",
     };
     if (exact[s]) return tr(exact[s], s);
+
+    // Live AI ESRGAN progress: "AI realesr-animevideov3 x2 690/1011 (68%) · turbo"
+    // Keep model/frame counts visible — do not rewrite.
+    if (
+      /^AI\s+realesr/i.test(s) ||
+      /^AI\s+[\w.-]+\s+x\d+/i.test(s) ||
+      /\brealesr[-_]?animevideov3\b/i.test(s)
+    ) {
+      return s;
+    }
 
     // Prefix patterns: "Lektor TTS (pl)", "Napisy (en)", "Lektor …"
     const mNarr = s.match(/^Lektor TTS\s*(\([^)]*\))?/i) || s.match(/^Narrator TTS\s*(\([^)]*\))?/i);
@@ -1740,6 +1751,25 @@
       dl.href = job.downloadUrl;
       dl.download =
         (job.originalName || "clip").replace(/\.[^.]+$/, "") + "_studio.mp4";
+
+      const audioBtn = $("#btn-audio");
+      if (audioBtn) {
+        if (job.audioUrl) {
+          audioBtn.classList.remove("hidden");
+          audioBtn.hidden = false;
+          audioBtn.href = job.audioUrl;
+          audioBtn.download =
+            (job.originalName || "clip").replace(/\.[^.]+$/, "") + "_audio.mp3";
+          audioBtn.title = tr(
+            "result.audioHint",
+            "Pobierz sam dźwięk z wyniku (mp3)"
+          );
+        } else {
+          audioBtn.classList.add("hidden");
+          audioBtn.hidden = true;
+          audioBtn.removeAttribute("href");
+        }
+      }
 
       const open = $("#btn-open");
       open.href = job.downloadUrl;

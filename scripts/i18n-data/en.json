@@ -132,6 +132,8 @@
   "live.msg.hdWait": "… HD video processing — transcription after picture …",
   "result.ready": "Done ✓",
   "result.download": "Download MP4",
+  "result.audio": "Extract audio",
+  "result.audioHint": "Download audio only from the result (mp3)",
   "result.open": "Open in browser",
   "result.script": "Narrator text",
   "share.title": "Share",

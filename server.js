@@ -1924,6 +1924,98 @@ app.get("/api/studio/jobs/:id/download", (req, res) => {
   sendOwnedFile(req, res, job.outputPath, name);
 });
 
+/**
+ * Extract audio only (mp3) from finished result video.
+ * Cached next to output as *_audio.mp3. Local-disk jobs use agent /media/.../audio.mp3 instead.
+ */
+function extractAudioMp3(videoPath, outPath) {
+  const { spawnSync } = require("child_process");
+  let ff = "ffmpeg";
+  try {
+    const { ffmpegPath } = require("./lib/studio-pipeline");
+    ff = ffmpegPath() || "ffmpeg";
+  } catch {
+    /* PATH fallback */
+  }
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  // Prefer re-encode mp3 (universal). Fall back to AAC in m4a if lame missing.
+  let r = spawnSync(
+    ff,
+    [
+      "-y",
+      "-i",
+      videoPath,
+      "-vn",
+      "-acodec",
+      "libmp3lame",
+      "-q:a",
+      "3",
+      "-ar",
+      "44100",
+      outPath,
+    ],
+    { encoding: "utf8", windowsHide: true, timeout: 600000, maxBuffer: 8 * 1024 * 1024 }
+  );
+  if ((r.status || 0) === 0 && fs.existsSync(outPath) && fs.statSync(outPath).size > 200) {
+    return outPath;
+  }
+  const m4a = outPath.replace(/\.mp3$/i, ".m4a");
+  r = spawnSync(
+    ff,
+    ["-y", "-i", videoPath, "-vn", "-c:a", "aac", "-b:a", "192k", m4a],
+    { encoding: "utf8", windowsHide: true, timeout: 600000, maxBuffer: 8 * 1024 * 1024 }
+  );
+  if ((r.status || 0) === 0 && fs.existsSync(m4a) && fs.statSync(m4a).size > 200) {
+    return m4a;
+  }
+  const err =
+    (r.stderr || r.stdout || r.error?.message || "ffmpeg audio extract failed").toString();
+  throw new Error(
+    "Nie udało się wyodrębnić dźwięku: " + err.slice(-400).replace(/\s+/g, " ")
+  );
+}
+
+app.get("/api/studio/jobs/:id/audio", (req, res) => {
+  const job = getOwnedJob(req, res);
+  if (!job) return;
+  if (job.status !== "done") {
+    return res.status(404).json({ error: "Job nie jest gotowy" });
+  }
+  // Prefer local agent stream when result lives on PC disk
+  const lm = job.localMedia;
+  if (lm && lm.host && lm.port && lm.token) {
+    const jid = encodeURIComponent(String(job.id));
+    const t = encodeURIComponent(String(lm.token));
+    return res.redirect(
+      302,
+      `http://${lm.host}:${lm.port}/media/${jid}/audio.mp3?t=${t}`
+    );
+  }
+  if (!job.outputPath || !fs.existsSync(job.outputPath)) {
+    return res.status(404).json({ error: "Brak gotowego pliku wideo" });
+  }
+  try {
+    const base = (job.originalName || "clip").replace(/\.[^.]+$/, "");
+    const cached = job.outputPath.replace(/\.mp4$/i, "_audio.mp3");
+    let audioPath = cached;
+    if (!fs.existsSync(cached) || fs.statSync(cached).size < 200) {
+      audioPath = extractAudioMp3(job.outputPath, cached);
+    }
+    const ext = path.extname(audioPath).toLowerCase() || ".mp3";
+    const name = base + "_audio" + ext;
+    res.setHeader(
+      "Content-Type",
+      ext === ".m4a" ? "audio/mp4" : "audio/mpeg"
+    );
+    sendOwnedFile(req, res, audioPath, name);
+  } catch (e) {
+    console.error("[audio extract]", e.message || e);
+    return res.status(500).json({
+      error: e.message || "Wyodrębnianie dźwięku nieudane",
+    });
+  }
+});
+
 /** Original upload for before/after compare (owner only; kept while job lives) */
 app.get("/api/studio/jobs/:id/original", (req, res) => {
   const job = getOwnedJob(req, res);

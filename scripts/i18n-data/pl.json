@@ -132,6 +132,8 @@
   "live.msg.hdWait": "… obróbka wideo HD — transkrypcja po obrazie …",
   "result.ready": "Gotowe ✓",
   "result.download": "Pobierz MP4",
+  "result.audio": "Wyodrębnij dźwięk",
+  "result.audioHint": "Pobierz sam dźwięk z wyniku (mp3)",
   "result.open": "Otwórz w przeglądarce",
   "result.script": "Tekst lektora",
   "share.title": "Udostępnianie",

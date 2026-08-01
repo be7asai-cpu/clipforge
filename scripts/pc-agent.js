@@ -75,7 +75,7 @@ function ensureLocalMediaServer() {
         res.end("Forbidden — zły token local media");
         return;
       }
-      const m = /^\/media\/([a-zA-Z0-9_-]+)\/(result|original|preview|srt)(?:\.[\w]+)?$/i.exec(
+      const m = /^\/media\/([a-zA-Z0-9_-]+)\/(result|original|preview|srt|audio)(?:\.[\w]+)?$/i.exec(
         u.pathname
       );
       if (!m) {
@@ -90,6 +90,40 @@ function ensureLocalMediaServer() {
         res.writeHead(404);
         res.end("job media expired or unknown");
         return;
+      }
+      // On-demand: extract audio-only mp3 from result video
+      if (kind === "audio") {
+        try {
+          let audioPath = entry.audio;
+          if (!audioPath || !fs.existsSync(audioPath) || fs.statSync(audioPath).size < 200) {
+            const videoPath = entry.result;
+            if (!videoPath || !fs.existsSync(videoPath)) {
+              res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+              res.end("brak wyniku wideo do wyodrębnienia dźwięku");
+              return;
+            }
+            audioPath = ensureLocalAudioMp3(videoPath);
+            entry.audio = audioPath;
+          }
+          const stA = fs.statSync(audioPath);
+          const mimeA = /\.m4a$/i.test(audioPath) ? "audio/mp4" : "audio/mpeg";
+          res.writeHead(200, {
+            "Content-Length": stA.size,
+            "Content-Type": mimeA,
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "no-store",
+            "Content-Disposition":
+              'attachment; filename="clipforge_audio' +
+              (/\.m4a$/i.test(audioPath) ? ".m4a" : ".mp3") +
+              '"',
+          });
+          fs.createReadStream(audioPath).pipe(res);
+          return;
+        } catch (e) {
+          res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+          res.end("audio extract: " + (e.message || e));
+          return;
+        }
       }
       const filePath = entry[kind];
       if (!filePath || !fs.existsSync(filePath)) {
@@ -182,7 +216,78 @@ function registerLocalMedia(jobId, files) {
     original: files.original || null,
     preview: files.preview || null,
     srt: files.srt || null,
+    audio: files.audio || null,
   });
+}
+
+/** ffmpeg binary for agent (same as pipeline) */
+function agentFfmpegPath() {
+  try {
+    const p = require("ffmpeg-static");
+    if (p && fs.existsSync(p)) return p;
+  } catch {
+    /* fall through */
+  }
+  try {
+    const { ffmpegPath } = require(path.join(ROOT, "lib", "studio-pipeline.js"));
+    const p = ffmpegPath();
+    if (p) return p;
+  } catch {
+    /* fall through */
+  }
+  return "ffmpeg";
+}
+
+/**
+ * Extract audio-only file from result video (cached next to mp4).
+ * @returns {string} path to mp3 or m4a
+ */
+function ensureLocalAudioMp3(videoPath) {
+  const { spawnSync } = require("child_process");
+  const outMp3 = String(videoPath).replace(/\.mp4$/i, "_audio.mp3");
+  if (fs.existsSync(outMp3) && fs.statSync(outMp3).size > 200) return outMp3;
+  const ff = agentFfmpegPath();
+  let r = spawnSync(
+    ff,
+    [
+      "-y",
+      "-i",
+      videoPath,
+      "-vn",
+      "-acodec",
+      "libmp3lame",
+      "-q:a",
+      "3",
+      "-ar",
+      "44100",
+      outMp3,
+    ],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 600000,
+      maxBuffer: 8 * 1024 * 1024,
+    }
+  );
+  if ((r.status || 0) === 0 && fs.existsSync(outMp3) && fs.statSync(outMp3).size > 200) {
+    return outMp3;
+  }
+  const outM4a = String(videoPath).replace(/\.mp4$/i, "_audio.m4a");
+  r = spawnSync(
+    ff,
+    ["-y", "-i", videoPath, "-vn", "-c:a", "aac", "-b:a", "192k", outM4a],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 600000,
+      maxBuffer: 8 * 1024 * 1024,
+    }
+  );
+  if ((r.status || 0) === 0 && fs.existsSync(outM4a) && fs.statSync(outM4a).size > 200) {
+    return outM4a;
+  }
+  const err = (r.stderr || r.stdout || r.error?.message || "fail").toString();
+  throw new Error("ffmpeg audio: " + err.slice(-300).replace(/\s+/g, " "));
 }
 
 function fileSizeSafe(p) {
@@ -194,7 +299,7 @@ function fileSizeSafe(p) {
 }
 
 /** Copy result to Videos/ClipForge for easy Explorer access */
-function publishToUserVideos(jobId, videoPath, originalName) {
+function publishToUserVideos(jobId, videoPath, originalName, extraFiles) {
   try {
     const dir = path.join(os.homedir(), "Videos", "ClipForge");
     fs.mkdirSync(dir, { recursive: true });
@@ -205,6 +310,27 @@ function publishToUserVideos(jobId, videoPath, originalName) {
         .slice(0, 60) || "clip";
     const dest = path.join(dir, `${base}_${jobId}.mp4`);
     fs.copyFileSync(videoPath, dest);
+    // Timed transcription next to video (SRT + plain timed .txt)
+    if (extraFiles && extraFiles.srt && fs.existsSync(extraFiles.srt)) {
+      try {
+        fs.copyFileSync(
+          extraFiles.srt,
+          path.join(dir, `${base}_${jobId}.srt`)
+        );
+      } catch (e) {
+        log("Kopiowanie SRT:", e.message || e);
+      }
+    }
+    if (extraFiles && extraFiles.transcript && fs.existsSync(extraFiles.transcript)) {
+      try {
+        fs.copyFileSync(
+          extraFiles.transcript,
+          path.join(dir, `${base}_${jobId}_transcript.txt`)
+        );
+      } catch (e) {
+        log("Kopiowanie transcript:", e.message || e);
+      }
+    }
     return dest;
   } catch (e) {
     log("Kopiowanie do Videos/ClipForge:", e.message || e);
@@ -1296,6 +1422,12 @@ async function runJob(job) {
         ? localJob.outputPath.replace(/\.mp4$/i, ".srt")
         : null);
     if (srt && fs.existsSync(srt)) files.srt = srt;
+    const transcript =
+      localJob.result?.transcriptPath ||
+      (localJob.outputPath
+        ? localJob.outputPath.replace(/\.mp4$/i, "_transcript.txt")
+        : null);
+    if (transcript && fs.existsSync(transcript)) files.transcript = transcript;
 
     if (!files.video) throw new Error("Brak pliku wynikowego po pipeline");
 
@@ -1322,7 +1454,8 @@ async function runJob(job) {
     const userCopy = publishToUserVideos(
       job.id,
       files.video,
-      job.originalName || localJob.originalName
+      job.originalName || localJob.originalName,
+      { srt: files.srt || null, transcript: files.transcript || null }
     );
 
     if (useLocalDisk) {
