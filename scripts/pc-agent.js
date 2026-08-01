@@ -1801,6 +1801,24 @@ async function runJob(job) {
           : 30
     );
 
+    // EDIT FIELD: text must not "speak longer" than the film (~13 chars/s)
+    let formatEditField8sTranscript = null;
+    let buildEditField8sSegments = null;
+    let fitTextToFilmDuration = null;
+    try {
+      const lu = require(path.join(ROOT, "lib", "lang-utils.js"));
+      formatEditField8sTranscript = lu.formatEditField8sTranscript;
+      buildEditField8sSegments = lu.buildEditField8sSegments;
+      fitTextToFilmDuration = lu.fitTextToFilmDuration;
+    } catch {
+      /* ignore */
+    }
+    // Fit source BEFORE NMT so discarded tail is never translated
+    if (typeof fitTextToFilmDuration === "function" && filmDur > 0.5) {
+      originalText = fitTextToFilmDuration(originalText, filmDur) || originalText;
+      text = originalText;
+    }
+
     if (autoTranslate) {
       await reportProgress(job.id, {
         progress: 78,
@@ -1808,11 +1826,13 @@ async function runJob(job) {
         livePhase: "translating",
         liveOriginal: originalText.slice(0, 1200),
         log:
-          "Tłumaczę cały tekst → " +
+          "Tłumaczę tekst ≤ długość filmu → " +
           targetLang +
-          ", potem rozkładam proporcjonalnie na oś (" +
+          " (" +
           Math.round(filmDur) +
-          "s, co 3s)",
+          "s, ~" +
+          originalText.length +
+          " znaków)",
       });
       try {
         const plainSrc =
@@ -1829,6 +1849,10 @@ async function runJob(job) {
         if (tr && tr.ok && tr.text && String(tr.text).trim()) {
           text = stitch([tr.text]);
           translated = !tr.skipped;
+          // Target language may expand — re-fit so speech still ≤ film
+          if (typeof fitTextToFilmDuration === "function" && filmDur > 0.5) {
+            text = fitTextToFilmDuration(text, filmDur) || text;
+          }
         }
       } catch (te) {
         log("translate pre-stt:", te.message || te);
@@ -1845,27 +1869,20 @@ async function runJob(job) {
     const sttSlots = Array.isArray(segs) && segs.length ? segs : [];
     let exactCueCount = 0;
     let transcriptMode = "plain";
-    // EDIT FIELD ONLY: 8s segments for «Tekst do tłumaczenia» — not lektor/TTS
-    let formatEditField8sTranscript = null;
-    let buildEditField8sSegments = null;
-    try {
-      const lu = require(path.join(ROOT, "lib", "lang-utils.js"));
-      formatEditField8sTranscript = lu.formatEditField8sTranscript;
-      buildEditField8sSegments = lu.buildEditField8sSegments;
-    } catch {
-      /* ignore */
-    }
     if (typeof formatEditField8sTranscript === "function") {
       timedOriginal = formatEditField8sTranscript(originalText, sttSlots, {
         durationSec: filmDur,
+        maxDurationSec: filmDur,
       });
       timedText = formatEditField8sTranscript(text, sttSlots, {
         durationSec: filmDur,
+        maxDurationSec: filmDur,
       });
       const nSegs =
         (buildEditField8sSegments &&
           buildEditField8sSegments(sttSlots, text, {
             durationSec: filmDur,
+            maxDurationSec: filmDur,
           })) ||
         [];
       exactCueCount =
@@ -1873,9 +1890,11 @@ async function runJob(job) {
         timedText.split(/\n/).filter((l) => l.trim()).length;
       transcriptMode = "edit-field-8parts";
       log(
-        "Pole edycji: 8 równych segmentów (długość/" +
+        "Pole edycji: 8 segmentów ≤ " +
+          Math.round(filmDur) +
+          "s filmu (" +
           exactCueCount +
-          ", tylko tekst do tłumaczenia)"
+          " cue, tekst dopasowany do długości)"
       );
     } else if (typeof buildTimedScriptFromText === "function") {
       const exactOrig = buildTimedScriptFromText({

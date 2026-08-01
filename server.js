@@ -1764,7 +1764,7 @@ async function runPreTranscribeOnFile(videoPath, {
     .slice(0, 120);
 
   const segs = Array.isArray(stt.timelineSegments) ? stt.timelineSegments : [];
-  const timedOriginal = formatTimed(segs);
+  let timedOriginal = formatTimed(segs);
 
   if (!originalText) {
     return {
@@ -1793,13 +1793,28 @@ async function runPreTranscribeOnFile(videoPath, {
   let translateError = null;
   const srcForTr = stt.langCode || sourceLang || "auto";
 
-  // Exact translate: whole text NMT once, then spread words evenly on full film (3s)
+  // Real film length only — never invent longer than probed video
   const filmDur = Math.max(
     1,
     durationSec > 0.5
       ? durationSec
-      : stt.audioDuration || maxScan || 30
+      : Number(stt.audioDuration) > 0.5
+        ? Number(stt.audioDuration)
+        : Math.min(maxScan, hardMax) || 30
   );
+
+  // Text for translation must not "speak longer" than the film (~13 chars/s).
+  // Fit source BEFORE NMT so we don't translate discarded tail.
+  const {
+    formatEditField8sTranscript,
+    buildEditField8sSegments,
+    fitTextToFilmDuration: fitFilm,
+  } = require("./lib/lang-utils");
+  if (typeof fitFilm === "function" && filmDur > 0.5) {
+    originalText = fitFilm(originalText, filmDur) || originalText;
+    text = originalText;
+  }
+
   if (autoTranslate) {
     try {
       const plainSrc =
@@ -1813,6 +1828,10 @@ async function runPreTranscribeOnFile(videoPath, {
         text = stitch([tr.text]);
         translated = !tr.skipped;
         translateEngine = (tr.engine || "nmt") + "+timeline";
+        // Target language may expand — re-fit so speech still ≤ film
+        if (typeof fitFilm === "function" && filmDur > 0.5) {
+          text = fitFilm(text, filmDur) || text;
+        }
       } else if (tr && tr.error) {
         translateError = tr.error;
       }
@@ -1821,7 +1840,7 @@ async function runPreTranscribeOnFile(videoPath, {
     }
   }
 
-  // EDIT FIELD ONLY: 8s hop transcription (like STT scan). Does not drive lektor/TTS.
+  // EDIT FIELD ONLY: 8 equal parts over film duration. Does not drive lektor/TTS.
   const paceKey = textSpeechPace || speechPace || "manual";
   const sttSlots =
     (Array.isArray(stt.timelineSegments) && stt.timelineSegments.length
@@ -1833,20 +1852,22 @@ async function runPreTranscribeOnFile(videoPath, {
     [];
   let exactCueCount = 0;
   let transcriptMode = "plain";
-  const {
-    formatEditField8sTranscript,
-    buildEditField8sSegments,
-  } = require("./lib/lang-utils");
+
   if (typeof formatEditField8sTranscript === "function") {
     timedOriginal = formatEditField8sTranscript(originalText, sttSlots, {
       durationSec: filmDur,
+      maxDurationSec: filmDur,
     });
     timedText = formatEditField8sTranscript(text, sttSlots, {
       durationSec: filmDur,
+      maxDurationSec: filmDur,
     });
     const nSegs =
       (typeof buildEditField8sSegments === "function" &&
-        buildEditField8sSegments(sttSlots, text, { durationSec: filmDur })) ||
+        buildEditField8sSegments(sttSlots, text, {
+          durationSec: filmDur,
+          maxDurationSec: filmDur,
+        })) ||
       [];
     exactCueCount = nSegs.length || timedText.split(/\n/).filter((l) => l.trim()).length;
     transcriptMode = "edit-field-8parts";
