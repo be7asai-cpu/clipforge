@@ -1553,6 +1553,8 @@ async function runJob(job) {
   const ext = (path.extname(job.originalName || "") || ".mp4").toLowerCase();
   const safeExt = /^\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(ext) ? ext : ".mp4";
   const inputPath = path.join(workDir, "input" + safeExt);
+  // Hoisted — used after download / captions-only branch (was ReferenceError: inputSize)
+  let inputSize = 0;
 
   /**
    * Apply caption payload into job.options (pre-STT path uses this).
@@ -1650,7 +1652,6 @@ async function runJob(job) {
       });
     }
     await downloadInput(job, inputPath);
-    let inputSize = 0;
     try {
       inputSize = fs.statSync(inputPath).size;
     } catch {
@@ -1683,9 +1684,8 @@ async function runJob(job) {
         "Brak ffmpeg-static w agentcie. Usuń %LOCALAPPDATA%\\ClipForge-Agent i pobierz agenta ponownie."
       );
     }
-    let inputSize = 0;
     try {
-      inputSize = fs.statSync(inputPath).size;
+      if (!inputSize) inputSize = fs.statSync(inputPath).size;
     } catch {
       inputSize = 0;
     }
@@ -1748,13 +1748,14 @@ async function runJob(job) {
   await reportProgress(job.id, {
     progress: 5,
     stage: "Na Twoim PC…",
-    log:
-      "Pobrano plik (" +
-      Math.round(inputSize / 1024) +
-      " KB) — " +
-      (job.options?.preTranscribeOnly
-        ? "tylko STT z linku…"
-        : "start pipeline lokalnie"),
+    log: captionsOnlyNoVideo
+      ? "Napisy YouTube gotowe (bez pliku wideo) — buduję tekst do edytora…"
+      : "Pobrano plik (" +
+        Math.round((inputSize || 0) / 1024) +
+        " KB) — " +
+        (job.options?.preTranscribeOnly
+          ? "tylko STT z linku…"
+          : "start pipeline lokalnie"),
   });
 
   // ── Pre-transcribe only (extract text from URL, no full render) ──
