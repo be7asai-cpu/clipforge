@@ -654,14 +654,36 @@
     if (transcriptSource() === "captions") {
       hint.textContent = tr(
         "narrator.transcriptHintCaps",
-        "Pobiera napisy z filmu (np. YouTube) i układa je w tekst z czasem. Dobre do muzyki i filmów, które już mają napisy."
+        "Pobiera napisy z filmu (np. YouTube) i wstawia cały tekst ciągły — bez znaczników czasu. Dobre do muzyki i filmów z napisami."
       );
     } else {
       hint.textContent = tr(
         "narrator.transcriptHintStt",
-        "Słucha audio i zamienia mowę na tekst (segmenty). Najlepsze do shortów z gadaniem."
+        "Sam analizuje dźwięk (STT) i układa tekst do lektora. Pole możesz zostawić puste albo wkleić ciągły tekst do poprawy."
       );
     }
+  }
+
+  /** Continuous paragraph only — strip [mm:ss → mm:ss] lines if present */
+  function toPlainScriptText(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return "";
+    if (countExactCues(s) < 1) {
+      return s.replace(/\s+/g, " ").trim();
+    }
+    const parts = [];
+    for (const line of s.split(/\r?\n/)) {
+      const t = String(line || "").trim();
+      if (!t) continue;
+      const body = t
+        .replace(
+          /^\s*\[\s*\d{1,2}:\d{2}(?:[.,]\d{1,3})?\s*[–—→\-]+\s*\d{1,2}:\d{2}(?:[.,]\d{1,3})?\s*s?\s*\]\s*/i,
+          ""
+        )
+        .trim();
+      if (body) parts.push(body);
+    }
+    return (parts.join(" ") || s).replace(/\s+/g, " ").trim();
   }
 
   function refreshLangBadge() {
@@ -828,21 +850,19 @@
   }
 
   /**
-   * Apply STT/translate API payload into script field.
-   * With „Tekst jako transkrypcja z czasem” → exact STT lines
-   * ([mm:ss.xx → mm:ss.xx] text) so Start lektor = te same cue 1:1.
+   * Apply extract payload into script field as continuous PLAIN text
+   * (YouTube / napisy / STT — never [mm:ss] time markers in the box).
+   * STT / napisy arrange timing themselves on Start for the lektor.
    */
   function applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt) {
-    const plain = String(data.text || data.script || "").trim();
+    const plainPrefer = String(
+      data.plainText || data.plainOriginal || ""
+    ).trim();
+    const raw = String(data.text || data.script || "").trim();
     const timed = String(data.timedText || data.timedScript || "").trim();
-    const plainLooksTimed = countExactCues(plain) >= 1;
-    // Prefer dedicated timed field; else plain if already exact lines
-    const useText =
-      wantTimed && timed
-        ? timed
-        : wantTimed && plainLooksTimed
-          ? plain
-          : plain || timed;
+    // Always continuous paragraph for the edit field
+    let useText = toPlainScriptText(plainPrefer || raw);
+    if (!useText && timed) useText = toPlainScriptText(timed);
     if (!useText) {
       setSt(
         data.error ||
@@ -853,21 +873,6 @@
         "err"
       );
       return false;
-    }
-    const cueCount =
-      Number(data.exactCueCount) ||
-      Number(data.segments) ||
-      countExactCues(useText) ||
-      0;
-    const isExact =
-      wantTimed &&
-      (countExactCues(useText) >= 1 ||
-        data.transcriptMode === "exact-stt" ||
-        data.transcriptMode === "exact-stt-mapped" ||
-        data.transcriptMode === "exact-stt-field");
-    // Keep option ON so Start parses the same format → same clocks
-    if (wantTimed && isExact && $("#opt-timed-transcript")) {
-      $("#opt-timed-transcript").checked = true;
     }
     const ta = $("#opt-script");
     if (ta) {
@@ -881,24 +886,21 @@
     }
     refreshLangBadge();
     const meta = [
-      isExact
-        ? tr("narrator.extractMetaExact", "dokładna STT · {n} cue").replace(
-            "{n}",
-            String(cueCount || countExactCues(useText) || "?")
-          )
-        : null,
+      tr("narrator.extractMetaPlain", "tekst ciągły · bez czasu"),
       data.translated && !onlyOriginal
         ? tr("narrator.extractMetaTr", "przetłumaczono") +
           " → " +
           (data.targetLang || tgtLang)
-        : tr("narrator.extractMetaOrig", "oryginał STT"),
+        : tr("narrator.extractMetaOrig", "oryginał"),
       data.engine ? String(data.engine) : null,
       data.translateEngine ? "NMT " + data.translateEngine : null,
       data.langCode ? "src " + data.langCode : null,
       data.durationSec
         ? "~" + Math.round(Number(data.durationSec)) + "s"
         : null,
-      !isExact && data.segments ? data.segments + " seg." : null,
+      data.exactCueCount || data.segments
+        ? (data.exactCueCount || data.segments) + " seg. (lektor)"
+        : null,
       data.translateError
         ? tr("narrator.extractTrWarn", "tłum. ostrzeżenie")
         : null,
@@ -906,24 +908,15 @@
     ]
       .filter(Boolean)
       .join(" · ");
-    const okMsg = isExact
-      ? data.translated && !onlyOriginal
-        ? tr(
-            "narrator.extractOkExactTr",
-            "Dokładne tłumaczenie STT w polu — edytuj linie/czas, potem Start (lektor = te same cue)."
-          )
-        : tr(
-            "narrator.extractOkExact",
-            "Dokładna transkrypcja STT w polu — edytuj linie/czas, potem Start (lektor = te same cue)."
-          )
-      : data.translated && !onlyOriginal
+    const okMsg =
+      data.translated && !onlyOriginal
         ? tr(
             "narrator.extractOkTr",
-            "Dokładne tłumaczenie w polu — możesz poprawić, potem Start."
+            "Cały tekst w polu (bez czasu) — możesz poprawić, potem Start."
           )
         : tr(
             "narrator.extractOk",
-            "Transkrypcja w polu — możesz poprawić."
+            "Cały tekst w polu (bez czasu) — możesz poprawić. STT/napisy ułożą lektora przy Start."
           );
     setSt(okMsg + (meta ? " (" + meta + ")" : ""), "ok");
     return true;
@@ -960,7 +953,13 @@
         const r = job.result || {};
         return applyExtractPayload(
           {
-            text: r.script || r.scriptPlain || job.liveScript || "",
+            text: r.scriptPlain || r.script || job.liveScript || "",
+            plainText:
+              r.scriptPlain ||
+              r.plainText ||
+              r.script ||
+              job.liveScript ||
+              "",
             timedText: r.timedScript || r.language?.timedScript || "",
             originalText: r.originalText || r.language?.original || job.liveOriginal,
             translated: !!(r.language && r.language.translated),
@@ -969,7 +968,7 @@
             targetLang: tgtLang,
             durationSec: r.duration || null,
             exactCueCount: r.exactCueCount || r.segments || null,
-            transcriptMode: r.transcriptMode || "exact-stt",
+            transcriptMode: r.transcriptMode || null,
             segments: r.exactCueCount || r.segments || null,
             fromUrl: true,
             title: job.originalName,

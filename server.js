@@ -1882,16 +1882,11 @@ async function runPreTranscribeOnFile(videoPath, {
     transcriptMode = "even-timeline";
   }
 
-  // Field always gets exact timed STT when option on (edit → lektor same cues)
+  // Field always gets continuous plain text (YouTube / napisy / STT).
+  // Times stay internal for lektor (timedText) — never dumped into the edit box.
   const useTimed = timedTranscript !== false;
-  const primaryText =
-    useTimed && timedText
-      ? timedText
-      : useTimed && timedOriginal
-        ? timedOriginal
-        : text;
-  const primaryOriginal =
-    useTimed && timedOriginal ? timedOriginal : originalText;
+  const primaryText = text;
+  const primaryOriginal = originalText;
 
   const trLineCount = timedText
     ? timedText.split(/\r?\n/).filter((l) => l.trim()).length
@@ -2176,8 +2171,13 @@ app.post("/api/studio/agent/jobs/:id/complete-transcript", async (req, res) => {
       livePhase: "done",
       result: {
         ...(job.result || {}),
+        // Always continuous plain for UI field (strip any accidental time lines)
         script: text || originalText,
-        scriptPlain: text || originalText,
+        scriptPlain:
+          body.plainText ||
+          text ||
+          originalText,
+        plainText: body.plainText || text || originalText,
         originalText,
         timedScript: timedText || null,
         timedOriginal: timedOriginal || null,

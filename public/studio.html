@@ -502,11 +502,11 @@
                 </label>
                 <label>
                   <input type="radio" name="transcript-source" value="captions" />
-                  <span data-i18n="narrator.transcriptCaps">📝 Weź napisy z filmu (z czasem)</span>
+                  <span data-i18n="narrator.transcriptCaps">📝 Weź napisy z filmu</span>
                 </label>
               </div>
               <p class="hint" id="transcript-source-hint" data-i18n="narrator.transcriptHintStt">
-                Słucha audio i zamienia mowę na tekst (segmenty). Najlepsze do shortów z gadaniem.
+                Sam analizuje dźwięk (STT) i układa tekst do lektora. Pole możesz zostawić puste albo wkleić ciągły tekst.
               </p>
 
               <div class="grid2">
@@ -597,7 +597,7 @@
                 <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
               </div>
               <p class="hint" data-i18n="narrator.extractHint">
-                STT z pliku/linku → transkrypcja z czasem (albo ciągły tekst, jeśli wyłączysz opcję wyżej) → tłumaczenie. Popraw i Start.
+                Z pliku/linku → cały tekst ciągły w polu (bez czasu) → możesz poprawić → Start. STT/napisy same układają lektora.
               </p>
 
               <label class="stack">
@@ -615,11 +615,11 @@
                   id="opt-script"
                   rows="6"
                   data-i18n-placeholder="narrator.scriptPh"
-                  placeholder="Zostaw puste = system wyodrębni mowę z wideo (STT), potem przetłumaczy. Albo: «Wyodrębnij transkrypcję», popraw i Start."
+                  placeholder="Cały tekst ciągły, bez znaczników czasu. Puste = STT/napisy przy Start. YouTube/Wyodrębnij wstawia pełny tekst."
                 ></textarea>
               </label>
               <p class="hint" data-i18n="narrator.scriptHint">
-                Dokładne tłumaczenie: puste pole → STT przy starcie. Albo wyodrębnij wcześniej, popraw tekst ręcznie, potem Start (wtedy użyje tego pola).
+                Zawsze tekst ciągły (bez [czasów]). YouTube i napisy wstawiają pełny tekst. «Rozpoznaj mowę» sam analizuje dźwięk i układa lektora.
               </p>
 
               <div class="opt-block text-speed-block" id="text-speed-block">
@@ -971,9 +971,9 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801exactEdit"></script>
+    <script src="/js/i18n.js?v=20260801plainField"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260801exactEdit"></script>
+    <script src="/js/studio.js?v=20260801plainField"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;

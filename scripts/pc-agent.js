@@ -1255,40 +1255,35 @@ async function runJob(job) {
       job.options.captionSegmentsBackup = segs;
       job.options.narratorScriptBackup = caps.text;
       if (wantCaptions) {
+        // Continuous plain text only (no time markers in script field)
+        const plainCaps = String(caps.text || "")
+          .replace(/\s+/g, " ")
+          .trim();
         if (
           !job.options.narratorScript ||
           String(job.options.narratorScript).trim().length < 40
         ) {
-          job.options.narratorScript = caps.text;
+          job.options.narratorScript = plainCaps;
         }
         job.options.fromYoutubeCaptions = true;
         job.options.transcriptSource = "captions";
         job.options.captionSegments = segs;
         log(
-          "Transkrypcja z napisów:",
+          "Napisy → tekst ciągły:",
+          plainCaps.length,
+          "znaków,",
           caps.segments.length,
-          "okien,",
-          caps.text.length,
-          "znaków"
+          "cue wewn. do lektora"
         );
-        const preview = caps.segments
-          .slice(0, 8)
-          .map(
-            (s) =>
-              `[${s.start.toFixed(1)}–${s.end.toFixed(1)}s] ${s.text.slice(0, 80)}`
-          )
-          .join("\n");
         await reportProgress(job.id, {
           progress: 14,
-          stage: "Transkrypcja z napisów",
+          stage: "Tekst z napisów",
           log:
-            "Napisy → " +
-            caps.segments.length +
-            " segmentów z czasem (" +
-            caps.text.length +
-            " znaków). Pomijam STT dźwięku.",
+            "Napisy YouTube → cały tekst ciągły (" +
+            plainCaps.length +
+            " znaków, bez czasu). Pomijam STT dźwięku.",
           livePhase: "source",
-          liveOriginal: preview || caps.text.slice(0, 800),
+          liveOriginal: plainCaps.slice(0, 1200),
         });
       } else {
         log(
@@ -1658,10 +1653,10 @@ async function runJob(job) {
       transcriptMode = "even-timeline";
     }
 
-    // Primary payload: exact timed lines when option on (edit → lektor 1:1)
-    const outText = useTimedForm && timedText ? timedText : text;
-    const outOriginal =
-      useTimedForm && timedOriginal ? timedOriginal : originalText;
+    // Field gets continuous plain text only (no [mm:ss] lines).
+    // Timed cues stay in timedText for lektor internals / optional use.
+    const outText = text;
+    const outOriginal = originalText;
 
     await reportProgress(job.id, {
       progress: 95,
@@ -1670,13 +1665,13 @@ async function runJob(job) {
       liveScript: outText.slice(0, 2000),
       liveOriginal: outOriginal.slice(0, 2000),
       log:
-        "STT OK · " +
+        "Tekst OK · " +
         outText.length +
-        " znaków" +
-        (translated ? " (przetłumaczono)" : "") +
-        (useTimedForm
-          ? " · dokładna STT " + exactCueCount + " cue"
-          : " · ciągły"),
+        " znaków (ciągły, bez czasu)" +
+        (translated ? " · przetłumaczono" : "") +
+        (useTimedForm && exactCueCount
+          ? " · STT ułoży " + exactCueCount + " cue przy lektorze"
+          : ""),
     });
 
     const up = await request(
@@ -1687,6 +1682,8 @@ async function runJob(job) {
         body: {
           text: outText,
           originalText: outOriginal,
+          plainText: outText,
+          plainOriginal: outOriginal,
           timedText: useTimedForm ? timedText : "",
           timedOriginal: useTimedForm ? timedOriginal : "",
           translated,
