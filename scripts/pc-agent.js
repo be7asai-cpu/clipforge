@@ -1492,6 +1492,8 @@ async function runJob(job) {
         workDir: sttWork,
         noEarlyExit: true,
         minScanRatio: 0.98,
+        // Exact translation: 3s windows
+        segmentSec: 3,
         onSegment: (info) => {
           if (info && info.phase === "done") {
             reportProgress(job.id, {

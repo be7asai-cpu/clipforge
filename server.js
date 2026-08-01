@@ -1706,12 +1706,15 @@ async function runPreTranscribeOnFile(videoPath, {
     durationSec > 0
       ? Math.min(durationSec + 1, maxSeconds)
       : Math.min(1200, Math.max(5, maxSeconds));
+  // Exact translation extract: 3s STT windows
+  const sttSegSec = 3;
   let stt = extractSpeechFromVideoSegmented(videoPath, {
     sourceLang,
     maxSeconds: maxScan,
     workDir: path.join(wd, "stt"),
     noEarlyExit: true,
     minScanRatio: 0.98,
+    segmentSec: sttSegSec,
   });
   let originalText = stitch([stt.text]);
   if (!originalText && sourceLang && sourceLang !== "auto") {
@@ -1721,6 +1724,7 @@ async function runPreTranscribeOnFile(videoPath, {
       workDir: path.join(wd, "stt_auto"),
       noEarlyExit: true,
       minScanRatio: 0.98,
+      segmentSec: sttSegSec,
     });
     originalText = stitch([stt.text]);
   }
@@ -1732,6 +1736,7 @@ async function runPreTranscribeOnFile(videoPath, {
         maxSeconds: Math.min(maxScan, 180),
         workDir: path.join(wd, "stt_" + langTry),
         noEarlyExit: true,
+        segmentSec: sttSegSec,
       });
       originalText = stitch([stt.text]);
       if (originalText) break;
