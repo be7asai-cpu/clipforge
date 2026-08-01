@@ -1805,19 +1805,35 @@ async function runJob(job) {
     let formatEditField8sTranscript = null;
     let buildEditField8sSegments = null;
     let fitTextToFilmDuration = null;
+    let fitTextToFilmDurationAsync = null;
     try {
       const lu = require(path.join(ROOT, "lib", "lang-utils.js"));
       formatEditField8sTranscript = lu.formatEditField8sTranscript;
       buildEditField8sSegments = lu.buildEditField8sSegments;
       fitTextToFilmDuration = lu.fitTextToFilmDuration;
+      fitTextToFilmDurationAsync = lu.fitTextToFilmDurationAsync;
     } catch {
       /* ignore */
     }
-    // Fit source BEFORE NMT so discarded tail is never translated
-    if (typeof fitTextToFilmDuration === "function" && filmDur > 0.5) {
-      originalText = fitTextToFilmDuration(originalText, filmDur) || originalText;
-      text = originalText;
+    // Intelligent rewrite ≤ film length BEFORE NMT (Ollama if available)
+    async function fitToFilm(t) {
+      if (!(filmDur > 0.5) || !t) return t;
+      try {
+        if (typeof fitTextToFilmDurationAsync === "function") {
+          return (await fitTextToFilmDurationAsync(t, filmDur)) || t;
+        }
+        if (typeof fitTextToFilmDuration === "function") {
+          return fitTextToFilmDuration(t, filmDur) || t;
+        }
+      } catch {
+        if (typeof fitTextToFilmDuration === "function") {
+          return fitTextToFilmDuration(t, filmDur) || t;
+        }
+      }
+      return t;
     }
+    originalText = await fitToFilm(originalText);
+    text = originalText;
 
     if (autoTranslate) {
       await reportProgress(job.id, {
@@ -1826,7 +1842,7 @@ async function runJob(job) {
         livePhase: "translating",
         liveOriginal: originalText.slice(0, 1200),
         log:
-          "Tłumaczę tekst ≤ długość filmu → " +
+          "Tłumaczę przeredagowany tekst ≤ film → " +
           targetLang +
           " (" +
           Math.round(filmDur) +
@@ -1849,10 +1865,8 @@ async function runJob(job) {
         if (tr && tr.ok && tr.text && String(tr.text).trim()) {
           text = stitch([tr.text]);
           translated = !tr.skipped;
-          // Target language may expand — re-fit so speech still ≤ film
-          if (typeof fitTextToFilmDuration === "function" && filmDur > 0.5) {
-            text = fitTextToFilmDuration(text, filmDur) || text;
-          }
+          // Target language may expand — re-rewrite so speech still ≤ film
+          text = await fitToFilm(text);
         }
       } catch (te) {
         log("translate pre-stt:", te.message || te);

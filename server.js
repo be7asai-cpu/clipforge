@@ -1804,14 +1804,26 @@ async function runPreTranscribeOnFile(videoPath, {
   );
 
   // Text for translation must not "speak longer" than the film (~13 chars/s).
-  // Fit source BEFORE NMT so we don't translate discarded tail.
+  // Intelligent rewrite (sense-preserving) BEFORE NMT — optional Ollama when present.
   const {
     formatEditField8sTranscript,
     buildEditField8sSegments,
     fitTextToFilmDuration: fitFilm,
+    fitTextToFilmDurationAsync: fitFilmAsync,
   } = require("./lib/lang-utils");
-  if (typeof fitFilm === "function" && filmDur > 0.5) {
-    originalText = fitFilm(originalText, filmDur) || originalText;
+  if (filmDur > 0.5) {
+    try {
+      if (typeof fitFilmAsync === "function") {
+        originalText =
+          (await fitFilmAsync(originalText, filmDur)) || originalText;
+      } else if (typeof fitFilm === "function") {
+        originalText = fitFilm(originalText, filmDur) || originalText;
+      }
+    } catch {
+      if (typeof fitFilm === "function") {
+        originalText = fitFilm(originalText, filmDur) || originalText;
+      }
+    }
     text = originalText;
   }
 
@@ -1828,9 +1840,17 @@ async function runPreTranscribeOnFile(videoPath, {
         text = stitch([tr.text]);
         translated = !tr.skipped;
         translateEngine = (tr.engine || "nmt") + "+timeline";
-        // Target language may expand — re-fit so speech still ≤ film
-        if (typeof fitFilm === "function" && filmDur > 0.5) {
-          text = fitFilm(text, filmDur) || text;
+        // Target language may expand — re-rewrite so speech still ≤ film
+        try {
+          if (typeof fitFilmAsync === "function" && filmDur > 0.5) {
+            text = (await fitFilmAsync(text, filmDur)) || text;
+          } else if (typeof fitFilm === "function" && filmDur > 0.5) {
+            text = fitFilm(text, filmDur) || text;
+          }
+        } catch {
+          if (typeof fitFilm === "function" && filmDur > 0.5) {
+            text = fitFilm(text, filmDur) || text;
+          }
         }
       } else if (tr && tr.error) {
         translateError = tr.error;
