@@ -552,16 +552,16 @@
               </label>
               <label
                 class="inline"
-                title="W polu tekstu: linie [mm:ss → mm:ss] z tymi samymi czasami co STT / wideo / napisy."
+                title="Tylko pole «Tekst do tłumaczenia»: segmenty [start → end] jak w źródle. Nie zmienia lektora / głosu."
               >
                 <input type="checkbox" id="opt-timed-transcript" checked />
                 <span data-i18n="narrator.timedTrLab"
-                  >Tekst z czasem 1:1 jak STT / wideo (w polu tłumaczenia)</span
+                  >W polu tłumaczenia: segmenty z czasem 1:1 jak źródło</span
                 >
               </label>
               <p class="hint" data-i18n="narrator.timedTrHint">
-                Zaznaczone: w polu te same SEGMENTY co w źródle (STT lub napisy) — ta sama liczba i te same start/end każdego cue, nie sztuczne okna co N sekund.
-                Odznacz = ciągły akapit bez czasów.
+                Dotyczy wyłącznie pola «Tekst do tłumaczenia / lektora» po Wyodrębnij — te same segmenty i czasy co STT lub napisy.
+                Nic innego (głos, montaż) się od tego nie zmienia. Odznacz = ciągły tekst w polu.
               </p>
               <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
 
@@ -994,9 +994,9 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801seg1to1"></script>
+    <script src="/js/i18n.js?v=20260801fieldOnly"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260801timedField"></script>
+    <script src="/js/studio.js?v=20260801fieldOnly"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;

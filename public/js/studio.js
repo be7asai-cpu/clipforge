@@ -900,8 +900,9 @@
   }
 
   /**
-   * Apply extract → script field.
-   * wantTimed ON  → exact [mm:ss.xx → mm:ss.xx] same clocks as STT / video / captions
+   * Apply extract → ONLY #opt-script (Tekst do tłumaczenia).
+   * Does not change voice, Start path, or other options beyond this field.
+   * wantTimed ON  → segment lines [start → end] 1:1 with source STT/captions
    * wantTimed OFF → continuous plain paragraph
    */
   function applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt) {
@@ -910,17 +911,25 @@
     ).trim();
     const raw = String(data.text || data.script || "").trim();
     const timed = String(data.timedText || data.timedScript || "").trim();
-    const timedClean = cleanTimedScriptText(timed || (countExactCues(raw) ? raw : ""));
-    const plainClean = toPlainScriptText(plainPrefer || raw || timed);
-    // Timed option → same clock system as source video / STT (or YT cue times)
+    // Prefer dedicated timed payload; also accept timed lines inside text/script
+    const timedRaw =
+      timed ||
+      (countExactCues(raw) >= 1 ? raw : "") ||
+      (countExactCues(plainPrefer) >= 1 ? plainPrefer : "");
+    const timedClean = cleanTimedScriptText(timedRaw);
+    const plainClean = toPlainScriptText(
+      plainPrefer || (countExactCues(raw) ? "" : raw) || timed
+    );
     let useText = "";
     let isTimed = false;
     if (wantTimed && timedClean && countExactCues(timedClean) >= 1) {
+      // ONLY the translation textarea — segment clocks from source
       useText = timedClean;
       isTimed = true;
-      if ($("#opt-timed-transcript")) {
-        $("#opt-timed-transcript").checked = true;
-      }
+    } else if (wantTimed && plainClean) {
+      // Timed requested but API sent plain only — still show plain in field
+      useText = plainClean;
+      isTimed = false;
     } else {
       useText = plainClean || toPlainScriptText(timedClean);
       isTimed = false;
@@ -936,6 +945,7 @@
       );
       return false;
     }
+    // Touch ONLY the translation/script field (+ empty title if missing)
     const ta = $("#opt-script");
     if (ta) {
       ta.value = useText;
@@ -952,46 +962,31 @@
       isTimed
         ? tr(
             "narrator.extractMetaExact",
-            "transkrypcja z czasem · {n} cue = STT/wideo"
+            "pole tekstu · {n} segmentów 1:1 ze źródłem"
           ).replace("{n}", String(nCues || data.exactCueCount || "?"))
-        : tr("narrator.extractMetaPlain", "tekst ciągły · bez czasu"),
+        : tr("narrator.extractMetaPlain", "pole tekstu · ciągły"),
       data.translated && !onlyOriginal
         ? tr("narrator.extractMetaTr", "przetłumaczono") +
           " → " +
           (data.targetLang || tgtLang)
         : tr("narrator.extractMetaOrig", "oryginał"),
       data.engine ? String(data.engine) : null,
-      data.translateEngine ? "NMT " + data.translateEngine : null,
-      data.langCode ? "src " + data.langCode : null,
       data.durationSec
         ? "~" + Math.round(Number(data.durationSec)) + "s"
-        : null,
-      data.translateError
-        ? tr("narrator.extractTrWarn", "tłum. ostrzeżenie")
         : null,
       data.fromUrl ? "URL" : null,
     ]
       .filter(Boolean)
       .join(" · ");
     const okMsg = isTimed
-      ? data.translated && !onlyOriginal
-        ? tr(
-            "narrator.extractOkExactTr",
-            "Tłumaczenie z czasami 1:1 jak STT/wideo — możesz poprawić, potem Start."
-          )
-        : tr(
-            "narrator.extractOkExact",
-            "Transkrypcja z czasami 1:1 jak STT/wideo — możesz poprawić, potem Start."
-          )
-      : data.translated && !onlyOriginal
-        ? tr(
-            "narrator.extractOkTr",
-            "Cały tekst w polu (bez czasu) — możesz poprawić, potem Start."
-          )
-        : tr(
-            "narrator.extractOk",
-            "Cały tekst w polu (bez czasu) — możesz poprawić."
-          );
+      ? tr(
+          "narrator.extractOkExact",
+          "W polu «Tekst do tłumaczenia»: segmenty z czasem 1:1 jak w źródle."
+        )
+      : tr(
+          "narrator.extractOk",
+          "W polu «Tekst do tłumaczenia»: tekst ciągły."
+        );
     setSt(okMsg + (meta ? " (" + meta + ")" : ""), "ok");
     return true;
   }
