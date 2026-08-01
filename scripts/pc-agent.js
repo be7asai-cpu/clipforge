@@ -1539,6 +1539,7 @@ async function runJob(job) {
     const targetLang = job.options.targetLang || "pl";
     const autoTranslate =
       job.options.autoTranslate == null || job.options.autoTranslate !== false;
+    const useTimedForm = job.options.timedTranscript !== false;
     const srcForTr = langCode || job.options.sourceLang || "auto";
 
     if (autoTranslate) {
@@ -1600,13 +1601,23 @@ async function runJob(job) {
       }
     }
 
+    // Primary payload: transcription form when enabled (default)
+    const outText = useTimedForm && timedText ? timedText : text;
+    const outOriginal =
+      useTimedForm && timedOriginal ? timedOriginal : originalText;
+
     await reportProgress(job.id, {
       progress: 95,
       stage: "Transkrypcja gotowa",
       livePhase: "done",
-      liveScript: text.slice(0, 2000),
-      liveOriginal: originalText.slice(0, 2000),
-      log: "STT OK · " + text.length + " znaków" + (translated ? " (przetłumaczono)" : ""),
+      liveScript: outText.slice(0, 2000),
+      liveOriginal: outOriginal.slice(0, 2000),
+      log:
+        "STT OK · " +
+        outText.length +
+        " znaków" +
+        (translated ? " (przetłumaczono)" : "") +
+        (useTimedForm ? " · z czasem" : " · ciągły"),
     });
 
     const up = await request(
@@ -1615,15 +1626,16 @@ async function runJob(job) {
       {
         token: agentToken,
         body: {
-          text,
-          originalText,
-          timedText,
-          timedOriginal,
+          text: outText,
+          originalText: outOriginal,
+          timedText: useTimedForm ? timedText : "",
+          timedOriginal: useTimedForm ? timedOriginal : "",
           translated,
           engine,
           langCode,
           targetLang,
           durationSec: durationSec || null,
+          timedTranscript: useTimedForm,
         },
       }
     );

@@ -719,11 +719,20 @@
   refreshTranscriptHint();
   refreshLangBadge();
 
+  /** Prefer timed transcription format unless user fully disabled it */
+  function wantTimedTranscript() {
+    const el = $("#opt-timed-transcript");
+    // default ON when control missing
+    if (!el) return true;
+    return !!el.checked;
+  }
+
   /** Apply STT/translate API payload into script field */
   function applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt) {
     const plain = String(data.text || data.script || "").trim();
     const timed = String(data.timedText || data.timedScript || "").trim();
-    const useText = wantTimed && timed ? timed : plain;
+    // Transcription form is the default text-for-translation
+    const useText = wantTimed && timed ? timed : plain || timed;
     if (!useText) {
       setSt(
         data.error ||
@@ -859,7 +868,7 @@
       );
       return;
     }
-    const wantTimed = !!$("#opt-extract-timed")?.checked;
+    const wantTimed = wantTimedTranscript();
     const onlyOriginal = !!$("#opt-extract-no-tr")?.checked;
     const srcLang = $("#opt-source-lang")?.value || "auto";
     const tgtLang = targetLang() || "pl";
@@ -899,6 +908,7 @@
         fd.append("sourceLang", srcLang);
         fd.append("targetLang", tgtLang);
         fd.append("autoTranslate", onlyOriginal ? "0" : "1");
+        fd.append("timedTranscript", wantTimed ? "1" : "0");
         res = await fetch("/api/studio/transcribe", {
           method: "POST",
           body: fd,
@@ -915,6 +925,7 @@
             sourceLang: srcLang,
             targetLang: tgtLang,
             autoTranslate: !onlyOriginal,
+            timedTranscript: wantTimed,
           }),
         });
         data = await res.json().catch(() => ({}));
@@ -1273,6 +1284,8 @@
       sourceLang: $("#opt-source-lang")?.value || "auto",
       targetLang: targetLang(),
       autoTranslate: $("#opt-auto-translate").checked,
+      /** true = script as timed transcription [mm:ss–mm:ss]; false = plain continuous text */
+      timedTranscript: wantTimedTranscript(),
       narratorVoice: $("#opt-voice").value,
       title: $("#opt-title").value.trim(),
       narratorScript: $("#opt-script").value.trim(),

@@ -1635,6 +1635,7 @@ async function runPreTranscribeOnFile(videoPath, {
   sourceLang = "auto",
   targetLang = "pl",
   autoTranslate = true,
+  timedTranscript = true,
   maxSeconds = 600,
   originalName = "video.mp4",
   workDir = null,
@@ -1817,17 +1818,31 @@ async function runPreTranscribeOnFile(videoPath, {
     }
   }
 
+  // Primary field for the script box: transcription form when enabled
+  const useTimed = timedTranscript !== false;
+  const primaryText =
+    useTimed && timedText
+      ? timedText
+      : useTimed && timedOriginal && !translated
+        ? timedOriginal
+        : text;
+  const primaryOriginal =
+    useTimed && timedOriginal ? timedOriginal : originalText;
+
   return {
     ok: true,
-    text,
-    originalText,
-    timedText,
-    timedOriginal,
+    text: primaryText,
+    originalText: primaryOriginal,
+    timedText: useTimed ? timedText : "",
+    timedOriginal: useTimed ? timedOriginal : "",
+    plainText: text,
+    plainOriginal: originalText,
     title: titleGuess,
     translated,
     translateEngine,
     translateError,
     autoTranslate: !!autoTranslate,
+    timedTranscript: useTimed,
     engine: stt.engine || null,
     langCode: stt.langCode || sourceLang || null,
     targetLang,
@@ -1866,6 +1881,12 @@ app.post("/api/studio/transcribe", (req, res) => {
       1200,
       Math.max(5, Number(body?.maxSeconds) || 600)
     );
+    const timedTranscript =
+      body?.timedTranscript == null ||
+      body?.timedTranscript === "" ||
+      body?.timedTranscript === "1" ||
+      body?.timedTranscript === "true" ||
+      body?.timedTranscript === true;
     const url = String(body?.url || "").trim();
 
     // ── URL path (no uploaded file) ──
@@ -1908,6 +1929,7 @@ app.post("/api/studio/transcribe", (req, res) => {
             sourceLang,
             targetLang,
             autoTranslate: !!autoTranslate,
+            timedTranscript: !!timedTranscript,
             maxSeconds,
           },
           titleGuess
@@ -1949,6 +1971,7 @@ app.post("/api/studio/transcribe", (req, res) => {
           sourceLang,
           targetLang,
           autoTranslate,
+          timedTranscript,
           maxSeconds,
           originalName: finalName,
         });
@@ -1989,6 +2012,7 @@ app.post("/api/studio/transcribe", (req, res) => {
         sourceLang,
         targetLang,
         autoTranslate,
+        timedTranscript,
         maxSeconds,
         originalName,
       });
@@ -2277,6 +2301,8 @@ function normalizeJobOptions(options, originalName) {
   opts.filename = originalName;
   if (opts.narrator == null) opts.narrator = true;
   if (opts.autoTranslate == null) opts.autoTranslate = true;
+  // Default: text for translation as timed transcription; false = plain paragraph
+  if (opts.timedTranscript == null) opts.timedTranscript = true;
   if (!opts.targetLang) opts.targetLang = "pl";
   return opts;
 }

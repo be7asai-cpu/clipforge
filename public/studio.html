@@ -548,8 +548,15 @@
 
               <label class="inline">
                 <input type="checkbox" id="opt-auto-translate" checked />
-                <span data-i18n="narrator.autoTrLab">Tłumacz na język docelowy (wyłącz = oryginał)</span>
+                <span data-i18n="narrator.autoTrLab">Tłumacz na język docelowy (można wyłączyć = oryginał)</span>
               </label>
+              <label class="inline" title="Format [czas] linia — jak napisy. Wyłącz = jeden ciągły akapit.">
+                <input type="checkbox" id="opt-timed-transcript" checked />
+                <span data-i18n="narrator.timedTrLab">Tekst jako transkrypcja z czasem</span>
+              </label>
+              <p class="hint" data-i18n="narrator.timedTrHint">
+                Włączone: linie [00:00–00:06] … (tłumaczenie też w tym formacie). Wyłącz całkowicie = zwykły ciągły tekst.
+              </p>
               <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
 
               <label class="inline">
@@ -583,18 +590,14 @@
                 <button type="button" class="btn ghost sm" id="btn-extract-transcript">
                   <span data-i18n="narrator.extractBtn">🎤 Wyodrębnij + dokładne tłumaczenie</span>
                 </button>
-                <label class="inline pre-stt-timed" title="Wstaw z znacznikami czasu">
-                  <input type="checkbox" id="opt-extract-timed" />
-                  <span data-i18n="narrator.extractTimed">z czasem</span>
-                </label>
-                <label class="inline pre-stt-timed" title="Zostaw oryginał STT bez tłumaczenia">
+                <label class="inline pre-stt-timed" title="Zostaw oryginał STT bez tłumaczenia (transkrypcja zostaje)">
                   <input type="checkbox" id="opt-extract-no-tr" />
                   <span data-i18n="narrator.extractNoTr">tylko oryginał</span>
                 </label>
                 <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
               </div>
               <p class="hint" data-i18n="narrator.extractHint">
-                STT z pliku lub linku (YouTube = PC · ON) → dokładne tłumaczenie → tekst w polu. Popraw i Start.
+                STT z pliku/linku → transkrypcja z czasem (albo ciągły tekst, jeśli wyłączysz opcję wyżej) → tłumaczenie. Popraw i Start.
               </p>
 
               <label class="stack">
@@ -925,9 +928,9 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801sttUrl"></script>
+    <script src="/js/i18n.js?v=20260801timedTr"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260801sttUrl"></script>
+    <script src="/js/studio.js?v=20260801timedTr"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;
