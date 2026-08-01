@@ -1636,6 +1636,8 @@ async function runPreTranscribeOnFile(videoPath, {
   targetLang = "pl",
   autoTranslate = true,
   timedTranscript = true,
+  speechPace = "normal",
+  textSpeechPace = null,
   maxSeconds = 10800,
   originalName = "video.mp4",
   workDir = null,
@@ -1817,11 +1819,16 @@ async function runPreTranscribeOnFile(videoPath, {
     }
   }
 
-  // Proportional timeline: full text → equal word packs on 0…filmDur every 3s
+  // Full text → whole words by character weight on 0…filmDur (~3s)
+  const paceKey = textSpeechPace || speechPace || "normal";
   if (typeof distributeTextOnTimeline === "function") {
-    const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3);
+    const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3, {
+      speechPace: paceKey,
+    });
     timedOriginal = formatTimed(srcSpread);
-    const tgtSpread = distributeTextOnTimeline(text, filmDur, 3);
+    const tgtSpread = distributeTextOnTimeline(text, filmDur, 3, {
+      speechPace: paceKey,
+    });
     timedText = formatTimed(tgtSpread);
   }
 
@@ -1839,9 +1846,7 @@ async function runPreTranscribeOnFile(videoPath, {
   const trLineCount = timedText
     ? timedText.split(/\r?\n/).filter((l) => l.trim()).length
     : 0;
-  const wordCount = String(text || "")
-    .split(/\s+/)
-    .filter(Boolean).length;
+  const charCount = String(text || "").replace(/\s+/g, " ").trim().length;
 
   return {
     ok: true,
@@ -1857,15 +1862,15 @@ async function runPreTranscribeOnFile(videoPath, {
     translateError,
     autoTranslate: !!autoTranslate,
     timedTranscript: useTimed,
+    speechPace: paceKey,
     engine: stt.engine || null,
     langCode: stt.langCode || sourceLang || null,
     targetLang,
     durationSec: filmDur,
-    /** Timeline slots for proportional layout (ceil(duration/3)) */
     segments: trLineCount || Math.ceil(filmDur / 3),
-    wordsPerSegment:
+    charsPerSegment:
       trLineCount > 0
-        ? Math.round((wordCount / trLineCount) * 10) / 10
+        ? Math.round((charCount / trLineCount) * 10) / 10
         : null,
     error: null,
     musicLikely: !!stt.musicLikely,
@@ -1906,6 +1911,11 @@ app.post("/api/studio/transcribe", (req, res) => {
       body?.timedTranscript === "1" ||
       body?.timedTranscript === "true" ||
       body?.timedTranscript === true;
+    const speechPace = String(
+      body?.speechPace || body?.textSpeechPace || body?.textSpeedMode || "normal"
+    )
+      .trim()
+      .toLowerCase() || "normal";
     const url = String(body?.url || "").trim();
 
     // ── URL path (no uploaded file) ──
@@ -1949,6 +1959,9 @@ app.post("/api/studio/transcribe", (req, res) => {
             targetLang,
             autoTranslate: !!autoTranslate,
             timedTranscript: !!timedTranscript,
+            speechPace,
+            textSpeechPace: speechPace,
+            textSpeedMode: speechPace,
             maxSeconds,
           },
           titleGuess
@@ -1991,6 +2004,8 @@ app.post("/api/studio/transcribe", (req, res) => {
           targetLang,
           autoTranslate,
           timedTranscript,
+          speechPace,
+          textSpeechPace: speechPace,
           maxSeconds,
           originalName: finalName,
         });
@@ -2032,6 +2047,8 @@ app.post("/api/studio/transcribe", (req, res) => {
         targetLang,
         autoTranslate,
         timedTranscript,
+        speechPace,
+        textSpeechPace: speechPace,
         maxSeconds,
         originalName,
       });
@@ -2322,13 +2339,22 @@ function normalizeJobOptions(options, originalName) {
   if (opts.autoTranslate == null) opts.autoTranslate = true;
   // Default: text for translation as timed transcription; false = plain paragraph
   if (opts.timedTranscript == null) opts.timedTranscript = true;
-  if (opts.textSpeedMode == null) opts.textSpeedMode = "auto";
-  if (opts.textSpeed != null) {
+  if (opts.textSpeedMode == null && opts.speechPace == null) {
+    opts.textSpeedMode = "normal";
+    opts.speechPace = "normal";
+  }
+  if (opts.speechPace == null) opts.speechPace = opts.textSpeedMode || "normal";
+  if (opts.textSpeechPace == null) opts.textSpeechPace = opts.speechPace;
+  if (opts.textSpeedMode == null) opts.textSpeedMode = opts.speechPace;
+  // Map pace → Edge rate multiplier
+  const paceMap = { slow: 0.85, wolno: 0.85, normal: 1, normalnie: 1, fast: 1.2, szybko: 1.2 };
+  if (opts.textSpeed == null || opts.speechPace) {
+    const p = String(opts.speechPace || opts.textSpeedMode || "normal").toLowerCase();
+    opts.textSpeed = paceMap[p] != null ? paceMap[p] : 1;
+  } else {
     let r = Number(opts.textSpeed);
     if (!Number.isFinite(r)) r = 1;
     opts.textSpeed = Math.round(Math.min(2, Math.max(0.5, r)) * 10) / 10;
-  } else {
-    opts.textSpeed = 1;
   }
   if (!opts.targetLang) opts.targetLang = "pl";
   return opts;

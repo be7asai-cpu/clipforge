@@ -1609,21 +1609,30 @@ async function runJob(job) {
       }
     }
 
-    // Full text → equal word packs on entire timeline (e.g. ~3 words/seg)
+    // Full text → whole words by character weight on entire timeline
+    const paceKey =
+      job.options.speechPace ||
+      job.options.textSpeechPace ||
+      job.options.textSpeedMode ||
+      "normal";
     if (typeof distributeTextOnTimeline === "function") {
-      const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3);
+      const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3, {
+        speechPace: paceKey,
+      });
       timedOriginal = formatTimedAll(srcSpread);
-      const tgtSpread = distributeTextOnTimeline(text, filmDur, 3);
+      const tgtSpread = distributeTextOnTimeline(text, filmDur, 3, {
+        speechPace: paceKey,
+      });
       timedText = formatTimedAll(tgtSpread);
-      const wc = String(text || "")
-        .split(/\s+/)
-        .filter(Boolean).length;
+      const cc = String(text || "").replace(/\s+/g, " ").trim().length;
       log(
-        "Oś czasu proporcjonalna:",
+        "Oś czasu (całe słowa, znaki):",
         tgtSpread.length,
-        "seg × 3s · ~",
-        tgtSpread.length ? (wc / tgtSpread.length).toFixed(1) : 0,
-        "słów/seg"
+        "seg · tempo",
+        paceKey,
+        "· ~",
+        tgtSpread.length ? Math.round(cc / tgtSpread.length) : 0,
+        "znaków/seg"
       );
     }
 

@@ -716,44 +716,6 @@
   $("#opt-title").addEventListener("input", refreshLangBadge);
   $("#opt-script").addEventListener("input", refreshLangBadge);
 
-  /** Tempo lektora: auto vs manual (0.5–2.0, step 0.1) */
-  function clampTextSpeedUi(v) {
-    let n = Number(v);
-    if (!Number.isFinite(n)) n = 1;
-    n = Math.min(2, Math.max(0.5, n));
-    return Math.round(n * 10) / 10;
-  }
-  function syncTextSpeedUi(from) {
-    const range = $("#opt-text-speed");
-    const num = $("#opt-text-speed-num");
-    const lab = $("#opt-text-speed-val");
-    const mode =
-      document.querySelector('input[name="text-speed-mode"]:checked')?.value ||
-      "auto";
-    const manual = mode === "manual";
-    if (range) range.disabled = !manual;
-    if (num) num.disabled = !manual;
-    let val = 1;
-    if (from === "num" && num) val = clampTextSpeedUi(num.value);
-    else if (range) val = clampTextSpeedUi(range.value);
-    else if (num) val = clampTextSpeedUi(num.value);
-    if (range) range.value = String(val);
-    if (num) num.value = String(val);
-    if (lab) {
-      lab.textContent =
-        val.toFixed(1) +
-        "×" +
-        (manual ? "" : " · " + tr("narrator.speedAutoShort", "auto"));
-    }
-  }
-  document.querySelectorAll('input[name="text-speed-mode"]').forEach((el) => {
-    el.addEventListener("change", () => syncTextSpeedUi("mode"));
-  });
-  $("#opt-text-speed")?.addEventListener("input", () => syncTextSpeedUi("range"));
-  $("#opt-text-speed-num")?.addEventListener("change", () => syncTextSpeedUi("num"));
-  $("#opt-text-speed-num")?.addEventListener("input", () => syncTextSpeedUi("num"));
-  syncTextSpeedUi("mode");
-
   refreshModeHint();
   refreshTranscriptHint();
   refreshLangBadge();
@@ -948,6 +910,11 @@
         fd.append("targetLang", tgtLang);
         fd.append("autoTranslate", onlyOriginal ? "0" : "1");
         fd.append("timedTranscript", wantTimed ? "1" : "0");
+        const pace =
+          document.querySelector('input[name="text-speed-mode"]:checked')
+            ?.value || "normal";
+        fd.append("speechPace", pace);
+        fd.append("textSpeedMode", pace);
         res = await fetch("/api/studio/transcribe", {
           method: "POST",
           body: fd,
@@ -955,6 +922,9 @@
         });
         data = await res.json().catch(() => ({}));
       } else {
+        const pace =
+          document.querySelector('input[name="text-speed-mode"]:checked')
+            ?.value || "normal";
         res = await fetch("/api/studio/transcribe", {
           method: "POST",
           credentials: "same-origin",
@@ -965,6 +935,9 @@
             targetLang: tgtLang,
             autoTranslate: !onlyOriginal,
             timedTranscript: wantTimed,
+            speechPace: pace,
+            textSpeechPace: pace,
+            textSpeedMode: pace,
           }),
         });
         data = await res.json().catch(() => ({}));
@@ -1327,11 +1300,21 @@
       timedTranscript: wantTimedTranscript(),
       textSpeedMode:
         document.querySelector('input[name="text-speed-mode"]:checked')
-          ?.value || "auto",
+          ?.value || "normal",
+      speechPace:
+        document.querySelector('input[name="text-speed-mode"]:checked')
+          ?.value || "normal",
+      textSpeechPace:
+        document.querySelector('input[name="text-speed-mode"]:checked')
+          ?.value || "normal",
       textSpeed: (() => {
-        const n = Number($("#opt-text-speed")?.value);
-        if (!Number.isFinite(n)) return 1;
-        return Math.round(Math.min(2, Math.max(0.5, n)) * 10) / 10;
+        const v =
+          document.querySelector('input[name="text-speed-mode"]:checked')
+            ?.value || "normal";
+        if (v === "slow") return 0.85;
+        if (v === "fast") return 1.2;
+        if (v === "auto") return 1;
+        return 1.0;
       })(),
       narratorVoice: $("#opt-voice").value,
       title: $("#opt-title").value.trim(),
