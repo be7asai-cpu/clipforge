@@ -11,6 +11,79 @@
   let lastRenderedJob = null;
 
   /**
+   * Split large continuous transcript/translation into hop segments for the live boxes
+   * at the top (otherwise one huge paragraph is unreadable).
+   * Already-timed lines [mm:ss → mm:ss] are kept; long cue bodies wrap per CSS.
+   */
+  function formatLiveAsSegments(text) {
+    const raw = text == null ? "" : String(text).trim();
+    if (!raw) return raw;
+    // Status / wait lines (short, start with dash or ellipsis) — leave alone
+    if (
+      (raw.charAt(0) === "—" || raw.charAt(0) === "…" || raw.charAt(0) === "-") &&
+      raw.length < 220 &&
+      !/\[\s*\d{1,2}:\d{2}/.test(raw)
+    ) {
+      return raw;
+    }
+    // Already multi-cue timed transcript
+    const timedLines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const cueCount = timedLines.filter((l) =>
+      /^\[\s*\d{1,2}:\d{2}/.test(l)
+    ).length;
+    if (cueCount >= 2) {
+      // Soft-wrap very long cue bodies (display only)
+      return timedLines
+        .map((line) => {
+          const m = line.match(
+            /^(\[\s*\d{1,2}:\d{2}(?:[.,]\d{1,3})?\s*[–—→\-]+\s*\d{1,2}:\d{2}(?:[.,]\d{1,3})?\s*s?\s*\])\s*(.*)$/i
+          );
+          if (!m) return line;
+          const head = m[1];
+          const body = String(m[2] || "").replace(/\s+/g, " ").trim();
+          if (body.length <= 140) return head + " " + body;
+          const words = body.split(/\s+/);
+          const parts = [];
+          let buf = [];
+          for (const w of words) {
+            buf.push(w);
+            if (buf.join(" ").length >= 120) {
+              parts.push(buf.join(" "));
+              buf = [];
+            }
+          }
+          if (buf.length) parts.push(buf.join(" "));
+          return parts
+            .map((p, i) => (i === 0 ? head + " " + p : "    ↳ " + p))
+            .join("\n");
+        })
+        .join("\n");
+    }
+    // Continuous blob → 6s hop segments (~14 words ≈ one hop of speech)
+    const plain = raw
+      .replace(/^\s*\[\s*\d{1,2}:\d{2}[^\]]*\]\s*/gm, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const words = plain.split(/\s+/).filter(Boolean);
+    if (words.length <= 16) return plain;
+    const hop = 6;
+    const wordsPerSeg = 14;
+    const fmt = (t) => {
+      const m = Math.floor(t / 60);
+      const s = (t - m * 60).toFixed(2).padStart(5, "0");
+      return String(m).padStart(2, "0") + ":" + s;
+    };
+    const lines = [];
+    for (let i = 0, s = 0; i < words.length; i += wordsPerSeg, s++) {
+      const chunk = words.slice(i, i + wordsPerSeg).join(" ");
+      const t0 = s * hop;
+      const t1 = t0 + hop;
+      lines.push("[" + fmt(t0) + " → " + fmt(t1) + "] " + chunk);
+    }
+    return lines.join("\n");
+  }
+
+  /**
    * Map Polish server status strings in live boxes → current UI language.
    * Real transcript/translation text is left unchanged.
    */
@@ -2661,11 +2734,16 @@
       const srcText =
         job.liveOriginal ||
         job.result?.language?.original ||
+        job.result?.timedOriginal ||
         (job.status === "queued" ? tr("live.msg.queued", "— queued —") : null) ||
         (job.status === "running" && !job.liveOriginal
           ? tr("live.msg.hdWait", "… HD video processing — transcription after picture …")
           : null);
-      lo.textContent = translateLiveBoxText(srcText, "live.wait");
+      // Segment big continuous blobs for readability (live panels at top)
+      const srcShown = formatLiveAsSegments(
+        translateLiveBoxText(srcText, "live.wait")
+      );
+      lo.textContent = srcShown;
       // Lock when real transcript is showing so apply() won't wipe it
       if (job.liveOriginal || job.result?.language?.original) {
         lo.setAttribute("data-i18n-lock", "1");
@@ -2676,12 +2754,16 @@
     if (ls) {
       const live =
         job.liveScript ||
+        job.result?.timedScript ||
         job.result?.script ||
         (job.status === "queued" ? tr("live.msg.queued", "— queued —") : null) ||
         (job.status === "running" && !job.liveScript
           ? tr("live.wait2", "— waiting for extract & translate… —")
           : null);
-      ls.textContent = translateLiveBoxText(live, "live.wait2");
+      const liveShown = formatLiveAsSegments(
+        translateLiveBoxText(live, "live.wait2")
+      );
+      ls.textContent = liveShown;
       if (job.liveScript || job.result?.script) {
         ls.setAttribute("data-i18n-lock", "1");
       } else {

@@ -2335,19 +2335,30 @@ input[type="range"] {
   border: 1px solid rgba(0, 240, 255, 0.2) !important;
   padding: 10px !important;
   min-height: 70px !important;
+  /* Segmented transcripts get long — scroll instead of one giant block */
+  max-height: 220px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
   font-family: "Share Tech Mono", monospace !important;
   font-size: 0.78rem !important;
   color: var(--text) !important;
-  line-height: 1.4 !important;
+  line-height: 1.45 !important;
   white-space: pre-wrap;
   word-break: break-word;
   margin: 0 !important;
-  border-radius: 0 !important;
-  /* no nested scrollbars in progress panel */
-  max-height: none !important;
-  overflow: visible !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 229, 192, 0.45) transparent;
 }
-.live-script { color: var(--teal, #00e5c0) !important; }
+.live-box::-webkit-scrollbar {
+  width: 6px;
+}
+.live-box::-webkit-scrollbar-thumb {
+  background: rgba(0, 229, 192, 0.4);
+  border-radius: 4px;
+}
+.live-script {
+  color: var(--teal, #00e5c0) !important;
+}
 .live-phase {
   font-family: "Share Tech Mono", monospace;
   font-size: 0.72rem;
