@@ -1680,14 +1680,47 @@ app.post("/api/studio/transcribe", (req, res) => {
       } catch {
         /* ignore probe */
       }
-      const stt = extractSpeechFromVideoSegmented(videoPath, {
+      const maxScan =
+        durationSec > 0 ? Math.min(durationSec + 1, maxSeconds) : maxSeconds;
+      let stt = extractSpeechFromVideoSegmented(videoPath, {
         sourceLang,
-        maxSeconds: durationSec > 0 ? Math.min(durationSec + 1, maxSeconds) : maxSeconds,
+        maxSeconds: maxScan,
         workDir: path.join(workDir, "stt"),
+        // Always scan full clip for pre-edit transcript (no music early-exit)
+        noEarlyExit: true,
+        minScanRatio: 0.98,
       });
-      const text = String(stt.text || "")
+      let text = String(stt.text || "")
         .replace(/\s+/g, " ")
         .trim();
+      // Retry auto / en / pl if first pass empty (wrong forced source lang)
+      if (!text && sourceLang && sourceLang !== "auto") {
+        stt = extractSpeechFromVideoSegmented(videoPath, {
+          sourceLang: "auto",
+          maxSeconds: maxScan,
+          workDir: path.join(workDir, "stt_auto"),
+          noEarlyExit: true,
+          minScanRatio: 0.98,
+        });
+        text = String(stt.text || "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+      if (!text) {
+        for (const langTry of ["en", "pl"]) {
+          if (sourceLang === langTry) continue;
+          stt = extractSpeechFromVideoSegmented(videoPath, {
+            sourceLang: langTry,
+            maxSeconds: Math.min(maxScan, 180),
+            workDir: path.join(workDir, "stt_" + langTry),
+            noEarlyExit: true,
+          });
+          text = String(stt.text || "")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (text) break;
+        }
+      }
       const titleGuess = String(originalName)
         .replace(/\.[^.]+$/, "")
         .replace(/[_\-]+/g, " ")
