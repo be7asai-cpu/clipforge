@@ -438,10 +438,13 @@ async function ensureToken() {
   return agentToken;
 }
 
-async function heartbeat() {
+/** @param {{ busyJobId?: string|null }} [opts] */
+async function heartbeat(opts = {}) {
+  const body = { label: LABEL };
+  if (opts.busyJobId) body.busyJobId = String(opts.busyJobId);
   const res = await request("POST", "/api/studio/agent/heartbeat", {
     token: agentToken,
-    body: { label: LABEL },
+    body,
   });
   if (res.status === 401) {
     agentToken = "";
@@ -451,9 +454,34 @@ async function heartbeat() {
       /* ignore */
     }
     await ensureToken();
-    return heartbeat();
+    return heartbeat(opts);
   }
   return res.data;
+}
+
+/** Keep cloud job alive while pipeline/STT blocks the event loop for long stretches */
+function startJobKeepAlive(jobId) {
+  let n = 0;
+  const id = setInterval(() => {
+    n += 1;
+    heartbeat({ busyJobId: jobId }).catch(() => null);
+    // Touch progress endpoint (even without % change) → updates updatedAt
+    reportProgress(jobId, {
+      touch: true,
+      stage: n % 4 === 0 ? "Na Twoim PC (pracuje)…" : undefined,
+      log:
+        n % 8 === 0
+          ? "Agent nadal pracuje (keepalive " + n * 12 + "s)…"
+          : undefined,
+    }).catch(() => null);
+  }, 12000);
+  return () => {
+    try {
+      clearInterval(id);
+    } catch {
+      /* ignore */
+    }
+  };
 }
 
 async function claim() {
@@ -1332,10 +1360,18 @@ async function downloadInput(job, destPath) {
 }
 
 async function reportProgress(jobId, patch) {
-  await request("POST", `/api/studio/agent/jobs/${jobId}/progress`, {
+  const res = await request("POST", `/api/studio/agent/jobs/${jobId}/progress`, {
     token: agentToken,
     body: patch || {},
   }).catch(() => null);
+  // 409 = job requeued under us — log once
+  if (res && res.status === 409) {
+    log(
+      "Progress 409: job nie jest running (został oddany do kolejki?) id=",
+      jobId
+    );
+  }
+  return res;
 }
 
 async function reportFail(jobId, error) {
@@ -1399,6 +1435,8 @@ function multipartComplete(jobId, files, result) {
 
 async function runJob(job) {
   log("Start job", job.id, job.originalName);
+  // Keepalive: heartbeat + progress touch every 12s so cloud never "reclaim" mid-STT
+  const stopKeepAlive = startJobKeepAlive(job.id);
   // Immediate ack so UI leaves 1% even if yt-dlp is slow / agent dies mid-way can reclaim
   const workDir = path.join(ROOT, "data", "studio", "work", "pc_" + job.id);
   try {
@@ -1406,6 +1444,7 @@ async function runJob(job) {
   } catch (e) {
     log("mkdir work:", e.message || e);
   }
+  try {
   await reportProgress(job.id, {
     progress: 2,
     stage: "Start na PC…",
@@ -2164,7 +2203,7 @@ async function runJob(job) {
       );
     }
     log("Pre-transcribe gotowe:", job.id, text.slice(0, 60));
-    return;
+    return; // finally below still runs (outer try)
   }
 
   // Prefer agent-local pipeline (same folder as this script's install)
@@ -2179,7 +2218,7 @@ async function runJob(job) {
     result: null,
   };
 
-  try {
+  {
     await runPipeline(localJob, (patch) => {
       reportProgress(job.id, patch);
     });
@@ -2339,9 +2378,12 @@ async function runJob(job) {
       }
       log("Job gotowy", job.id);
     }
+  }
   } catch (err) {
     log("Job błąd", job.id, err.message || err);
     await reportFail(job.id, err.message || String(err));
+  } finally {
+    stopKeepAlive();
   }
 }
 

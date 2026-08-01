@@ -1337,18 +1337,36 @@ app.post("/api/studio/agent/heartbeat", async (req, res) => {
     const row = await resolveAgentSession(req);
     if (!row) return res.status(401).json({ error: "Zły token" });
     const label = String(req.body?.label || row.label || "PC");
+    const busyJobId = req.body?.busyJobId
+      ? String(req.body.busyJobId).slice(0, 64)
+      : null;
     const st = pcAgent.heartbeat(row.token, label, {
       userId: row.userId,
       email: row.email,
     });
-    // While agent is alive, unstick orphans claimed then abandoned (setup reinstall etc.)
+    // Touch running job so reclaim does not steal it during long STT/encode
+    if (busyJobId) {
+      try {
+        const j = studioJobs.getJob(busyJobId);
+        if (j && j.status === "running" && j.executor === "pc") {
+          studioJobs.updateJob(j.id, {
+            touch: true,
+            stage: j.stage || "Na Twoim PC…",
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    // Unstick orphans claimed then abandoned — never the job this agent is running
     let reclaimed = 0;
     try {
-      reclaimed = studioJobs.reclaimStalePcJobs(row.userId, row.email) || 0;
+      reclaimed =
+        studioJobs.reclaimStalePcJobs(row.userId, row.email, { busyJobId }) || 0;
     } catch {
       reclaimed = 0;
     }
-    res.json({ ok: true, ...st, reclaimed });
+    res.json({ ok: true, ...st, reclaimed, busyJobId: busyJobId || null });
   } catch (err) {
     res.status(500).json({ error: err.message || "heartbeat" });
   }
@@ -1431,6 +1449,13 @@ app.post("/api/studio/agent/jobs/:id/progress", async (req, res) => {
   if (job.executor !== "pc") {
     return res.status(400).json({ error: "To nie jest job PC" });
   }
+  // Job was requeued under us — refuse so agent can stop / re-claim cleanly
+  if (job.status !== "running") {
+    return res.status(409).json({
+      error: "Job nie jest running (status=" + job.status + ")",
+      status: job.status,
+    });
+  }
   const patch = req.body || {};
   const allowed = {};
   if (typeof patch.progress === "number") allowed.progress = patch.progress;
@@ -1439,8 +1464,9 @@ app.post("/api/studio/agent/jobs/:id/progress", async (req, res) => {
   if (patch.liveOriginal) allowed.liveOriginal = patch.liveOriginal;
   if (patch.liveScript) allowed.liveScript = patch.liveScript;
   if (patch.livePhase) allowed.livePhase = patch.livePhase;
+  if (patch.touch) allowed.touch = true;
   studioJobs.updateJob(job.id, allowed);
-  res.json({ ok: true });
+  res.json({ ok: true, progress: studioJobs.getJob(job.id)?.progress });
 });
 
 app.post("/api/studio/agent/jobs/:id/fail", async (req, res) => {
