@@ -249,6 +249,8 @@
   "quality.colorLab": "Preset koloru/ostrości",
   "quality.crfLab": "Jakość kodowania (CRF)",
   "narrator.autoTrLab": "Tłumacz na język docelowy (można wyłączyć = oryginał)",
+  "narrator.proLab": "🎯 Pro lektor (auto pod język: segmenty, cisze, tempo, znaki)",
+  "narrator.proHint": "Włączone: osobny profil dla PL/EN/DE/… (chars/s, hop, łączenie krótkich cisz, tempo Edge TTS, 1:1 z zegarami źródła). Bez chmury / bez tokenów — reguły lokalne.",
   "narrator.timedTrLab": "Segmenty co 6s z edytora (źródło = tłumaczenie, te same czasy)",
   "narrator.timedTrHint": "Po Wyodrębnij: segmenty co 6 sekund w polu (także napisy YouTube). Przy Start źródło = edytor; tłumaczenie/lektor/napisy = te same segmenty i czasy (bez drugiego NMT, jeśli już przetłumaczone).",
   "narrator.speedTitle": "Tempo mowy (lektor)",

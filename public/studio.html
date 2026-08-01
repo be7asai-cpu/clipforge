@@ -650,6 +650,19 @@
               </label>
               <label
                 class="inline"
+                title="Profile per język: tempo mowy, segmentacja, cisze, max znaków/s, dopasowanie do filmu — dokładniejszy lektor 1:1"
+              >
+                <input type="checkbox" id="opt-pro-narrator" checked />
+                <span data-i18n="narrator.proLab"
+                  >🎯 Pro lektor (auto pod język: segmenty, cisze, tempo, znaki)</span
+                >
+              </label>
+              <p class="hint" data-i18n="narrator.proHint">
+                Włączone: osobny profil dla PL/EN/DE/… (chars/s, hop, łączenie krótkich cisz, tempo Edge TTS,
+                1:1 z zegarami źródła). Bez chmury / bez tokenów — reguły lokalne.
+              </p>
+              <label
+                class="inline"
                 title="8 równych segmentów z edytora = źródło i tłumaczenie (te same czasy)."
               >
                 <input type="checkbox" id="opt-timed-transcript" checked />

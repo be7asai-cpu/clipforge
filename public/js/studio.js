@@ -1894,6 +1894,8 @@
       sourceLang: $("#opt-source-lang")?.value || "auto",
       targetLang: targetLang(),
       autoTranslate: $("#opt-auto-translate").checked,
+      /** Pro lektor: per-language segmentation / rate / silence merge */
+      proNarrator: $("#opt-pro-narrator")?.checked !== false,
       /** true = script as timed transcription [mm:ss–mm:ss]; false = plain continuous text */
       timedTranscript: wantTimedTranscript(),
       textSpeedMode: getTextSpeedMode(),

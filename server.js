@@ -1915,6 +1915,9 @@ async function runPreTranscribeOnFile(videoPath, {
     smartRewrite: smartRewrite !== false,
     useOllama: useOllama !== false,
     returnMeta: true,
+    targetLang,
+    langCode: targetLang,
+    proNarrator: true,
   };
   let rewriteEngine = null;
   let ollamaModel = null;
@@ -1979,14 +1982,20 @@ async function runPreTranscribeOnFile(videoPath, {
     timedOriginal = formatEditField8sTranscript(originalText, sttSlots, {
       durationSec: filmDur,
       maxDurationSec: filmDur,
+      targetLang: sourceLang || "auto",
+      proNarrator: true,
     });
     timedText = formatEditField8sTranscript(text, sttSlots, {
       durationSec: filmDur,
       maxDurationSec: filmDur,
+      targetLang,
+      proNarrator: true,
     });
     const nSegs =
       (typeof buildEditField8sSegments === "function" &&
         buildEditField8sSegments(sttSlots, text, {
+          targetLang,
+          proNarrator: true,
           durationSec: filmDur,
           maxDurationSec: filmDur,
         })) ||

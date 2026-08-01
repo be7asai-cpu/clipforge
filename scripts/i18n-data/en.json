@@ -249,6 +249,8 @@
   "quality.colorLab": "Color / sharpness preset",
   "quality.crfLab": "Encode quality (CRF)",
   "narrator.autoTrLab": "Translate to target language (can turn off = original)",
+  "narrator.proLab": "🎯 Pro narrator (per-language: segments, silence, rate, density)",
+  "narrator.proHint": "On: language profiles (chars/s, hop, merge short gaps, Edge TTS rate, 1:1 source clocks). No cloud tokens — local rules only.",
   "narrator.timedTrLab": "6s hop segments from editor (source = translation clocks)",
   "narrator.timedTrHint": "After Extract: one segment every 6 seconds in the box (same for YouTube captions). On Start, live source comes from the editor; translation/narrator/subs use the same segments and clocks (no second NMT if already translated).",
   "narrator.speedTitle": "Speech tempo (narrator)",
