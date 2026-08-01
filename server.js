@@ -1628,6 +1628,20 @@ app.get("/api/studio/languages", (_req, res) => {
   res.json(listLanguageModels());
 });
 
+/** Ollama status for Studio UI (local rewrite option). */
+app.get("/api/studio/ollama-status", async (_req, res) => {
+  try {
+    const { probeOllamaStatus } = require("./lib/lang-utils");
+    const st =
+      typeof probeOllamaStatus === "function"
+        ? await probeOllamaStatus()
+        : { ok: false, online: false, model: null };
+    res.json(st);
+  } catch {
+    res.json({ ok: false, online: false, model: null });
+  }
+});
+
 /**
  * Shared pre-job STT + optional exact translate (file path on disk).
  */
@@ -1641,6 +1655,8 @@ async function runPreTranscribeOnFile(videoPath, {
   maxSeconds = 10800,
   originalName = "video.mp4",
   workDir = null,
+  smartRewrite = true,
+  useOllama = true,
 } = {}) {
   const {
     extractSpeechFromVideoSegmented,
@@ -1804,28 +1820,40 @@ async function runPreTranscribeOnFile(videoPath, {
   );
 
   // Text for translation must not "speak longer" than the film (~13 chars/s).
-  // Intelligent rewrite (sense-preserving) BEFORE NMT — optional Ollama when present.
+  // UI: smartRewrite + useOllama (default on).
   const {
     formatEditField8sTranscript,
     buildEditField8sSegments,
     fitTextToFilmDuration: fitFilm,
     fitTextToFilmDurationAsync: fitFilmAsync,
   } = require("./lib/lang-utils");
-  if (filmDur > 0.5) {
+  const fitOpts = {
+    smartRewrite: smartRewrite !== false,
+    useOllama: useOllama !== false,
+    returnMeta: true,
+  };
+  let rewriteEngine = null;
+  let ollamaModel = null;
+  async function fitWithMeta(t) {
+    if (!(filmDur > 0.5) || !t) return t;
     try {
       if (typeof fitFilmAsync === "function") {
-        originalText =
-          (await fitFilmAsync(originalText, filmDur)) || originalText;
-      } else if (typeof fitFilm === "function") {
-        originalText = fitFilm(originalText, filmDur) || originalText;
+        const r = await fitFilmAsync(t, filmDur, fitOpts);
+        if (r && typeof r === "object" && r.text != null) {
+          if (r.engine) rewriteEngine = r.engine;
+          if (r.ollamaModel) ollamaModel = r.ollamaModel;
+          return r.text || t;
+        }
+        return r || t;
       }
+      if (typeof fitFilm === "function") return fitFilm(t, filmDur) || t;
     } catch {
-      if (typeof fitFilm === "function") {
-        originalText = fitFilm(originalText, filmDur) || originalText;
-      }
+      if (typeof fitFilm === "function") return fitFilm(t, filmDur) || t;
     }
-    text = originalText;
+    return t;
   }
+  originalText = await fitWithMeta(originalText);
+  text = originalText;
 
   if (autoTranslate) {
     try {
@@ -1841,17 +1869,7 @@ async function runPreTranscribeOnFile(videoPath, {
         translated = !tr.skipped;
         translateEngine = (tr.engine || "nmt") + "+timeline";
         // Target language may expand — re-rewrite so speech still ≤ film
-        try {
-          if (typeof fitFilmAsync === "function" && filmDur > 0.5) {
-            text = (await fitFilmAsync(text, filmDur)) || text;
-          } else if (typeof fitFilm === "function" && filmDur > 0.5) {
-            text = fitFilm(text, filmDur) || text;
-          }
-        } catch {
-          if (typeof fitFilm === "function" && filmDur > 0.5) {
-            text = fitFilm(text, filmDur) || text;
-          }
-        }
+        text = await fitWithMeta(text);
       } else if (tr && tr.error) {
         translateError = tr.error;
       }
@@ -1954,6 +1972,10 @@ async function runPreTranscribeOnFile(videoPath, {
         : null,
     error: null,
     musicLikely: !!stt.musicLikely,
+    smartRewrite: fitOpts.smartRewrite,
+    useOllama: fitOpts.useOllama,
+    rewriteEngine,
+    ollamaModel,
     workDir: wd,
   };
 }
@@ -1991,6 +2013,18 @@ app.post("/api/studio/transcribe", (req, res) => {
       body?.timedTranscript === "1" ||
       body?.timedTranscript === "true" ||
       body?.timedTranscript === true;
+    const smartRewrite =
+      body?.smartRewrite == null ||
+      body?.smartRewrite === "" ||
+      body?.smartRewrite === "1" ||
+      body?.smartRewrite === "true" ||
+      body?.smartRewrite === true;
+    const useOllama =
+      body?.useOllama == null ||
+      body?.useOllama === "" ||
+      body?.useOllama === "1" ||
+      body?.useOllama === "true" ||
+      body?.useOllama === true;
     const speechPace = String(
       body?.speechPace || body?.textSpeechPace || body?.textSpeedMode || "normal"
     )
@@ -2045,6 +2079,8 @@ app.post("/api/studio/transcribe", (req, res) => {
             targetLang,
             autoTranslate: !!autoTranslate,
             timedTranscript: !!timedTranscript,
+            smartRewrite: !!smartRewrite,
+            useOllama: !!useOllama,
             transcriptSource,
             speechPace,
             textSpeechPace: speechPace,
@@ -2094,6 +2130,8 @@ app.post("/api/studio/transcribe", (req, res) => {
           targetLang,
           autoTranslate,
           timedTranscript,
+          smartRewrite,
+          useOllama,
           speechPace,
           textSpeechPace: speechPace,
           maxSeconds,
@@ -2137,6 +2175,8 @@ app.post("/api/studio/transcribe", (req, res) => {
         targetLang,
         autoTranslate,
         timedTranscript,
+        smartRewrite,
+        useOllama,
         speechPace,
         textSpeechPace: speechPace,
         maxSeconds,
@@ -2242,6 +2282,10 @@ app.post("/api/studio/agent/jobs/:id/complete-transcript", async (req, res) => {
         },
         engine: body.engine || null,
         duration: body.durationSec || null,
+        smartRewrite: body.smartRewrite != null ? !!body.smartRewrite : true,
+        useOllama: body.useOllama != null ? !!body.useOllama : true,
+        rewriteEngine: body.rewriteEngine || null,
+        ollamaModel: body.ollamaModel || null,
       },
       log:
         "Pre-STT z linku OK · " +

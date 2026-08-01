@@ -609,6 +609,38 @@
                   Tylko przycisk «Wyodrębnij»: wybierz skąd wstawić tekst do pola. «Z dźwięku» = STT z audio, nie napisy YT.
                 </p>
               </div>
+              <div class="opt-block extract-rewrite-block" id="extract-rewrite-block">
+                <div class="opt-block-title" data-i18n="narrator.smartRewriteTitle">
+                  Przeredagowanie do długości filmu
+                </div>
+                <label
+                  class="inline"
+                  title="Tekst w polu nie będzie dłuższy niż film: gęstsza narracja, bez utraty faktów"
+                >
+                  <input type="checkbox" id="opt-smart-rewrite" checked />
+                  <span data-i18n="narrator.smartRewriteLab"
+                    >🧠 Inteligentne przeredagowanie (≤ długość filmu)</span
+                  >
+                </label>
+                <label
+                  class="inline"
+                  id="opt-use-ollama-wrap"
+                  title="Wymaga uruchomionej Ollamy na tym PC (lokalny model LLM)"
+                >
+                  <input type="checkbox" id="opt-use-ollama" checked />
+                  <span data-i18n="narrator.useOllamaLab"
+                    >🦙 Ollama (lokalny AI) — jeśli włączona</span
+                  >
+                </label>
+                <p class="hint" id="ollama-status" data-i18n="narrator.ollamaStatusWait">
+                  Sprawdzam Ollamę…
+                </p>
+                <p class="hint" data-i18n="narrator.smartRewriteHint">
+                  Włączone: po Wyodrębnij tekst jest skracany/przeredagowany tak, by dało się go
+                  wypowiedzieć w czasie filmu — z zachowaniem sensu. Ollama (opcjonalnie) daje
+                  bardziej naturalne brzmienie; bez niej działa regułowe skracanie offline.
+                </p>
+              </div>
               <div class="pre-stt-bar" id="pre-stt-bar">
                 <button type="button" class="btn ghost sm" id="btn-extract-transcript">
                   <span data-i18n="narrator.extractBtn">🎤 Wyodrębnij + dokładne tłumaczenie</span>

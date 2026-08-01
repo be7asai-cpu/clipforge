@@ -801,6 +801,16 @@
   refreshLangBadge();
 
   /** Prefer exact STT timed transcription unless user fully disabled it */
+  function wantSmartRewrite() {
+    const el = $("#opt-smart-rewrite");
+    return el ? !!el.checked : true;
+  }
+  function wantUseOllama() {
+    const el = $("#opt-use-ollama");
+    // Ollama only meaningful when smart rewrite is on
+    return wantSmartRewrite() && (el ? !!el.checked : true);
+  }
+
   function wantTimedTranscript() {
     const el = $("#opt-timed-transcript");
     // default ON when control missing
@@ -974,6 +984,14 @@
       data.durationSec
         ? "~" + Math.round(Number(data.durationSec)) + "s"
         : null,
+      data.rewriteEngine === "ollama"
+        ? tr("narrator.rewriteMetaOllama", "Ollama") +
+          (data.ollamaModel ? " · " + data.ollamaModel : "")
+        : data.rewriteEngine === "offline"
+          ? tr("narrator.rewriteMetaOffline", "przeredag. offline")
+          : data.rewriteEngine === "simple"
+            ? tr("narrator.rewriteMetaSimple", "proste skrócenie")
+            : null,
       data.fromUrl ? "URL" : null,
     ]
       .filter(Boolean)
@@ -1039,6 +1057,8 @@
             exactCueCount: r.exactCueCount || r.segments || null,
             transcriptMode: r.transcriptMode || null,
             segments: r.exactCueCount || r.segments || null,
+            rewriteEngine: r.rewriteEngine || null,
+            ollamaModel: r.ollamaModel || null,
             fromUrl: true,
             title: job.originalName,
           },
@@ -1079,6 +1099,8 @@
       return;
     }
     const wantTimed = wantTimedTranscript();
+    const smartRewrite = wantSmartRewrite();
+    const useOllama = wantUseOllama();
     const onlyOriginal = !!$("#opt-extract-no-tr")?.checked;
     const srcLang = $("#opt-source-lang")?.value || "auto";
     const tgtLang = targetLang() || "pl";
@@ -1134,6 +1156,8 @@
         fd.append("targetLang", tgtLang);
         fd.append("autoTranslate", onlyOriginal ? "0" : "1");
         fd.append("timedTranscript", wantTimed ? "1" : "0");
+        fd.append("smartRewrite", smartRewrite ? "1" : "0");
+        fd.append("useOllama", useOllama ? "1" : "0");
         fd.append("transcriptSource", srcMode);
         const speedMode = getTextSpeedMode();
         fd.append("speechPace", speedMode);
@@ -1157,6 +1181,8 @@
             targetLang: tgtLang,
             autoTranslate: !onlyOriginal,
             timedTranscript: wantTimed,
+            smartRewrite,
+            useOllama,
             transcriptSource: srcMode,
             speechPace: speedMode,
             textSpeechPace: speedMode,
@@ -1206,6 +1232,55 @@
   $("#btn-extract-transcript")?.addEventListener("click", () => {
     extractTranscriptToField();
   });
+
+  // Smart rewrite ↔ Ollama checkbox linkage + status probe
+  function syncOllamaCheckbox() {
+    const smart = $("#opt-smart-rewrite");
+    const oll = $("#opt-use-ollama");
+    const wrap = $("#opt-use-ollama-wrap");
+    if (oll) oll.disabled = smart ? !smart.checked : false;
+    if (wrap) wrap.style.opacity = smart && !smart.checked ? "0.5" : "";
+  }
+  $("#opt-smart-rewrite")?.addEventListener("change", syncOllamaCheckbox);
+  syncOllamaCheckbox();
+
+  async function refreshOllamaStatus() {
+    const el = $("#ollama-status");
+    if (!el) return;
+    try {
+      const res = await fetch("/api/studio/ollama-status", {
+        credentials: "same-origin",
+      });
+      const st = await res.json().catch(() => ({}));
+      if (st && st.ok && st.model) {
+        el.textContent = tr(
+          "narrator.ollamaStatusOn",
+          "Ollama: ON · model {model}"
+        ).replace("{model}", st.model);
+        el.classList.remove("is-err");
+        el.classList.add("is-ok");
+      } else if (st && st.online) {
+        el.textContent = tr(
+          "narrator.ollamaStatusNoModel",
+          "Ollama działa, ale brak modelu — ollama pull llama3.2"
+        );
+        el.classList.remove("is-ok");
+      } else {
+        el.textContent = tr(
+          "narrator.ollamaStatusOff",
+          "Ollama: OFF — uruchom Ollamę na PC, żeby użyć lokalnego AI"
+        );
+        el.classList.remove("is-ok");
+      }
+    } catch {
+      el.textContent = tr(
+        "narrator.ollamaStatusOff",
+        "Ollama: OFF — uruchom Ollamę na PC, żeby użyć lokalnego AI"
+      );
+    }
+  }
+  refreshOllamaStatus();
+  setInterval(refreshOllamaStatus, 45000);
 
   // --- file + first frame for logo picker ---
   function setFile(file) {

@@ -1815,12 +1815,28 @@ async function runJob(job) {
     } catch {
       /* ignore */
     }
-    // Intelligent rewrite ≤ film length BEFORE NMT (Ollama if available)
+    const smartRewrite =
+      job.options.smartRewrite == null || job.options.smartRewrite !== false;
+    const useOllama =
+      job.options.useOllama == null || job.options.useOllama !== false;
+    let rewriteEngine = null;
+    let ollamaModel = null;
+    // Intelligent rewrite ≤ film length BEFORE NMT (Ollama if UI allows)
     async function fitToFilm(t) {
       if (!(filmDur > 0.5) || !t) return t;
       try {
         if (typeof fitTextToFilmDurationAsync === "function") {
-          return (await fitTextToFilmDurationAsync(t, filmDur)) || t;
+          const r = await fitTextToFilmDurationAsync(t, filmDur, {
+            smartRewrite,
+            useOllama,
+            returnMeta: true,
+          });
+          if (r && typeof r === "object" && r.text != null) {
+            if (r.engine) rewriteEngine = r.engine;
+            if (r.ollamaModel) ollamaModel = r.ollamaModel;
+            return r.text || t;
+          }
+          return r || t;
         }
         if (typeof fitTextToFilmDuration === "function") {
           return fitTextToFilmDuration(t, filmDur) || t;
@@ -1994,6 +2010,10 @@ async function runJob(job) {
           exactCueCount,
           transcriptMode,
           segments: exactCueCount,
+          smartRewrite,
+          useOllama,
+          rewriteEngine,
+          ollamaModel,
         },
       }
     );
