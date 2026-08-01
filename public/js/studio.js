@@ -672,26 +672,46 @@
     );
   }
 
+  /** Drop [Music], [muzyka], (Applause), ♪ — non-speech caption tags */
+  function stripNonSpeechLabelsClient(text) {
+    let t = String(text || "");
+    t = t.replace(/[♪♫♬♩]+/g, " ");
+    t = t.replace(
+      /[\[\(【]\s*(?:music|muzyka|applause|oklaski|laughter|śmiech|smiech|silence|cisza|cheering|sings?|śpiew|spiew|instrumental|noise|hałas|halas|crowd|inaudible)[^\]\)】]{0,40}[\]\)】]/gi,
+      " "
+    );
+    t = t.replace(/\[\s*(?!\d{1,2}:\d{2})[^\]]{1,36}\]/g, " ");
+    t = t.replace(
+      /(?:^|[\s,;])(?:Music|Muzyka|Applause|Oklaski|Laughter|Śmiech|Silence|Cisza)(?=[\s,;.!?]|$)/gi,
+      " "
+    );
+    return t.replace(/\s+/g, " ").trim();
+  }
+
   /** Continuous paragraph only — strip [mm:ss → mm:ss] lines if present */
   function toPlainScriptText(raw) {
     const s = String(raw || "").trim();
     if (!s) return "";
     if (countExactCues(s) < 1) {
-      return s.replace(/\s+/g, " ").trim();
+      return stripNonSpeechLabelsClient(s.replace(/\s+/g, " ").trim());
     }
     const parts = [];
     for (const line of s.split(/\r?\n/)) {
       const t = String(line || "").trim();
       if (!t) continue;
-      const body = t
-        .replace(
-          /^\s*\[\s*\d{1,2}:\d{2}(?:[.,]\d{1,3})?\s*[–—→\-]+\s*\d{1,2}:\d{2}(?:[.,]\d{1,3})?\s*s?\s*\]\s*/i,
-          ""
-        )
-        .trim();
+      const body = stripNonSpeechLabelsClient(
+        t
+          .replace(
+            /^\s*\[\s*\d{1,2}:\d{2}(?:[.,]\d{1,3})?\s*[–—→\-]+\s*\d{1,2}:\d{2}(?:[.,]\d{1,3})?\s*s?\s*\]\s*/i,
+            ""
+          )
+          .trim()
+      );
       if (body) parts.push(body);
     }
-    return (parts.join(" ") || s).replace(/\s+/g, " ").trim();
+    return stripNonSpeechLabelsClient(
+      (parts.join(" ") || s).replace(/\s+/g, " ").trim()
+    );
   }
 
   function refreshLangBadge() {

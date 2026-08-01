@@ -881,6 +881,39 @@ function parseCaptionTime(h, m, s, ms) {
 }
 
 /**
+ * Drop YouTube non-speech tags: [Music], [muzyka], [Applause], ♪, etc.
+ * (Local copy so agent works even if cloud lang-utils is older.)
+ */
+function stripNonSpeechLabelsLocal(text) {
+  try {
+    const { stripNonSpeechLabels, isNonSpeechOnly } = require(path.join(
+      ROOT,
+      "lib",
+      "lang-utils.js"
+    ));
+    if (typeof stripNonSpeechLabels === "function") {
+      const cleaned = stripNonSpeechLabels(text);
+      if (typeof isNonSpeechOnly === "function" && isNonSpeechOnly(cleaned)) {
+        return "";
+      }
+      return cleaned;
+    }
+  } catch {
+    /* fall through */
+  }
+  let t = String(text || "");
+  t = t.replace(/[♪♫♬♩]+/g, " ");
+  t = t.replace(
+    /[\[\(【]\s*(?:music|muzyka|applause|oklaski|laughter|śmiech|smiech|silence|cisza|cheering|sings?|śpiew|spiew|instrumental|noise|hałas|halas)[^\]\)】]{0,30}[\]\)】]/gi,
+    " "
+  );
+  t = t.replace(/\[\s*(?!\d{1,2}:\d{2})[^\]]{1,36}\]/g, " ");
+  t = t.replace(/\(\s*(?!\d{1,2}:\d{2})[^)]{1,24}\)/g, " ");
+  t = t.replace(/\s+/g, " ").trim();
+  return t;
+}
+
+/**
  * Merge two caption strings without repeating overlapping words.
  * YouTube auto-subs "roll": "hello world" + "world how are" → "hello world how are"
  */
@@ -1087,12 +1120,13 @@ function parseCaptionsTimed(filePath) {
           timeLine = line;
           continue;
         }
-        // strip HTML / karaoke tags
-        const clean = line
+        // strip HTML / karaoke tags + non-speech [Music] etc.
+        let clean = line
           .replace(/<[^>]+>/g, " ")
           .replace(/\{[^}]+\}/g, " ")
           .replace(/\s+/g, " ")
           .trim();
+        clean = stripNonSpeechLabelsLocal(clean);
         if (clean) textLines.push(clean);
       }
       if (!timeLine || !textLines.length) continue;
@@ -1105,7 +1139,7 @@ function parseCaptionsTimed(filePath) {
       for (const ln of textLines) {
         text = text ? mergeCaptionOverlap(text, ln) : ln;
       }
-      text = text.replace(/\s+/g, " ").trim();
+      text = stripNonSpeechLabelsLocal(text.replace(/\s+/g, " ").trim());
       if (!text) continue;
       segments.push({
         start,
@@ -1114,8 +1148,13 @@ function parseCaptionsTimed(filePath) {
         silent: false,
       });
     }
-    const deduped = dedupeRollingCaptions(segments);
-    const text = captionsToPlainText(deduped);
+    const deduped = dedupeRollingCaptions(segments)
+      .map((s) => ({
+        ...s,
+        text: stripNonSpeechLabelsLocal(s.text),
+      }))
+      .filter((s) => s.text && s.text.length >= 1);
+    const text = stripNonSpeechLabelsLocal(captionsToPlainText(deduped));
     return { text, segments: deduped, file: filePath };
   } catch {
     return { text: "", segments: [], file: filePath };
