@@ -1846,27 +1846,12 @@ async function runJob(job) {
     let exactCueCount = 0;
     let transcriptMode = "plain";
     if (typeof buildTimedScriptFromText === "function") {
-      // Exact 8s hop clocks like source STT scan (0→8, 8→16, …)
-      let hopSec = 8;
-      try {
-        const { detectSttHopSec } = require(path.join(
-          ROOT,
-          "lib",
-          "lang-utils.js"
-        ));
-        if (typeof detectSttHopSec === "function") {
-          hopSec = detectSttHopSec(sttSlots) || 8;
-        }
-      } catch {
-        hopSec = 8;
-      }
+      // Segment-based 1:1 — same N and clocks as source STT/caption cues
       const exactOrig = buildTimedScriptFromText({
         text: originalText,
         sttSegments: sttSlots,
         durationSec: filmDur,
         speechPace: paceKey,
-        hopSec,
-        lockHop: true,
       });
       timedOriginal = formatTimedAll(exactOrig.segments || []);
       exactCueCount = (exactOrig.segments || []).filter(
@@ -1878,8 +1863,6 @@ async function runJob(job) {
         sttSegments: sttSlots,
         durationSec: filmDur,
         speechPace: paceKey,
-        hopSec,
-        lockHop: true,
       });
       timedText = formatTimedAll(exactTr.segments || []);
       if (exactTr.mode) transcriptMode = exactTr.mode;
