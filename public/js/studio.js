@@ -907,11 +907,11 @@
     }
   }
 
-  /** Extract / Start text source: auto | stt | whisper | captions */
+  /** Extract / Start text source: auto | stt | whisper | captions (default Whisper) */
   function extractSource() {
     const v =
       document.querySelector('input[name="extract-source"]:checked')?.value ||
-      "auto";
+      "whisper";
     if (v === "whisper" || v === "captions" || v === "auto") return v;
     return "stt";
   }
@@ -975,11 +975,11 @@
   syncExtractSourceUi();
 
   /**
-   * «Tekst do edytora» master: show/hide extract sources, rewrite, field.
-   * Off = clean UI; Start uses Auto (dźwięk/napisy) without nested options.
+   * «Tekst do edytora» (default ON): panel z Wyodrębnij + pole.
+   * Wyłączenie chowa panel — Start idzie ze źródła (Whisper/Auto/…).
    */
   function syncEditorAdvancedUi() {
-    const on = !!$("#opt-timed-transcript")?.checked;
+    const on = wantEditorFill();
     const panel = $("#editor-advanced");
     const hintOff = $("#timed-tr-hint-off");
     if (panel) panel.classList.toggle("hidden", !on);
@@ -987,7 +987,18 @@
     syncExtractSourceUi();
   }
   $("#opt-timed-transcript")?.addEventListener("change", syncEditorAdvancedUi);
-  syncEditorAdvancedUi();
+  // Ensure default ON if missing attribute after old cache
+  (function ensureEditorDefaultOn() {
+    const ed = $("#opt-timed-transcript");
+    if (ed && !ed.checked && !ed.dataset.userToggled) {
+      // keep HTML default; only force if neither checked nor explicit off stored
+    }
+    syncEditorAdvancedUi();
+  })();
+  $("#opt-timed-transcript")?.addEventListener("change", () => {
+    const ed = $("#opt-timed-transcript");
+    if (ed) ed.dataset.userToggled = "1";
+  });
 
   async function refreshWhisperStatus() {
     const el = $("#whisper-status");
@@ -1165,10 +1176,10 @@
     return wantSmartRewrite() && (el ? !!el.checked : true);
   }
 
-  /** «Tekst do edytora» master switch (default OFF = clean UI) */
+  /** «Tekst do edytora» — required for extract; default ON */
   function wantTimedTranscript() {
     const el = $("#opt-timed-transcript");
-    if (!el) return false;
+    if (!el) return true;
     return !!el.checked;
   }
   /** Alias — same checkbox */

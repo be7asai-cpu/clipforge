@@ -599,7 +599,7 @@
                 </div>
                 <div class="seg" role="radiogroup" id="extract-source-group">
                   <label title="Napisy YT (link) → Whisper → Google STT">
-                    <input type="radio" name="extract-source" value="auto" checked />
+                    <input type="radio" name="extract-source" value="auto" />
                     <span data-i18n="narrator.extractSrcAuto"
                       >⚡ Auto (dźwięk + napisy YT)</span
                     >
@@ -608,8 +608,8 @@
                     <input type="radio" name="extract-source" value="stt" />
                     <span data-i18n="narrator.extractSrcStt">🎤 Google STT</span>
                   </label>
-                  <label title="Whisper lokalnie">
-                    <input type="radio" name="extract-source" value="whisper" />
+                  <label title="Whisper lokalnie — najlepszy przy muzyce / hałasie / memach">
+                    <input type="radio" name="extract-source" value="whisper" checked />
                     <span data-i18n="narrator.extractSrcWhisper">🎧 Whisper</span>
                   </label>
                   <label title="Napisy YouTube (link + PC·ON)">
@@ -776,22 +776,22 @@
                 <span id="opt-bg-val">12%</span>
               </label>
 
-              <!-- 4) Tekst do edytora = tylko edycja (bez segmentacji) -->
+              <!-- 4) Tekst do edytora = wymagany panel edycji (domyślnie ON) -->
               <label
                 class="inline editor-master"
-                title="Otwiera pole tekstu i Wyodrębnij — bez segmentacji"
+                title="Wymagane, by wyciągnąć tekst (np. Whisper) do pola i poprawić przed Start"
               >
-                <input type="checkbox" id="opt-timed-transcript" />
-                <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora</span>
+                <input type="checkbox" id="opt-timed-transcript" checked />
+                <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora (wymagane do Wyodrębnij)</span>
               </label>
-              <p class="hint compact" data-i18n="narrator.timedTrHintOff" id="timed-tr-hint-off">
-                Wyłączone: Start bierze tekst ze źródła wyżej automatycznie. Zaznacz, by wyciągnąć i
-                ręcznie poprawić tekst w polu.
+              <p class="hint compact" data-i18n="narrator.timedTrHintOff" id="timed-tr-hint-off" hidden>
+                Wyłączone: Start bierze tekst ze źródła wyżej automatycznie (bez ręcznej korekty).
               </p>
 
-              <div class="editor-advanced hidden" id="editor-advanced">
+              <div class="editor-advanced" id="editor-advanced">
                 <p class="hint compact" data-i18n="narrator.timedTrHint">
-                  Tylko edycja: Wyodrębnij → ciągły tekst → popraw. Segmentacja = Pro lektor przy Start.
+                  Zalecane: wybierz źródło (np. Whisper) → Wyodrębnij → popraw tekst → Start.
+                  Segmentacja = Pro lektor przy Start (nie tu).
                 </p>
 
                 <div class="opt-block extract-rewrite-block" id="extract-rewrite-block">
