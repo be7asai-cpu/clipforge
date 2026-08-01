@@ -1231,9 +1231,10 @@
   /** Poll pre-transcribe job from platform URL until script ready */
   async function pollPreTranscribeJob(jobId, wantTimed, onlyOriginal, tgtLang, setSt) {
     const t0 = Date.now();
-    const maxMs = 12 * 60 * 1000;
+    // Whisper + long Google STT on agent can take 20–40+ min — was 12 min and aborted
+    const maxMs = 50 * 60 * 1000;
     while (Date.now() - t0 < maxMs) {
-      await new Promise((r) => setTimeout(r, 1800));
+      await new Promise((r) => setTimeout(r, 2000));
       const res = await fetch("/api/studio/jobs/" + jobId + "?_=" + Date.now(), {
         credentials: "same-origin",
         cache: "no-store",
@@ -1243,11 +1244,13 @@
       if (!job) continue;
       const stage = job.stage || "";
       const live = job.liveScript || job.liveOriginal || "";
+      const elapsedMin = Math.round((Date.now() - t0) / 60000);
       if (job.status === "running" || job.status === "queued") {
         setSt(
           tr("narrator.extractBusyUrl", "Z linku: {stage}")
             .replace("{stage}", stage || "…") +
-            (live ? " · " + String(live).slice(0, 40) + "…" : ""),
+            (live ? " · " + String(live).slice(0, 40) + "…" : "") +
+            (elapsedMin >= 2 ? " · " + elapsedMin + " min" : ""),
           "busy"
         );
         continue;
@@ -1291,7 +1294,7 @@
     throw new Error(
       tr(
         "narrator.extractUrlTimeout",
-        "Timeout STT z linku — sprawdź agenta PC i spróbuj ponownie."
+        "Timeout STT z linku (~50 min) — agent PC nadal może pracować; sprawdź okno agenta albo skróć film / użyj napisów."
       )
     );
   }

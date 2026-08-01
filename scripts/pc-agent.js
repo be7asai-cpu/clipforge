@@ -1620,13 +1620,47 @@ async function runJob(job) {
 
   // ── Pre-transcribe only (extract text from URL, no full render) ──
   if (job.options?.preTranscribeOnly) {
+    const sttEngineOpt =
+      String(job.options.sttEngine || job.options.transcriptSource || "google")
+        .toLowerCase() === "whisper"
+        ? "whisper"
+        : "google";
+    const whisperModelOpt =
+      String(job.options.whisperModel || process.env.WHISPER_MODEL || "base").trim() ||
+      "base";
     await reportProgress(job.id, {
       progress: 20,
-      stage: "STT z dźwięku…",
+      stage:
+        sttEngineOpt === "whisper"
+          ? "Whisper lokalny…"
+          : "STT z dźwięku…",
       livePhase: "extracting",
-      log: "Wyodrębniam mowę (Google STT)…",
+      log:
+        sttEngineOpt === "whisper"
+          ? "Wyodrębniam mowę (Whisper " + whisperModelOpt + ")…"
+          : "Wyodrębniam mowę (Google STT)…",
     });
+    // Keepalive started only when real STT/Whisper scan runs (see below)
+    let sttKeepAlive = null;
+    let sttTick = 20;
+    const stopSttKeepAlive = () => {
+      if (sttKeepAlive) {
+        clearInterval(sttKeepAlive);
+        sttKeepAlive = null;
+      }
+    };
+    const pulseStt = (stage, log, liveOriginal) => {
+      sttTick = Math.min(68, sttTick + 1);
+      return reportProgress(job.id, {
+        progress: sttTick,
+        stage: stage || "STT…",
+        livePhase: "extracting",
+        liveOriginal: liveOriginal || undefined,
+        log: log || undefined,
+      }).catch(() => null);
+    };
     const {
+
       extractSpeechFromVideoSegmented,
       translateText,
       joinSpeechTexts,
@@ -1714,7 +1748,8 @@ async function runJob(job) {
       } catch {
         /* ignore */
       }
-      // Full film (up to 3 h) — text must cover entire duration
+      // Full film (up to 3 h). For Google hop STT, use slightly longer hops on long clips
+      // so agent finishes before UI/agent timeouts (was 8s → too many Google calls).
       const maxSeconds = Math.min(
         10800,
         Math.max(5, Number(job.options.maxSeconds) || 10800)
@@ -1723,32 +1758,79 @@ async function runJob(job) {
         durationSec > 0.5
           ? Math.min(durationSec + 1.5, maxSeconds)
           : maxSeconds;
+      // Adaptive hop: aim for ~max 50 windows for Google (faster, still covers film)
+      let hopSec = 8;
+      let sttWindowSec = 15;
+      if (sttEngineOpt === "google" && maxScan > 0.5) {
+        hopSec = Math.max(8, Math.min(16, Math.ceil(maxScan / 50)));
+        sttWindowSec = Math.max(hopSec, Math.min(24, hopSec + 6));
+      }
       const sttWork = path.join(workDir, "pre_stt");
-      let stt = extractSpeechFromVideoSegmented(inputPath, {
-        sourceLang: job.options.sourceLang || "auto",
-        maxSeconds: maxScan,
-        workDir: sttWork,
-        noEarlyExit: true,
-        minScanRatio: 0.99,
-        // Full text: long STT windows (15s) hop 8s — not 3s (was incomplete)
-        hopSec: 8,
-        segmentSec: 8,
-        sttWindowSec: 15,
-        onSegment: (info) => {
-          if (info && info.phase === "done") {
-            reportProgress(job.id, {
-              progress: Math.min(70, 20 + Math.round((info.pct || 0) * 0.5)),
-              stage: "STT " + (info.pct || 0) + "%",
-              livePhase: "extracting",
-              liveOriginal: (info.textSoFar || "").slice(0, 1200),
-            }).catch(() => null);
-          }
-        },
-      });
-      originalText = stitch([stt.text]);
-      engine = stt.engine || "stt";
-      langCode = stt.langCode || langCode;
-      segs = Array.isArray(stt.timelineSegments) ? stt.timelineSegments : [];
+      log(
+        "Pre-STT engine=",
+        sttEngineOpt,
+        "scan=",
+        Math.round(maxScan) + "s",
+        sttEngineOpt === "whisper"
+          ? "model=" + whisperModelOpt
+          : "hop=" + hopSec + "s win=" + sttWindowSec + "s"
+      );
+      sttKeepAlive = setInterval(() => {
+        pulseStt(
+          sttEngineOpt === "whisper" ? "Whisper w toku…" : "STT w toku…",
+          "Agent nadal pracuje (heartbeat STT)…"
+        );
+      }, 12000);
+      let stt;
+      try {
+        stt = extractSpeechFromVideoSegmented(inputPath, {
+          sourceLang: job.options.sourceLang || "auto",
+          maxSeconds: maxScan,
+          workDir: sttWork,
+          noEarlyExit: true,
+          minScanRatio: 0.99,
+          hopSec,
+          segmentSec: hopSec,
+          sttWindowSec,
+          sttEngine: sttEngineOpt,
+          whisperModel: whisperModelOpt,
+          onSegment: (info) => {
+            if (!info) return;
+            const pct = info.pct || 0;
+            const prog = Math.min(70, 20 + Math.round(pct * 0.5));
+            sttTick = Math.max(sttTick, prog);
+            if (info.phase === "start" || info.phase === "done") {
+              reportProgress(job.id, {
+                progress: prog,
+                stage:
+                  sttEngineOpt === "whisper"
+                    ? "Whisper " + pct + "%"
+                    : "STT " + pct + "%",
+                livePhase: "extracting",
+                liveOriginal: (info.textSoFar || "").slice(0, 1200),
+                log:
+                  (sttEngineOpt === "whisper" ? "Whisper" : "STT") +
+                  " " +
+                  (info.index + 1) +
+                  "/" +
+                  (info.total || "?") +
+                  (info.phase === "done" ? " OK" : "…"),
+              }).catch(() => null);
+            }
+          },
+        });
+      } finally {
+        stopSttKeepAlive();
+      }
+      originalText = stitch([stt && stt.text]);
+      engine = (stt && stt.engine) || sttEngineOpt || "stt";
+      langCode = (stt && stt.langCode) || langCode;
+      segs =
+        stt && Array.isArray(stt.timelineSegments)
+          ? stt.timelineSegments
+          : stt && Array.isArray(stt.segments)
+            ? stt.segments
+            : [];
       // Only fall back to captions when user asked for captions (or STT empty after captions→STT fallback)
       const allowCapsFallback =
         String(job.options.transcriptSource || "stt").toLowerCase() ===
@@ -1777,9 +1859,14 @@ async function runJob(job) {
         .join("\n");
     }
 
+    stopSttKeepAlive();
+
     if (!originalText) {
       throw new Error(
-        "Brak rozpoznanej mowy w audio z linku (muzyka / cisza / brak napisów)."
+        "Brak rozpoznanej mowy w audio z linku (muzyka / cisza / brak napisów)." +
+          (sttEngineOpt === "whisper"
+            ? " Sprawdź Whisper (status w Studio) lub wybierz STT Google / napisy."
+            : "")
       );
     }
 
