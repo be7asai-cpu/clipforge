@@ -446,11 +446,14 @@
   "narrator.extractBusy": "Transcribing… (may take a while)",
   "narrator.extractEmpty": "No speech found (music/silence). Try video captions or paste text.",
   "narrator.extractOk": "Transcript in the box — you can edit it.",
+  "narrator.extractOkExact": "Exact STT transcript in the box — edit lines/times, then Start (narrator uses the same cues).",
+  "narrator.extractOkExactTr": "Exact STT translation in the box — edit lines/times, then Start (narrator uses the same cues).",
   "narrator.extractFail": "Transcript error: ",
   "narrator.extractNoTr": "original only",
   "narrator.extractBusyTr": "STT + exact translation… (may take a while)",
   "narrator.extractOkTr": "Exact translation in the box — edit if needed, then Start.",
   "narrator.extractMetaTr": "translated",
   "narrator.extractMetaOrig": "STT original",
+  "narrator.extractMetaExact": "exact STT · {n} cues",
   "narrator.extractTrWarn": "translate warning"
 }

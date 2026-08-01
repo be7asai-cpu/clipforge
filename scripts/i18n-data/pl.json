@@ -446,11 +446,14 @@
   "narrator.extractBusy": "Transkrypcja w toku… (może potrwać)",
   "narrator.extractEmpty": "Brak mowy w audio (muzyka / cisza). Spróbuj napisów z filmu albo wklej tekst ręcznie.",
   "narrator.extractOk": "Transkrypcja w polu — możesz poprawić.",
+  "narrator.extractOkExact": "Dokładna transkrypcja STT w polu — edytuj linie/czas, potem Start (lektor = te same cue).",
+  "narrator.extractOkExactTr": "Dokładne tłumaczenie STT w polu — edytuj linie/czas, potem Start (lektor = te same cue).",
   "narrator.extractFail": "Błąd transkrypcji: ",
   "narrator.extractNoTr": "tylko oryginał",
   "narrator.extractBusyTr": "STT + dokładne tłumaczenie… (może potrwać)",
   "narrator.extractOkTr": "Dokładne tłumaczenie w polu — możesz poprawić, potem Start.",
   "narrator.extractMetaTr": "przetłumaczono",
   "narrator.extractMetaOrig": "oryginał STT",
+  "narrator.extractMetaExact": "dokładna STT · {n} cue",
   "narrator.extractTrWarn": "tłum. ostrzeżenie"
 }

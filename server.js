@@ -1650,6 +1650,7 @@ async function runPreTranscribeOnFile(videoPath, {
     stripTimedMarkers,
     buildTimedScriptFromText,
     buildExactTranscriptSegments,
+    formatExactTranscript,
   } = require("./lib/lang-utils");
   // joinSpeechTexts may not exist on older agent copies — local fallback
   const stitch =
@@ -1669,23 +1670,23 @@ async function runPreTranscribeOnFile(videoPath, {
     );
   fs.mkdirSync(wd, { recursive: true });
 
+  /** Same format as lektor field: [00:00.50 → 00:03.20] text */
   function formatTimed(segs) {
+    if (typeof formatExactTranscript === "function") {
+      return formatExactTranscript(segs);
+    }
     if (!Array.isArray(segs) || !segs.length) return "";
-    // Keep ALL slots (incl. silent) so translation line count === transcription
     return segs
-      .filter((s) => s != null)
+      .filter((s) => s && String(s.text || "").trim())
       .map((s) => {
         const a = Number(s.start) || 0;
-        const b = Math.max(a + 0.3, Number(s.end) || a + 1);
+        const b = Math.max(a + 0.25, Number(s.end) || a + 1);
         const mm = (x) => {
           const m0 = Math.floor(x / 60);
-          const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
+          const s0 = (x - m0 * 60).toFixed(2).padStart(5, "0");
           return String(m0).padStart(2, "0") + ":" + s0;
         };
-        const body = String(s.text || "")
-          .replace(/\s+/g, " ")
-          .trim();
-        return `[${mm(a)}–${mm(b)}] ${body}`;
+        return `[${mm(a)} → ${mm(b)}] ${String(s.text).replace(/\s+/g, " ").trim()}`;
       })
       .join("\n");
   }
@@ -1820,13 +1821,15 @@ async function runPreTranscribeOnFile(videoPath, {
     }
   }
 
-  // Exact transcription from STT times (real speech clocks); even pack only if no STT
-  const paceKey = textSpeechPace || speechPace || "normal";
+  // Exact STT cues → same string format as script field & lektor
+  const paceKey = textSpeechPace || speechPace || "manual";
   const sttSlots =
     (Array.isArray(stt.segments) && stt.segments.length
       ? stt.segments
       : null) ||
     (Array.isArray(stt.timelineSegments) ? stt.timelineSegments : []);
+  let exactCueCount = 0;
+  let transcriptMode = "plain";
   if (typeof buildTimedScriptFromText === "function") {
     const exactOrig = buildTimedScriptFromText({
       text: originalText,
@@ -1835,6 +1838,8 @@ async function runPreTranscribeOnFile(videoPath, {
       speechPace: paceKey,
     });
     timedOriginal = formatTimed(exactOrig.segments || []);
+    exactCueCount = (exactOrig.segments || []).filter((s) => s && s.text).length;
+    transcriptMode = exactOrig.mode || transcriptMode;
     const exactTr = buildTimedScriptFromText({
       text: text,
       sttSegments: sttSlots,
@@ -1842,11 +1847,24 @@ async function runPreTranscribeOnFile(videoPath, {
       speechPace: paceKey,
     });
     timedText = formatTimed(exactTr.segments || []);
-    // Prefer exact STT plain text if richer
+    if (exactTr.mode) transcriptMode = exactTr.mode;
     if (exactOrig.plainText && exactOrig.plainText.length > originalText.length) {
       originalText = exactOrig.plainText;
       if (!translated) text = originalText;
     }
+  } else if (typeof buildExactTranscriptSegments === "function") {
+    const exact = buildExactTranscriptSegments(sttSlots);
+    timedOriginal = formatTimed(exact);
+    timedText = translated
+      ? formatTimed(
+          (require("./lib/lang-utils").mapTextOntoExactStt || (() => exact))(
+            text,
+            exact
+          ) || exact
+        )
+      : timedOriginal;
+    exactCueCount = exact.length;
+    transcriptMode = "exact-stt";
   } else if (typeof distributeTextOnTimeline === "function") {
     const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3, {
       speechPace: paceKey,
@@ -1856,14 +1874,15 @@ async function runPreTranscribeOnFile(videoPath, {
       speechPace: paceKey,
     });
     timedText = formatTimed(tgtSpread);
+    transcriptMode = "even-timeline";
   }
 
-  // Primary field for the script box: transcription form when enabled
+  // Field always gets exact timed STT when option on (edit → lektor same cues)
   const useTimed = timedTranscript !== false;
   const primaryText =
     useTimed && timedText
       ? timedText
-      : useTimed && timedOriginal && !translated
+      : useTimed && timedOriginal
         ? timedOriginal
         : text;
   const primaryOriginal =
@@ -1893,7 +1912,9 @@ async function runPreTranscribeOnFile(videoPath, {
     langCode: stt.langCode || sourceLang || null,
     targetLang,
     durationSec: filmDur,
-    segments: trLineCount || Math.ceil(filmDur / 3),
+    segments: exactCueCount || trLineCount || 0,
+    exactCueCount,
+    transcriptMode,
     charsPerSegment:
       trLineCount > 0
         ? Math.round((charCount / trLineCount) * 10) / 10
@@ -2155,6 +2176,9 @@ app.post("/api/studio/agent/jobs/:id/complete-transcript", async (req, res) => {
         originalText,
         timedScript: timedText || null,
         timedOriginal: timedOriginal || null,
+        exactCueCount: body.exactCueCount || body.segments || null,
+        transcriptMode: body.transcriptMode || null,
+        segments: body.exactCueCount || body.segments || null,
         preTranscribe: true,
         language: {
           original: originalText,

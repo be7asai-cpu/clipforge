@@ -1411,6 +1411,7 @@ async function runJob(job) {
       distributeTextOnTimeline,
       stripTimedMarkers,
       buildTimedScriptFromText,
+      formatExactTranscript,
     } = require(path.join(ROOT, "lib", "lang-utils.js"));
     const stitch =
       typeof joinSpeechTexts === "function"
@@ -1420,22 +1421,26 @@ async function runJob(job) {
               .map((t) => String(t || "").replace(/\s+/g, " ").trim())
               .filter(Boolean)
               .join(" ");
+    /** Same canonical format as cloud extract + script field + lektor */
     function formatTimedAll(segs) {
+      if (typeof formatExactTranscript === "function") {
+        return formatExactTranscript(segs);
+      }
       if (!Array.isArray(segs) || !segs.length) return "";
       return segs
-        .filter((s) => s != null)
+        .filter((s) => s != null && String(s.text || "").trim())
         .map((s) => {
           const a = Number(s.start) || 0;
-          const b = Math.max(a + 0.3, Number(s.end) || a + 1);
+          const b = Math.max(a + 0.25, Number(s.end) || a + 1);
           const mm = (x) => {
             const m0 = Math.floor(x / 60);
-            const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
+            const s0 = (x - m0 * 60).toFixed(2).padStart(5, "0");
             return String(m0).padStart(2, "0") + ":" + s0;
           };
           const body = String(s.text || "")
             .replace(/\s+/g, " ")
             .trim();
-          return `[${mm(a)}–${mm(b)}] ${body}`;
+          return `[${mm(a)} → ${mm(b)}] ${body}`;
         })
         .join("\n");
     }
@@ -1458,19 +1463,7 @@ async function runJob(job) {
         ? job.options.captionSegments
         : [];
       engine = "youtube-captions";
-      timedOriginal = segs
-        .filter((s) => s && s.text)
-        .map((s) => {
-          const a = Number(s.start) || 0;
-          const b = Math.max(a + 0.3, Number(s.end) || a + 1);
-          const mm = (x) => {
-            const m0 = Math.floor(x / 60);
-            const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
-            return String(m0).padStart(2, "0") + ":" + s0;
-          };
-          return `[${mm(a)}–${mm(b)}] ${String(s.text).trim()}`;
-        })
-        .join("\n");
+      timedOriginal = formatTimedAll(segs);
       await reportProgress(job.id, {
         progress: 55,
         stage: "Napisy z platformy",
@@ -1612,15 +1605,17 @@ async function runJob(job) {
       }
     }
 
-    // Exact STT clocks for transcription; map translation onto those times
+    // Exact STT clocks — same format as cloud extract / script field / lektor
     const paceKey =
       job.options.speechPace ||
       job.options.textSpeechPace ||
       job.options.textSpeedMode ||
-      "normal";
+      "manual";
     const sttSlots =
       (Array.isArray(segs) && segs.length ? segs : null) ||
       [];
+    let exactCueCount = 0;
+    let transcriptMode = "plain";
     if (typeof buildTimedScriptFromText === "function") {
       const exactOrig = buildTimedScriptFromText({
         text: originalText,
@@ -1629,6 +1624,10 @@ async function runJob(job) {
         speechPace: paceKey,
       });
       timedOriginal = formatTimedAll(exactOrig.segments || []);
+      exactCueCount = (exactOrig.segments || []).filter(
+        (s) => s && s.text
+      ).length;
+      transcriptMode = exactOrig.mode || transcriptMode;
       const exactTr = buildTimedScriptFromText({
         text: text,
         sttSegments: sttSlots,
@@ -1636,6 +1635,11 @@ async function runJob(job) {
         speechPace: paceKey,
       });
       timedText = formatTimedAll(exactTr.segments || []);
+      if (exactTr.mode) transcriptMode = exactTr.mode;
+      exactCueCount = Math.max(
+        exactCueCount,
+        (exactTr.segments || []).filter((s) => s && s.text).length
+      );
       log(
         "Transkrypcja dokładna:",
         exactTr.mode || "?",
@@ -1652,9 +1656,10 @@ async function runJob(job) {
         speechPace: paceKey,
       });
       timedText = formatTimedAll(tgtSpread);
+      transcriptMode = "even-timeline";
     }
 
-    // Primary payload: transcription form when enabled (default)
+    // Primary payload: exact timed lines when option on (edit → lektor 1:1)
     const outText = useTimedForm && timedText ? timedText : text;
     const outOriginal =
       useTimedForm && timedOriginal ? timedOriginal : originalText;
@@ -1670,7 +1675,9 @@ async function runJob(job) {
         outText.length +
         " znaków" +
         (translated ? " (przetłumaczono)" : "") +
-        (useTimedForm ? " · z czasem" : " · ciągły"),
+        (useTimedForm
+          ? " · dokładna STT " + exactCueCount + " cue"
+          : " · ciągły"),
     });
 
     const up = await request(
@@ -1689,6 +1696,9 @@ async function runJob(job) {
           targetLang,
           durationSec: durationSec || null,
           timedTranscript: useTimedForm,
+          exactCueCount,
+          transcriptMode,
+          segments: exactCueCount,
         },
       }
     );

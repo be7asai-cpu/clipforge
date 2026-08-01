@@ -814,12 +814,35 @@
     setTextSpeedUi(getTextSpeedValue());
   }
 
-  /** Apply STT/translate API payload into script field */
+  /** Count exact cue lines [mm:ss → mm:ss] text */
+  function countExactCues(text) {
+    const lines = String(text || "")
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    let n = 0;
+    for (const l of lines) {
+      if (/^\[\s*\d{1,2}:\d{2}/.test(l)) n += 1;
+    }
+    return n;
+  }
+
+  /**
+   * Apply STT/translate API payload into script field.
+   * With „Tekst jako transkrypcja z czasem” → exact STT lines
+   * ([mm:ss.xx → mm:ss.xx] text) so Start lektor = te same cue 1:1.
+   */
   function applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt) {
     const plain = String(data.text || data.script || "").trim();
     const timed = String(data.timedText || data.timedScript || "").trim();
-    // Transcription form is the default text-for-translation
-    const useText = wantTimed && timed ? timed : plain || timed;
+    const plainLooksTimed = countExactCues(plain) >= 1;
+    // Prefer dedicated timed field; else plain if already exact lines
+    const useText =
+      wantTimed && timed
+        ? timed
+        : wantTimed && plainLooksTimed
+          ? plain
+          : plain || timed;
     if (!useText) {
       setSt(
         data.error ||
@@ -830,6 +853,21 @@
         "err"
       );
       return false;
+    }
+    const cueCount =
+      Number(data.exactCueCount) ||
+      Number(data.segments) ||
+      countExactCues(useText) ||
+      0;
+    const isExact =
+      wantTimed &&
+      (countExactCues(useText) >= 1 ||
+        data.transcriptMode === "exact-stt" ||
+        data.transcriptMode === "exact-stt-mapped" ||
+        data.transcriptMode === "exact-stt-field");
+    // Keep option ON so Start parses the same format → same clocks
+    if (wantTimed && isExact && $("#opt-timed-transcript")) {
+      $("#opt-timed-transcript").checked = true;
     }
     const ta = $("#opt-script");
     if (ta) {
@@ -843,7 +881,13 @@
     }
     refreshLangBadge();
     const meta = [
-      data.translated
+      isExact
+        ? tr("narrator.extractMetaExact", "dokładna STT · {n} cue").replace(
+            "{n}",
+            String(cueCount || countExactCues(useText) || "?")
+          )
+        : null,
+      data.translated && !onlyOriginal
         ? tr("narrator.extractMetaTr", "przetłumaczono") +
           " → " +
           (data.targetLang || tgtLang)
@@ -854,7 +898,7 @@
       data.durationSec
         ? "~" + Math.round(Number(data.durationSec)) + "s"
         : null,
-      data.segments ? data.segments + " seg." : null,
+      !isExact && data.segments ? data.segments + " seg." : null,
       data.translateError
         ? tr("narrator.extractTrWarn", "tłum. ostrzeżenie")
         : null,
@@ -862,8 +906,17 @@
     ]
       .filter(Boolean)
       .join(" · ");
-    setSt(
-      (data.translated && !onlyOriginal
+    const okMsg = isExact
+      ? data.translated && !onlyOriginal
+        ? tr(
+            "narrator.extractOkExactTr",
+            "Dokładne tłumaczenie STT w polu — edytuj linie/czas, potem Start (lektor = te same cue)."
+          )
+        : tr(
+            "narrator.extractOkExact",
+            "Dokładna transkrypcja STT w polu — edytuj linie/czas, potem Start (lektor = te same cue)."
+          )
+      : data.translated && !onlyOriginal
         ? tr(
             "narrator.extractOkTr",
             "Dokładne tłumaczenie w polu — możesz poprawić, potem Start."
@@ -871,9 +924,8 @@
         : tr(
             "narrator.extractOk",
             "Transkrypcja w polu — możesz poprawić."
-          )) + (meta ? " (" + meta + ")" : ""),
-      "ok"
-    );
+          );
+    setSt(okMsg + (meta ? " (" + meta + ")" : ""), "ok");
     return true;
   }
 
@@ -916,6 +968,9 @@
             langCode: r.language?.sourceLang?.code || null,
             targetLang: tgtLang,
             durationSec: r.duration || null,
+            exactCueCount: r.exactCueCount || r.segments || null,
+            transcriptMode: r.transcriptMode || "exact-stt",
+            segments: r.exactCueCount || r.segments || null,
             fromUrl: true,
             title: job.originalName,
           },
