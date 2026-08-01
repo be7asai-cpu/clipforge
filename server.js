@@ -1648,6 +1648,8 @@ async function runPreTranscribeOnFile(videoPath, {
     joinSpeechTexts,
     distributeTextOnTimeline,
     stripTimedMarkers,
+    buildTimedScriptFromText,
+    buildExactTranscriptSegments,
   } = require("./lib/lang-utils");
   // joinSpeechTexts may not exist on older agent copies — local fallback
   const stitch =
@@ -1818,9 +1820,34 @@ async function runPreTranscribeOnFile(videoPath, {
     }
   }
 
-  // Full text → whole words by character weight on 0…filmDur (~3s)
+  // Exact transcription from STT times (real speech clocks); even pack only if no STT
   const paceKey = textSpeechPace || speechPace || "normal";
-  if (typeof distributeTextOnTimeline === "function") {
+  const sttSlots =
+    (Array.isArray(stt.segments) && stt.segments.length
+      ? stt.segments
+      : null) ||
+    (Array.isArray(stt.timelineSegments) ? stt.timelineSegments : []);
+  if (typeof buildTimedScriptFromText === "function") {
+    const exactOrig = buildTimedScriptFromText({
+      text: originalText,
+      sttSegments: sttSlots,
+      durationSec: filmDur,
+      speechPace: paceKey,
+    });
+    timedOriginal = formatTimed(exactOrig.segments || []);
+    const exactTr = buildTimedScriptFromText({
+      text: text,
+      sttSegments: sttSlots,
+      durationSec: filmDur,
+      speechPace: paceKey,
+    });
+    timedText = formatTimed(exactTr.segments || []);
+    // Prefer exact STT plain text if richer
+    if (exactOrig.plainText && exactOrig.plainText.length > originalText.length) {
+      originalText = exactOrig.plainText;
+      if (!translated) text = originalText;
+    }
+  } else if (typeof distributeTextOnTimeline === "function") {
     const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3, {
       speechPace: paceKey,
     });

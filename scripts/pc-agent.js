@@ -1410,6 +1410,7 @@ async function runJob(job) {
       joinSpeechTexts,
       distributeTextOnTimeline,
       stripTimedMarkers,
+      buildTimedScriptFromText,
     } = require(path.join(ROOT, "lib", "lang-utils.js"));
     const stitch =
       typeof joinSpeechTexts === "function"
@@ -1611,13 +1612,38 @@ async function runJob(job) {
       }
     }
 
-    // Full text → whole words by character weight on entire timeline
+    // Exact STT clocks for transcription; map translation onto those times
     const paceKey =
       job.options.speechPace ||
       job.options.textSpeechPace ||
       job.options.textSpeedMode ||
       "normal";
-    if (typeof distributeTextOnTimeline === "function") {
+    const sttSlots =
+      (Array.isArray(segs) && segs.length ? segs : null) ||
+      [];
+    if (typeof buildTimedScriptFromText === "function") {
+      const exactOrig = buildTimedScriptFromText({
+        text: originalText,
+        sttSegments: sttSlots,
+        durationSec: filmDur,
+        speechPace: paceKey,
+      });
+      timedOriginal = formatTimedAll(exactOrig.segments || []);
+      const exactTr = buildTimedScriptFromText({
+        text: text,
+        sttSegments: sttSlots,
+        durationSec: filmDur,
+        speechPace: paceKey,
+      });
+      timedText = formatTimedAll(exactTr.segments || []);
+      log(
+        "Transkrypcja dokładna:",
+        exactTr.mode || "?",
+        "·",
+        (exactTr.segments || []).length,
+        "cue STT"
+      );
+    } else if (typeof distributeTextOnTimeline === "function") {
       const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3, {
         speechPace: paceKey,
       });
@@ -1626,16 +1652,6 @@ async function runJob(job) {
         speechPace: paceKey,
       });
       timedText = formatTimedAll(tgtSpread);
-      const cc = String(text || "").replace(/\s+/g, " ").trim().length;
-      log(
-        "Oś czasu (całe słowa, znaki):",
-        tgtSpread.length,
-        "seg · tempo",
-        paceKey,
-        "· ~",
-        tgtSpread.length ? Math.round(cc / tgtSpread.length) : 0,
-        "znaków/seg"
-      );
     }
 
     // Primary payload: transcription form when enabled (default)
