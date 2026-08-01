@@ -856,6 +856,41 @@
   });
   syncExtractSourceUi();
 
+  async function refreshWhisperStatus() {
+    const el = $("#whisper-status");
+    if (!el) return;
+    try {
+      const res = await fetch("/api/studio/whisper-status", {
+        credentials: "same-origin",
+      });
+      const st = await res.json().catch(() => ({}));
+      if (st && st.ok) {
+        el.textContent = tr(
+          "narrator.whisperStatusOn",
+          "Whisper: ON · {engine} (gotowy do użycia)"
+        ).replace("{engine}", st.engine || "local");
+        el.classList.remove("is-err");
+        el.classList.add("is-ok");
+      } else {
+        el.textContent = tr(
+          "narrator.whisperStatusOff",
+          "Whisper: OFF — w terminalu: pip install -U faster-whisper"
+        );
+        el.classList.remove("is-ok");
+        el.classList.add("is-err");
+        if (st && st.error) el.title = String(st.error).slice(0, 200);
+      }
+    } catch {
+      el.textContent = tr(
+        "narrator.whisperStatusOff",
+        "Whisper: OFF — w terminalu: pip install -U faster-whisper"
+      );
+      el.classList.add("is-err");
+    }
+  }
+  refreshWhisperStatus();
+  setInterval(refreshWhisperStatus, 60000);
+
   /** Drop [Music], [muzyka], (Applause), ♪ — non-speech caption tags */
   function stripNonSpeechLabelsClient(text) {
     let t = String(text || "");

@@ -1642,6 +1642,74 @@ app.get("/api/studio/ollama-status", async (_req, res) => {
   }
 });
 
+/** Whisper install status for Studio UI (local STT — separate from Ollama). */
+app.get("/api/studio/whisper-status", async (_req, res) => {
+  try {
+    // Prefer Node transformers.js (works without pip / Python 3.14 issues)
+    try {
+      const { probeWhisperNode } = require("./lib/stt-whisper-node");
+      const nodeSt = await probeWhisperNode();
+      if (nodeSt && nodeSt.ok) {
+        return res.json({
+          ok: true,
+          engine: nodeSt.engine || "transformers.js",
+          model: nodeSt.model || "base",
+          via: "node",
+        });
+      }
+    } catch {
+      /* try python */
+    }
+    const { spawnSync } = require("child_process");
+    const py =
+      process.env.PYTHON ||
+      process.env.PYTHON_PATH ||
+      (process.platform === "win32" ? "python" : "python3");
+    const code = `
+import json
+out={"ok":False,"engine":None,"error":None,"modelDefault":"base"}
+try:
+  from faster_whisper import WhisperModel
+  out["ok"]=True
+  out["engine"]="faster-whisper"
+except Exception as e1:
+  try:
+    import whisper
+    out["ok"]=True
+    out["engine"]="openai-whisper"
+  except Exception as e2:
+    out["error"]="npm install @xenova/transformers  (lub pip install faster-whisper)"
+print(json.dumps(out))
+`;
+    const r = spawnSync(py, ["-c", code], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 20000,
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
+    });
+    const raw = String(r.stdout || "").trim();
+    let st = { ok: false, engine: null, error: null };
+    try {
+      const line = raw.split(/\r?\n/).filter(Boolean).pop();
+      st = JSON.parse(line || "{}");
+    } catch {
+      st = {
+        ok: false,
+        error:
+          (r.stderr || raw || "Whisper: zainstaluj @xenova/transformers").slice(
+            0,
+            240
+          ),
+      };
+    }
+    st.python = py;
+    st.via = st.ok ? "python" : null;
+    res.json(st);
+  } catch (e) {
+    res.json({ ok: false, error: (e && e.message) || String(e) });
+  }
+});
+
 /**
  * Shared pre-job STT + optional exact translate (file path on disk).
  */
