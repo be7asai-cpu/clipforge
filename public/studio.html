@@ -592,10 +592,10 @@
                 </p>
               </div>
 
-              <!-- 1) NAJPIERW: goły tekst — skąd wziąć (zawsze widoczne) -->
+              <!-- 1) Skąd tekst (zawsze) → wyciągnięcie daje już SEGMENTY przed Start -->
               <div class="opt-block extract-source-block" id="extract-source-block">
                 <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">
-                  1. Skąd wziąć goły tekst
+                  1. Skąd wziąć tekst
                 </div>
                 <div class="seg" role="radiogroup" id="extract-source-group">
                   <label title="Napisy YT → Whisper → Google STT">
@@ -629,8 +629,8 @@
                   </select>
                 </label>
                 <p class="hint compact" data-i18n="narrator.extractSrcHint">
-                  Najpierw goły tekst z filmu (Auto / STT / Whisper / napisy). Tłumaczenie i segmentacja
-                  dopiero potem przy Start.
+                  Auto / STT / Whisper / napisy. Tekst ma być w segmentach zanim klikniesz Start
+                  (Wyodrębnij albo automat przy Start).
                 </p>
                 <p class="hint compact" id="whisper-status" data-i18n="narrator.whisperStatusWait">
                   Sprawdzam Whisper…
@@ -778,44 +778,44 @@
               <!-- Opcjonalnie: popraw goły tekst w polu (narzędzia odczytu są WYŻEJ) -->
               <label
                 class="inline editor-master"
-                title="Opcjonalnie: pokaż pole i Wyodrębnij goły tekst do ręcznej poprawy"
+                title="Pokaż pole: Wyodrębnij tekst w segmentach, popraw, potem Start"
               >
-                <input type="checkbox" id="opt-timed-transcript" />
-                <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora (opcjonalna poprawa)</span>
+                <input type="checkbox" id="opt-timed-transcript" checked />
+                <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora</span>
               </label>
-              <p class="hint compact" data-i18n="narrator.timedTrHintOff" id="timed-tr-hint-off">
-                Wyłączone: Start sam wyciąga goły tekst ze źródła wyżej, potem tłumaczy. Zaznacz, by
-                najpierw wkleić/poprawić tekst w polu.
+              <p class="hint compact" data-i18n="narrator.timedTrHintOff" id="timed-tr-hint-off" hidden>
+                Wyłączone: Start sam bierze i segmentuje tekst ze źródła. Zaznacz, by poprawić segmenty w polu przed Start.
               </p>
 
-              <div class="editor-advanced hidden" id="editor-advanced">
+              <div class="editor-advanced" id="editor-advanced">
                 <p class="hint compact" data-i18n="narrator.timedTrHint">
-                  Źródło wybierz wyżej. Tu: Wyodrębnij goły tekst → popraw → Start (tłumaczenie + Pro lektor).
+                  Wyodrębnij → tekst już w segmentach (6s) → popraw → Start. Bez ręcznego Wyodrębnij
+                  Start i tak segmentuje automatycznie ze źródła wyżej.
                 </p>
 
                 <div class="pre-stt-bar" id="pre-stt-bar">
                   <button type="button" class="btn ghost sm" id="btn-extract-transcript">
-                    <span data-i18n="narrator.extractBtn">📥 Wyodrębnij goły tekst</span>
+                    <span data-i18n="narrator.extractBtn">📥 Wyodrębnij (segmenty)</span>
                   </button>
                   <label class="inline pre-stt-timed" title="Bez tłumaczenia przy wyciąganiu">
-                    <input type="checkbox" id="opt-extract-no-tr" checked />
-                    <span data-i18n="narrator.extractNoTr">tylko oryginał (goły)</span>
+                    <input type="checkbox" id="opt-extract-no-tr" />
+                    <span data-i18n="narrator.extractNoTr">tylko oryginał</span>
                   </label>
                   <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
                 </div>
 
                 <div class="opt-block extract-rewrite-block" id="extract-rewrite-block">
                   <div class="opt-block-title" data-i18n="narrator.smartRewriteTitle">
-                    Przeredagowanie (opcjonalnie, po wyciągnięciu)
+                    Przeredagowanie do długości filmu
                   </div>
-                  <label class="inline" title="Skróć tekst do długości filmu">
-                    <input type="checkbox" id="opt-smart-rewrite" />
+                  <label class="inline" title="Skróć tekst do długości filmu (przed segmentami)">
+                    <input type="checkbox" id="opt-smart-rewrite" checked />
                     <span data-i18n="narrator.smartRewriteLab"
                       >🧠 Przeredagowanie (≤ długość filmu)</span
                     >
                   </label>
                   <label class="inline" id="opt-use-ollama-wrap" title="Wymaga Ollamy na PC">
-                    <input type="checkbox" id="opt-use-ollama" />
+                    <input type="checkbox" id="opt-use-ollama" checked />
                     <span data-i18n="narrator.useOllamaLab">🦙 Ollama (jeśli włączona)</span>
                   </label>
                   <p class="hint compact" id="ollama-status" data-i18n="narrator.ollamaStatusWait">
@@ -833,16 +833,16 @@
                   />
                 </label>
                 <label class="stack">
-                  <span data-i18n="narrator.scriptLab">Goły tekst (edycja)</span>
+                  <span data-i18n="narrator.scriptLab">Tekst w segmentach (edycja)</span>
                   <textarea
                     id="opt-script"
-                    rows="6"
+                    rows="8"
                     data-i18n-placeholder="narrator.scriptPh"
-                    placeholder="Wyodrębnij goły tekst ze źródła wyżej, potem popraw"
+                    placeholder="[00:00 → 00:06] segment… Wyodrębnij ze źródła wyżej."
                   ></textarea>
                 </label>
                 <p class="hint compact" data-i18n="narrator.scriptHint">
-                  Najpierw goły tekst. Tłumaczenie i segmentacja (Pro lektor) przy Start.
+                  Segmenty gotowe przed Start. Popraw linie, potem Start (Pro lektor).
                 </p>
               </div>
             </div>

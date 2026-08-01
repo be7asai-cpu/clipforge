@@ -1165,10 +1165,10 @@
     return wantSmartRewrite() && (el ? !!el.checked : true);
   }
 
-  /** «Tekst do edytora» — optional manual edit; default OFF (Start = automatic) */
+  /** «Tekst do edytora» — default ON (segmented text visible before Start) */
   function wantTimedTranscript() {
     const el = $("#opt-timed-transcript");
-    if (!el) return false;
+    if (!el) return true;
     return !!el.checked;
   }
   /** Alias — same checkbox */
@@ -1285,10 +1285,8 @@
   }
 
   /**
-   * Apply extract → ONLY #opt-script.
-   * Editor extract = always continuous plain (no hop grid yet).
-   * Segmentation happens later at Start / after rewrite in pipeline.
-   * wantTimed is ignored for fill — kept for API compat only.
+   * Apply extract → #opt-script.
+   * ALWAYS prefer hop-segmented lines (before Start). Plain only as fallback.
    */
   function applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt) {
     const plainPrefer = String(
@@ -1296,19 +1294,23 @@
     ).trim();
     const raw = String(data.text || data.script || "").trim();
     const timed = String(data.timedText || data.timedScript || "").trim();
-    // Prefer continuous plain; strip markers if server sent hop lines by mistake
+    const timedRaw =
+      timed ||
+      (countExactCues(raw) >= 1 ? raw : "") ||
+      (countExactCues(plainPrefer) >= 1 ? plainPrefer : "");
+    const timedClean = cleanTimedScriptText(timedRaw);
     const plainClean = toPlainScriptText(
-      plainPrefer || raw || timed
+      plainPrefer || (countExactCues(raw) ? "" : raw) || timed
     );
-    let useText = plainClean;
+    let useText = "";
     let isTimed = false;
-    // Optional: if user pastes / API returns natural STT cues and plain empty, keep cues
-    if (!useText) {
-      const timedClean = cleanTimedScriptText(timed || raw);
-      if (timedClean && countExactCues(timedClean) >= 1) {
-        useText = timedClean;
-        isTimed = true;
-      }
+    // Segmented first — required before Start
+    if (timedClean && countExactCues(timedClean) >= 1) {
+      useText = timedClean;
+      isTimed = true;
+    } else if (plainClean) {
+      useText = plainClean;
+      isTimed = false;
     }
     if (!useText) {
       setSt(
@@ -1365,10 +1367,15 @@
     ]
       .filter(Boolean)
       .join(" · ");
-    const okMsg = tr(
-      "narrator.extractOk",
-      "W edytorze: ciągły tekst. Segmentacja 6s dopiero przy Start (po przeróbce)."
-    );
+    const okMsg = isTimed
+      ? tr(
+          "narrator.extractOkExact",
+          "W edytorze: tekst w segmentach (gotowe przed Start)."
+        )
+      : tr(
+          "narrator.extractOk",
+          "W edytorze: tekst (segmentacja przy następnym kroku)."
+        );
     setSt(okMsg + (meta ? " (" + meta + ")" : ""), "ok");
     return true;
   }
@@ -1654,8 +1661,8 @@
       );
       return;
     }
-    // No hop-segmentation on extract — continuous text only; segments at Start
-    const wantTimed = false;
+    // Segmenty 6s już przy Wyodrębnij — przed Start
+    const wantTimed = true;
     const smartRewrite = wantSmartRewrite();
     const useOllama = wantUseOllama();
     const onlyOriginal = !!$("#opt-extract-no-tr")?.checked;

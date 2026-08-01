@@ -2186,9 +2186,8 @@ async function runJob(job) {
     const targetLang = job.options.targetLang || "pl";
     const autoTranslate =
       job.options.autoTranslate == null || job.options.autoTranslate !== false;
-    // Pre-transcribe → editor: always continuous plain (no hop grid).
-    // Hop segments are built later at Start after processing.
-    const useTimedForm = false;
+    // Pre-transcribe → editor: always hop-segmented (6s) BEFORE Start.
+    const useTimedForm = true;
     const srcForTr = langCode || job.options.sourceLang || "auto";
 
     const filmDur = Math.max(
@@ -2361,9 +2360,13 @@ async function runJob(job) {
       transcriptMode = "even-timeline";
     }
 
-    // Always continuous plain into editor (segment later at Start)
-    const outText = text;
-    const outOriginal = originalText;
+    // Segmented hop lines into editor (before Start)
+    const outText =
+      (timedText && String(timedText).trim()) ||
+      (timedOriginal && String(timedOriginal).trim()) ||
+      text;
+    const outOriginal =
+      (timedOriginal && String(timedOriginal).trim()) || originalText;
 
     await reportProgress(job.id, {
       progress: 95,
@@ -2372,12 +2375,11 @@ async function runJob(job) {
       liveScript: outText.slice(0, 2000),
       liveOriginal: outOriginal.slice(0, 2000),
       log:
-        "Tekst OK · " +
+        "Tekst OK · segmenty przed Start · " +
         outText.length +
-        " znaków" +
-        (useTimedForm
-          ? " · z czasem 1:1 (" + exactCueCount + " cue = STT/wideo)"
-          : " · ciągły, bez czasu") +
+        " znaków · " +
+        (exactCueCount || "?") +
+        " cue" +
         (translated ? " · przetłumaczono" : ""),
     });
 

@@ -2082,12 +2082,15 @@ async function runPreTranscribeOnFile(videoPath, {
     timedText = formatTimed(exactTr.segments || []);
   }
 
-  // Extract to editor: always continuous plain in primary field.
-  // Hop grid (6s) is built later at Start / after rewrite in pipeline — not here.
-  // timedText kept in payload for optional display; text/plainText = continuous.
-  const useTimed = timedTranscript === true;
-  const primaryText = text; // continuous after fit/translate
-  const primaryOriginal = originalText;
+  // Always segment BEFORE Start: hop grid (6s) into editor / extract field.
+  // plainText still available for callers that want continuous.
+  const useTimed = timedTranscript !== false;
+  const primaryText =
+    (useTimed && timedText) ||
+    (useTimed && timedOriginal) ||
+    text;
+  const primaryOriginal =
+    (useTimed && timedOriginal) || originalText;
 
   const trLineCount = timedText
     ? timedText.split(/\r?\n/).filter((l) => l.trim()).length
