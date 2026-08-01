@@ -463,6 +463,149 @@
     return $("#opt-target-lang")?.value || "pl";
   }
 
+  /** targetLang code → Edge TTS voices from /api/studio/languages */
+  let voiceCatalog = null;
+
+  function genderMark(g) {
+    if (g === "male") return "♂";
+    if (g === "female") return "♀";
+    return "";
+  }
+
+  /**
+   * Rebuild #opt-voice for current target language (many named Edge voices).
+   */
+  function rebuildVoiceSelect(preserveValue) {
+    const sel = $("#opt-voice");
+    if (!sel) return;
+    const lang = targetLang();
+    const prev =
+      preserveValue != null
+        ? preserveValue
+        : sel.value || localStorage.getItem("clipforge.voice") || "";
+
+    const voicesFromApi = (() => {
+      if (!voiceCatalog) return null;
+      const list =
+        voiceCatalog.targetLanguages ||
+        voiceCatalog.sourceLanguages ||
+        [];
+      const hit = list.find((x) => x.code === lang);
+      return hit && Array.isArray(hit.ttsVoices) && hit.ttsVoices.length
+        ? hit.ttsVoices
+        : null;
+    })();
+
+    // Static fallbacks when API not loaded
+    const FALLBACK = {
+      pl: [
+        { id: "pl-PL-ZofiaNeural", label: "Zofia", gender: "female" },
+        { id: "pl-PL-MarekNeural", label: "Marek", gender: "male" },
+        { id: "en-US-JennyNeural", label: "Jenny (EN)", gender: "female" },
+        { id: "en-US-AriaNeural", label: "Aria (EN)", gender: "female" },
+        { id: "en-US-AvaNeural", label: "Ava (EN)", gender: "female" },
+        { id: "en-GB-SoniaNeural", label: "Sonia (UK)", gender: "female" },
+        { id: "en-US-GuyNeural", label: "Guy (EN)", gender: "male" },
+        { id: "en-US-AndrewNeural", label: "Andrew (EN)", gender: "male" },
+        { id: "en-US-BrianNeural", label: "Brian (EN)", gender: "male" },
+        { id: "en-GB-RyanNeural", label: "Ryan (UK)", gender: "male" },
+      ],
+      en: [
+        { id: "en-US-JennyNeural", label: "Jenny (US)", gender: "female" },
+        { id: "en-US-AriaNeural", label: "Aria (US)", gender: "female" },
+        { id: "en-US-AvaNeural", label: "Ava (US)", gender: "female" },
+        { id: "en-US-EmmaNeural", label: "Emma (US)", gender: "female" },
+        { id: "en-US-MichelleNeural", label: "Michelle (US)", gender: "female" },
+        { id: "en-GB-SoniaNeural", label: "Sonia (UK)", gender: "female" },
+        { id: "en-GB-LibbyNeural", label: "Libby (UK)", gender: "female" },
+        { id: "en-US-GuyNeural", label: "Guy (US)", gender: "male" },
+        { id: "en-US-AndrewNeural", label: "Andrew (US)", gender: "male" },
+        { id: "en-US-BrianNeural", label: "Brian (US)", gender: "male" },
+        { id: "en-US-ChristopherNeural", label: "Christopher (US)", gender: "male" },
+        { id: "en-GB-RyanNeural", label: "Ryan (UK)", gender: "male" },
+        { id: "en-GB-ThomasNeural", label: "Thomas (UK)", gender: "male" },
+      ],
+    };
+
+    const voices =
+      voicesFromApi ||
+      FALLBACK[lang] ||
+      FALLBACK.en ||
+      [
+        { id: "female", label: tr("narrator.female", "Female (neural)"), gender: "female" },
+        { id: "male", label: tr("narrator.male", "Male (neural)"), gender: "male" },
+      ];
+
+    const females = voices.filter((v) => v.gender === "female");
+    const males = voices.filter((v) => v.gender === "male");
+    const other = voices.filter(
+      (v) => v.gender !== "female" && v.gender !== "male"
+    );
+
+    sel.innerHTML = "";
+    function addGroup(label, items) {
+      if (!items.length) return;
+      const og = document.createElement("optgroup");
+      og.label = label;
+      for (const v of items) {
+        const opt = document.createElement("option");
+        opt.value = v.id;
+        const mark = genderMark(v.gender);
+        opt.textContent = mark ? `${v.label} ${mark}` : v.label;
+        og.appendChild(opt);
+      }
+      sel.appendChild(og);
+    }
+    addGroup(tr("narrator.voiceFemaleGroup", "Żeńskie"), females);
+    addGroup(tr("narrator.voiceMaleGroup", "Męskie"), males);
+    addGroup(tr("narrator.voiceOtherGroup", "Inne"), other);
+
+    // Always keep generic fallbacks at the end
+    const ogDef = document.createElement("optgroup");
+    ogDef.label = tr("narrator.voiceDefaultGroup", "Domyślne");
+    for (const [val, lab] of [
+      ["female", tr("narrator.female", "Żeński (neural)")],
+      ["male", tr("narrator.male", "Męski (neural)")],
+    ]) {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = lab;
+      ogDef.appendChild(opt);
+    }
+    sel.appendChild(ogDef);
+
+    // Restore selection if still available
+    const values = Array.from(sel.options).map((o) => o.value);
+    if (prev && values.includes(prev)) {
+      sel.value = prev;
+    } else if (voices[0]) {
+      sel.value = voices[0].id;
+    }
+
+    const hint = $("#voice-hint");
+    if (hint) {
+      hint.textContent = tr(
+        "narrator.voiceHintN",
+        "{n} głosów dla języka {lang}"
+      )
+        .replace("{n}", String(voices.length))
+        .replace("{lang}", LANG_NAMES[lang] || lang);
+    }
+  }
+
+  async function loadVoiceCatalog() {
+    try {
+      const res = await fetch("/api/studio/languages", {
+        credentials: "same-origin",
+      });
+      if (!res.ok) return;
+      voiceCatalog = await res.json();
+      rebuildVoiceSelect();
+    } catch (_) {
+      rebuildVoiceSelect();
+    }
+  }
+
   function describeStyle() {
     const v = $("#opt-describe-style")?.value || "neutral";
     const ok = [
@@ -566,6 +709,7 @@
     refreshLangBadge();
   });
   $("#opt-target-lang")?.addEventListener("change", () => {
+    rebuildVoiceSelect();
     refreshModeHint();
     refreshLangBadge();
   });
@@ -2355,8 +2499,18 @@
     await resetToIdle({ confirm: false, clearFile: false });
   });
 
-  // After refresh: restore current job UI
+  // Voice catalog + restore job after refresh
   (async () => {
+    try {
+      await loadVoiceCatalog();
+    } catch {
+      rebuildVoiceSelect();
+    }
+    $("#opt-voice")?.addEventListener("change", () => {
+      try {
+        localStorage.setItem("clipforge.voice", $("#opt-voice").value || "");
+      } catch (_) {}
+    });
     try {
       const res = await fetch("/api/studio/jobs/latest/active");
       if (!res.ok) return;
