@@ -264,7 +264,7 @@
   "quality.crfLab": "Jakość kodowania (CRF)",
   "narrator.autoTrLab": "Tłumacz na język docelowy (można wyłączyć = oryginał)",
   "narrator.proLab": "🎯 Pro lektor (auto pod język: segmenty, cisze, tempo, znaki)",
-  "narrator.proHint": "Włączone: osobny profil dla PL/EN/DE/… (chars/s, hop, łączenie krótkich cisz, tempo Edge TTS, 1:1 z zegarami źródła). Bez chmury / bez tokenów — reguły lokalne.",
+  "narrator.proHint": "Przy Start: segmentacja i tempo lektora/napisów (profile PL/EN/DE…). Nie przy Wyodrębnij — tam tylko ciągły tekst. Lokalnie, bez tokenów.",
   "narrator.timedTrLab": "📥 Tekst do edytora",
   "narrator.timedTrHint": "Wyodrębnij → ciągły tekst w polu → popraw. Segmenty 6s dopiero przy Start (po przeróbce).",
   "narrator.speedTitle": "Tempo mowy (lektor)",

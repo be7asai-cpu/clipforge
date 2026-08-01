@@ -628,23 +628,12 @@
                 </label>
               </div>
               <div class="model-badge" id="model-badge">model: nmt-google-auto-pl</div>
+              <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
 
               <label class="inline">
                 <input type="checkbox" id="opt-auto-translate" checked />
                 <span data-i18n="narrator.autoTrLab">Tłumacz na język docelowy (można wyłączyć = oryginał)</span>
               </label>
-              <label
-                class="inline"
-                title="Profile per język: tempo mowy, segmentacja, cisze, max znaków/s, dopasowanie do filmu"
-              >
-                <input type="checkbox" id="opt-pro-narrator" checked />
-                <span data-i18n="narrator.proLab"
-                  >🎯 Pro lektor (auto pod język: segmenty, cisze, tempo, znaki)</span
-                >
-              </label>
-              <p class="hint compact" data-i18n="narrator.proHint">
-                Profile PL/EN/DE… lokalnie (chars/s, hop, cisze, tempo TTS) — bez tokenów.
-              </p>
 
               <label class="inline">
                 <span data-i18n="narrator.voiceLab">Głos</span>
@@ -674,10 +663,27 @@
                 Lista głosów zależy od języka docelowego (Edge neural).
               </p>
 
+              <!-- Pro lektor: always visible next to voice — segmentation only at Start -->
+              <div class="opt-block pro-narrator-block" id="pro-narrator-block">
+                <label
+                  class="inline"
+                  title="Przy Start: segmenty, cisze, tempo, gęstość znaków pod język docelowy"
+                >
+                  <input type="checkbox" id="opt-pro-narrator" checked />
+                  <span data-i18n="narrator.proLab"
+                    >🎯 Pro lektor (auto pod język: segmenty, cisze, tempo, znaki)</span
+                  >
+                </label>
+                <p class="hint compact" data-i18n="narrator.proHint">
+                  Przy <strong>Start</strong>: segmentacja i tempo lektora/napisów (profile PL/EN/DE…).
+                  Nie przy Wyodrębnij — tam tylko ciągły tekst do edycji. Lokalnie, bez tokenów.
+                </p>
+              </div>
+
               <!-- Master switch: only opens extract/edit panel (no hop-segmentation yet) -->
               <label
                 class="inline editor-master"
-                title="Włącz, by wyciągnąć tekst do pola i edytować. Segmentacja dopiero przy Start / po przeróbce."
+                title="Włącz, by wyciągnąć tekst do pola i edytować. Segmentacja Pro lektora dopiero przy Start."
               >
                 <input type="checkbox" id="opt-timed-transcript" />
                 <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora</span>
@@ -686,7 +692,6 @@
                 Wyłączone: przy Start tekst z filmu automatycznie. Zaznacz, by ręcznie wyodrębnić i
                 poprawić w polu (bez segmentacji na tym etapie).
               </p>
-              <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
 
               <!-- Nested: only when «Tekst do edytora» is checked -->
               <div class="editor-advanced hidden" id="editor-advanced">

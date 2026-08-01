@@ -264,7 +264,7 @@
   "quality.crfLab": "Encode quality (CRF)",
   "narrator.autoTrLab": "Translate to target language (can turn off = original)",
   "narrator.proLab": "🎯 Pro narrator (per-language: segments, silence, rate, density)",
-  "narrator.proHint": "On: language profiles (chars/s, hop, merge short gaps, Edge TTS rate, 1:1 source clocks). No cloud tokens — local rules only.",
+  "narrator.proHint": "On Start: narrator/subs segmentation and pace (PL/EN/DE profiles). Not on Extract — that is continuous text only. Local, no tokens.",
   "narrator.timedTrLab": "📥 Text to editor",
   "narrator.timedTrHint": "Extract → continuous text in the field → edit. 6s segments only on Start (after processing).",
   "narrator.speedTitle": "Speech tempo (narrator)",

@@ -2287,6 +2287,18 @@ input[type="range"] {
   margin-bottom: 14px !important;
 }
 
+/* Pro lektor — always visible, next to voice */
+.pro-narrator-block {
+  margin: 10px 0 8px !important;
+  padding: 10px 12px !important;
+  border: 1px solid rgba(0, 200, 255, 0.2) !important;
+  border-radius: 8px !important;
+  background: rgba(0, 30, 45, 0.4) !important;
+}
+.pro-narrator-block .hint.compact {
+  margin-bottom: 0 !important;
+}
+
 /* Narrator: nested editor options only when «Tekst do edytora» is ON */
 .editor-advanced {
   margin-top: 10px !important;
