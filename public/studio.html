@@ -598,18 +598,18 @@
                   Skąd wziąć tekst
                 </div>
                 <div class="seg" role="radiogroup" id="extract-source-group">
-                  <label title="Napisy YT (link) → Whisper → Google STT">
-                    <input type="radio" name="extract-source" value="auto" />
+                  <label title="Przy Start automatycznie: napisy YT → Whisper → Google STT">
+                    <input type="radio" name="extract-source" value="auto" checked />
                     <span data-i18n="narrator.extractSrcAuto"
-                      >⚡ Auto (dźwięk + napisy YT)</span
+                      >⚡ Auto (przy Start — bez ręcznego Wyodrębnij)</span
                     >
                   </label>
                   <label title="Google Web Speech">
                     <input type="radio" name="extract-source" value="stt" />
                     <span data-i18n="narrator.extractSrcStt">🎤 Google STT</span>
                   </label>
-                  <label title="Whisper lokalnie — najlepszy przy muzyce / hałasie / memach">
-                    <input type="radio" name="extract-source" value="whisper" checked />
+                  <label title="Whisper lokalnie — lepszy przy muzyce / memach">
+                    <input type="radio" name="extract-source" value="whisper" />
                     <span data-i18n="narrator.extractSrcWhisper">🎧 Whisper</span>
                   </label>
                   <label title="Napisy YouTube (link + PC·ON)">
@@ -631,7 +631,8 @@
                   </select>
                 </label>
                 <p class="hint compact" data-i18n="narrator.extractSrcHint">
-                  Jedna opcja dla Start i Wyodrębnij. Auto = napisy → Whisper → STT.
+                  Przy Start tekst idzie automatycznie (Auto: napisy → Whisper → STT). Ręczna poprawa
+                  tylko po zaznaczeniu «Tekst do edytora» poniżej.
                 </p>
                 <p class="hint compact" id="whisper-status" data-i18n="narrator.whisperStatusWait">
                   Sprawdzam Whisper…
@@ -776,22 +777,23 @@
                 <span id="opt-bg-val">12%</span>
               </label>
 
-              <!-- 4) Tekst do edytora = wymagany panel edycji (domyślnie ON) -->
+              <!-- 4) Tekst do edytora = opcjonalna ręczna poprawa (domyślnie OFF) -->
               <label
                 class="inline editor-master"
-                title="Wymagane, by wyciągnąć tekst (np. Whisper) do pola i poprawić przed Start"
+                title="Opcjonalnie: wyciągnij tekst do pola i popraw ręcznie. Bez tego Start robi to automatycznie."
               >
-                <input type="checkbox" id="opt-timed-transcript" checked />
-                <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora (wymagane do Wyodrębnij)</span>
+                <input type="checkbox" id="opt-timed-transcript" />
+                <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora (opcjonalna poprawa)</span>
               </label>
-              <p class="hint compact" data-i18n="narrator.timedTrHintOff" id="timed-tr-hint-off" hidden>
-                Wyłączone: Start bierze tekst ze źródła wyżej automatycznie (bez ręcznej korekty).
+              <p class="hint compact" data-i18n="narrator.timedTrHintOff" id="timed-tr-hint-off">
+                Wyłączone (domyślnie): Start sam bierze tekst ze źródła wyżej (Auto/Whisper/…). Zaznacz
+                tylko, gdy chcesz ręcznie poprawić tekst przed Start.
               </p>
 
-              <div class="editor-advanced" id="editor-advanced">
+              <div class="editor-advanced hidden" id="editor-advanced">
                 <p class="hint compact" data-i18n="narrator.timedTrHint">
-                  Zalecane: wybierz źródło (np. Whisper) → Wyodrębnij → popraw tekst → Start.
-                  Segmentacja = Pro lektor przy Start (nie tu).
+                  Ręczna poprawa: Wyodrębnij → edytuj ciągły tekst → Start. Bez tego checkboxa wszystko
+                  leci automatycznie. Segmentacja = Pro lektor przy Start.
                 </p>
 
                 <div class="opt-block extract-rewrite-block" id="extract-rewrite-block">

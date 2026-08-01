@@ -907,11 +907,11 @@
     }
   }
 
-  /** Extract / Start text source: auto | stt | whisper | captions (default Whisper) */
+  /** Extract / Start text source: auto (default) | stt | whisper | captions */
   function extractSource() {
     const v =
       document.querySelector('input[name="extract-source"]:checked')?.value ||
-      "whisper";
+      "auto";
     if (v === "whisper" || v === "captions" || v === "auto") return v;
     return "stt";
   }
@@ -986,29 +986,8 @@
     if (hintOff) hintOff.hidden = on;
     syncExtractSourceUi();
   }
-  $("#opt-timed-transcript")?.addEventListener("change", () => {
-    const ed = $("#opt-timed-transcript");
-    if (ed) ed.dataset.userToggled = "1";
-    syncEditorAdvancedUi();
-  });
-  // Force editor ON on first load (required path for Whisper → pole tekstu)
-  (function ensureEditorDefaultOn() {
-    const ed = $("#opt-timed-transcript");
-    if (ed && !ed.dataset.userToggled) {
-      ed.checked = true;
-    }
-    // Prefer Whisper if nothing user-picked (hard audio / memes)
-    const anySrc = document.querySelector(
-      'input[name="extract-source"]:checked'
-    );
-    if (!anySrc) {
-      const w = document.querySelector(
-        'input[name="extract-source"][value="whisper"]'
-      );
-      if (w) w.checked = true;
-    }
-    syncEditorAdvancedUi();
-  })();
+  $("#opt-timed-transcript")?.addEventListener("change", syncEditorAdvancedUi);
+  syncEditorAdvancedUi();
 
   async function refreshWhisperStatus() {
     const el = $("#whisper-status");
@@ -1186,10 +1165,10 @@
     return wantSmartRewrite() && (el ? !!el.checked : true);
   }
 
-  /** «Tekst do edytora» — required for extract; default ON */
+  /** «Tekst do edytora» — optional manual edit; default OFF (Start = automatic) */
   function wantTimedTranscript() {
     const el = $("#opt-timed-transcript");
-    if (!el) return true;
+    if (!el) return false;
     return !!el.checked;
   }
   /** Alias — same checkbox */
@@ -2179,21 +2158,22 @@
       narratorMode: narratorMode(),
       describeStyle: describeStyle(),
       /**
-       * Text in editor field → Start uses it (regardless of «Tekst do edytora» panel).
-       * Empty field → extract-source (Auto / STT / Whisper / captions) always available above.
+       * Pole z tekstem (po ręcznym Wyodrębnij) → Start bez ponownego STT.
+       * Puste pole → automatycznie ze źródła (Auto/Whisper/…) przy Start — bez edytora.
        */
       transcriptSource: (() => {
         const script = String($("#opt-script")?.value || "").trim();
-        if (script.length >= 8) return "stt"; // plain field = source, no re-STT
+        if (script.length >= 8 && wantEditorFill()) return "stt";
         const ex = extractSource();
         if (ex === "whisper" || ex === "captions" || ex === "auto") return ex;
         return "stt";
       })(),
       sttEngine: (() => {
         const script = String($("#opt-script")?.value || "").trim();
-        if (script.length >= 8) return "google";
+        if (script.length >= 8 && wantEditorFill()) return "google";
         const ex = extractSource();
         if (ex === "whisper") return "whisper";
+        // Auto: agent tries captions → Whisper → Google
         if (ex === "auto") return "auto";
         return "google";
       })(),
@@ -2204,8 +2184,8 @@
       /** Pro lektor: segmentacja przy Start — niezależna od edytora */
       proNarrator: $("#opt-pro-narrator")?.checked !== false,
       /**
-       * Hop/timeline przy Start: zawsze włączone dla lektora (nie zależy od «Tekst do edytora»).
-       * Extract nadal wstawia ciągły tekst; siatka buduje się w pipeline.
+       * Timeline/hop przy Start zawsze (lektor). Edytor nie steruje segmentacją.
+       * Jeśli jest tekst w polu + edytor ON → źródło z pola; inaczej STT/Whisper Auto.
        */
       timedTranscript: true,
       textSpeedMode: getTextSpeedMode(),
