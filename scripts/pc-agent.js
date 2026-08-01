@@ -459,27 +459,82 @@ async function heartbeat(opts = {}) {
   return res.data;
 }
 
-/** Keep cloud job alive while pipeline/STT blocks the event loop for long stretches */
+/**
+ * Keep cloud job alive while pipeline/STT blocks the event loop (spawnSync).
+ * Uses (1) in-process interval when free + (2) sidecar process that keeps
+ * POSTing even during long ffmpeg/STT sync — so UI never freezes at 5%.
+ */
 function startJobKeepAlive(jobId) {
   let n = 0;
+  let lastProg = 5;
   const id = setInterval(() => {
     n += 1;
     heartbeat({ busyJobId: jobId }).catch(() => null);
-    // Touch progress endpoint (even without % change) → updates updatedAt
     reportProgress(jobId, {
       touch: true,
-      stage: n % 4 === 0 ? "Na Twoim PC (pracuje)…" : undefined,
+      // soft bump so % bar moves slightly while heavy work runs (server never goes backwards)
+      progress: Math.min(88, lastProg + (n % 5 === 0 ? 1 : 0)),
+      stage: "Na Twoim PC (pracuje)…",
       log:
-        n % 8 === 0
-          ? "Agent nadal pracuje (keepalive " + n * 12 + "s)…"
+        n % 4 === 0
+          ? "Agent nadal pracuje (keepalive " + n * 8 + "s)…"
           : undefined,
-    }).catch(() => null);
-  }, 12000);
+    })
+      .then(() => {
+        if (n % 5 === 0) lastProg = Math.min(88, lastProg + 1);
+      })
+      .catch(() => null);
+  }, 8000);
+
+  // Sidecar: survives spawnSync freeze in this process
+  let side = null;
+  try {
+    const hbJs = path.join(__dirname, "pc-agent-heartbeat.js");
+    if (fs.existsSync(hbJs)) {
+      side = spawn(process.execPath, [hbJs], {
+        env: {
+          ...process.env,
+          CF_HB_URL: CLOUD,
+          CLIPFORGE_CLOUD_URL: CLOUD,
+          CF_HB_TOKEN: agentToken,
+          CLIPFORGE_AGENT_TOKEN: agentToken,
+          CF_HB_JOB: String(jobId),
+          CF_HB_LABEL: LABEL,
+          CF_HB_MS: "8000",
+        },
+        windowsHide: true,
+        stdio: "ignore",
+        detached: false,
+      });
+      side.on("error", () => {
+        side = null;
+      });
+    }
+  } catch {
+    side = null;
+  }
+
   return () => {
     try {
       clearInterval(id);
     } catch {
       /* ignore */
+    }
+    if (side && side.pid) {
+      try {
+        side.kill();
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (process.platform === "win32") {
+          spawnSync("taskkill", ["/F", "/T", "/PID", String(side.pid)], {
+            windowsHide: true,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
     }
   };
 }
@@ -2370,6 +2425,14 @@ async function runJob(job) {
   }
 
   // Prefer agent-local pipeline (same folder as this script's install)
+  await reportProgress(job.id, {
+    progress: 8,
+    stage: "Pipeline na PC…",
+    livePhase: "source",
+    liveOriginal:
+      "… start obróbki na PC (HD → potem STT / lektor / napisy) …",
+    log: "Uruchamiam pipeline lokalnie (ffmpeg + lektor)…",
+  });
   const { runPipeline } = require(path.join(ROOT, "lib", "studio-pipeline.js"));
   const localJob = {
     id: job.id,
@@ -2382,9 +2445,18 @@ async function runJob(job) {
   };
 
   {
+    // Serialize progress posts so cloud always sees latest stage/%
+    let progChain = Promise.resolve();
+    const pushProg = (patch) => {
+      progChain = progChain
+        .then(() => reportProgress(job.id, patch || {}))
+        .catch(() => null);
+      return progChain;
+    };
     await runPipeline(localJob, (patch) => {
-      reportProgress(job.id, patch);
+      pushProg(patch);
     });
+    await progChain;
     const files = {};
     if (localJob.outputPath && fs.existsSync(localJob.outputPath)) {
       files.video = localJob.outputPath;
