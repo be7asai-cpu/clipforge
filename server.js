@@ -340,6 +340,8 @@ const studioUpload = multer({
 // PC agent routes use Bearer token auth (not browser session)
 app.use("/api/studio", (req, res, next) => {
   if (req.path === "/health" || req.path.startsWith("/health")) return next();
+  if (req.path === "/whisper-status" || req.path === "/ollama-status")
+    return next();
   if (req.path.startsWith("/agent")) return next();
   // PC agent downloads source bundle with Bearer token (no browser session)
   if (req.path === "/pc-agent-bundle.tgz" || req.path.startsWith("/pc-agent-bundle"))
