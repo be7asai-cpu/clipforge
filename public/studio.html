@@ -592,55 +592,7 @@
                 </p>
               </div>
 
-              <!-- 1) Skąd wziąć tekst — BEFORE translator (always visible, one place) -->
-              <div class="opt-block extract-source-block" id="extract-source-block">
-                <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">
-                  Skąd wziąć tekst
-                </div>
-                <div class="seg" role="radiogroup" id="extract-source-group">
-                  <label title="Przy Start automatycznie: napisy YT → Whisper → Google STT">
-                    <input type="radio" name="extract-source" value="auto" checked />
-                    <span data-i18n="narrator.extractSrcAuto"
-                      >⚡ Auto (przy Start — bez ręcznego Wyodrębnij)</span
-                    >
-                  </label>
-                  <label title="Google Web Speech">
-                    <input type="radio" name="extract-source" value="stt" />
-                    <span data-i18n="narrator.extractSrcStt">🎤 Google STT</span>
-                  </label>
-                  <label title="Whisper lokalnie — lepszy przy muzyce / memach">
-                    <input type="radio" name="extract-source" value="whisper" />
-                    <span data-i18n="narrator.extractSrcWhisper">🎧 Whisper</span>
-                  </label>
-                  <label title="Napisy YouTube (link + PC·ON)">
-                    <input type="radio" name="extract-source" value="captions" />
-                    <span data-i18n="narrator.extractSrcCaps">📝 Napisy YT</span>
-                  </label>
-                </div>
-                <div class="hidden" id="transcript-source-group" aria-hidden="true">
-                  <input type="radio" name="transcript-source" value="stt" checked />
-                  <input type="radio" name="transcript-source" value="captions" />
-                </div>
-                <label class="stack mt-sm" id="whisper-model-wrap" hidden>
-                  <span data-i18n="narrator.whisperModelLab">Model Whisper</span>
-                  <select id="opt-whisper-model" title="Większy model = lepsza jakość, wolniej">
-                    <option value="tiny">tiny (szybki)</option>
-                    <option value="base" selected>base (zalecany)</option>
-                    <option value="small">small (lepszy)</option>
-                    <option value="medium">medium (wolny, dokładny)</option>
-                  </select>
-                </label>
-                <p class="hint compact" data-i18n="narrator.extractSrcHint">
-                  Przy Start tekst idzie automatycznie (Auto: napisy → Whisper → STT). Ręczna poprawa
-                  tylko po zaznaczeniu «Tekst do edytora» poniżej.
-                </p>
-                <p class="hint compact" id="whisper-status" data-i18n="narrator.whisperStatusWait">
-                  Sprawdzam Whisper…
-                </p>
-                <p class="hint compact" id="transcript-source-hint" hidden></p>
-              </div>
-
-              <!-- 2) Translator languages -->
+              <!-- Translator languages first; text source tools live under «Tekst do edytora» -->
               <div class="grid2">
                 <label class="stack">
                   <span data-i18n="narrator.src">Język źródłowy</span>
@@ -777,24 +729,69 @@
                 <span id="opt-bg-val">12%</span>
               </label>
 
-              <!-- 4) Tekst do edytora = opcjonalna ręczna poprawa (domyślnie OFF) -->
+              <!-- Tekst do edytora: opcjonalnie — tu wszystkie narzędzia odczytu + pole -->
               <label
                 class="inline editor-master"
-                title="Opcjonalnie: wyciągnij tekst do pola i popraw ręcznie. Bez tego Start robi to automatycznie."
+                title="Opcjonalnie: wybierz narzędzie odczytu, wyciągnij tekst i popraw. Bez tego Start = Auto."
               >
                 <input type="checkbox" id="opt-timed-transcript" />
                 <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora (opcjonalna poprawa)</span>
               </label>
               <p class="hint compact" data-i18n="narrator.timedTrHintOff" id="timed-tr-hint-off">
-                Wyłączone (domyślnie): Start sam bierze tekst ze źródła wyżej (Auto/Whisper/…). Zaznacz
-                tylko, gdy chcesz ręcznie poprawić tekst przed Start.
+                Wyłączone (domyślnie): Start sam bierze tekst (Auto: napisy → Whisper → STT). Zaznacz,
+                gdy chcesz wybrać narzędzie i ręcznie poprawić tekst.
               </p>
 
               <div class="editor-advanced hidden" id="editor-advanced">
                 <p class="hint compact" data-i18n="narrator.timedTrHint">
-                  Ręczna poprawa: Wyodrębnij → edytuj ciągły tekst → Start. Bez tego checkboxa wszystko
-                  leci automatycznie. Segmentacja = Pro lektor przy Start.
+                  Tu są wszystkie narzędzia odczytu. Wybierz → Wyodrębnij → popraw ciągły tekst → Start.
+                  Bez checkboxa Start leci Auto. Segmentacja = Pro lektor przy Start.
                 </p>
+
+                <!-- Wszystkie narzędzia odczytu tekstu (tylko w edytorze) -->
+                <div class="opt-block extract-source-block" id="extract-source-block">
+                  <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">
+                    Narzędzia odczytu tekstu
+                  </div>
+                  <div class="seg" role="radiogroup" id="extract-source-group">
+                    <label title="Napisy YT → Whisper → Google STT">
+                      <input type="radio" name="extract-source" value="auto" checked />
+                      <span data-i18n="narrator.extractSrcAuto">⚡ Auto (wszystkie)</span>
+                    </label>
+                    <label title="Google Web Speech">
+                      <input type="radio" name="extract-source" value="stt" />
+                      <span data-i18n="narrator.extractSrcStt">🎤 Google STT</span>
+                    </label>
+                    <label title="Whisper lokalnie — muzyka / memy">
+                      <input type="radio" name="extract-source" value="whisper" />
+                      <span data-i18n="narrator.extractSrcWhisper">🎧 Whisper</span>
+                    </label>
+                    <label title="Napisy YouTube (link + PC·ON)">
+                      <input type="radio" name="extract-source" value="captions" />
+                      <span data-i18n="narrator.extractSrcCaps">📝 Napisy YT</span>
+                    </label>
+                  </div>
+                  <div class="hidden" id="transcript-source-group" aria-hidden="true">
+                    <input type="radio" name="transcript-source" value="stt" checked />
+                    <input type="radio" name="transcript-source" value="captions" />
+                  </div>
+                  <label class="stack mt-sm" id="whisper-model-wrap" hidden>
+                    <span data-i18n="narrator.whisperModelLab">Model Whisper</span>
+                    <select id="opt-whisper-model" title="Większy = lepsza jakość, wolniej">
+                      <option value="tiny">tiny (szybki)</option>
+                      <option value="base" selected>base (zalecany)</option>
+                      <option value="small">small (lepszy)</option>
+                      <option value="medium">medium (wolny, dokładny)</option>
+                    </select>
+                  </label>
+                  <p class="hint compact" data-i18n="narrator.extractSrcHint">
+                    Wszystkie narzędzia w edytorze: Auto / STT / Whisper / napisy YT → Wyodrębnij do pola.
+                  </p>
+                  <p class="hint compact" id="whisper-status" data-i18n="narrator.whisperStatusWait">
+                    Sprawdzam Whisper…
+                  </p>
+                  <p class="hint compact" id="transcript-source-hint" hidden></p>
+                </div>
 
                 <div class="opt-block extract-rewrite-block" id="extract-rewrite-block">
                   <div class="opt-block-title" data-i18n="narrator.smartRewriteTitle">

@@ -2158,12 +2158,14 @@
       narratorMode: narratorMode(),
       describeStyle: describeStyle(),
       /**
-       * Pole z tekstem (po ręcznym Wyodrębnij) → Start bez ponownego STT.
-       * Puste pole → automatycznie ze źródła (Auto/Whisper/…) przy Start — bez edytora.
+       * Edytor ON + tekst w polu → Start z pola (bez re-STT).
+       * Edytor ON, puste pole → wybrane narzędzie odczytu w edytorze.
+       * Edytor OFF → zawsze Auto (napisy → Whisper → Google) przy Start.
        */
       transcriptSource: (() => {
         const script = String($("#opt-script")?.value || "").trim();
         if (script.length >= 8 && wantEditorFill()) return "stt";
+        if (!wantEditorFill()) return "auto";
         const ex = extractSource();
         if (ex === "whisper" || ex === "captions" || ex === "auto") return ex;
         return "stt";
@@ -2171,9 +2173,9 @@
       sttEngine: (() => {
         const script = String($("#opt-script")?.value || "").trim();
         if (script.length >= 8 && wantEditorFill()) return "google";
+        if (!wantEditorFill()) return "auto";
         const ex = extractSource();
         if (ex === "whisper") return "whisper";
-        // Auto: agent tries captions → Whisper → Google
         if (ex === "auto") return "auto";
         return "google";
       })(),
