@@ -1823,11 +1823,16 @@ async function runPreTranscribeOnFile(videoPath, {
 
   // Exact STT cues → same string format as script field & lektor
   const paceKey = textSpeechPace || speechPace || "manual";
+  // Prefer hop-aligned timeline (non-overlapping) for extract cues;
+  // fall back to fine segments (then normalizeSpeechCues cleans overlaps).
   const sttSlots =
+    (Array.isArray(stt.timelineSegments) && stt.timelineSegments.length
+      ? stt.timelineSegments
+      : null) ||
     (Array.isArray(stt.segments) && stt.segments.length
       ? stt.segments
       : null) ||
-    (Array.isArray(stt.timelineSegments) ? stt.timelineSegments : []);
+    [];
   let exactCueCount = 0;
   let transcriptMode = "plain";
   if (typeof buildTimedScriptFromText === "function") {

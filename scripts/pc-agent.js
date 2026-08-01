@@ -1611,9 +1611,8 @@ async function runJob(job) {
       job.options.textSpeechPace ||
       job.options.textSpeedMode ||
       "manual";
-    const sttSlots =
-      (Array.isArray(segs) && segs.length ? segs : null) ||
-      [];
+    // Prefer non-overlapping hop slots when present; fine segs normalized later
+    const sttSlots = Array.isArray(segs) && segs.length ? segs : [];
     let exactCueCount = 0;
     let transcriptMode = "plain";
     if (typeof buildTimedScriptFromText === "function") {
