@@ -1644,6 +1644,7 @@ async function runPreTranscribeOnFile(videoPath, {
     extractSpeechFromVideoSegmented,
     translateText,
     joinSpeechTexts,
+    translateSegments1to1,
   } = require("./lib/lang-utils");
   // joinSpeechTexts may not exist on older agent copies — local fallback
   const stitch =
@@ -1665,8 +1666,9 @@ async function runPreTranscribeOnFile(videoPath, {
 
   function formatTimed(segs) {
     if (!Array.isArray(segs) || !segs.length) return "";
+    // Keep ALL slots (incl. silent) so translation line count === transcription
     return segs
-      .filter((s) => s && String(s.text || "").trim())
+      .filter((s) => s != null)
       .map((s) => {
         const a = Number(s.start) || 0;
         const b = Math.max(a + 0.3, Number(s.end) || a + 1);
@@ -1675,7 +1677,10 @@ async function runPreTranscribeOnFile(videoPath, {
           const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
           return String(m0).padStart(2, "0") + ":" + s0;
         };
-        return `[${mm(a)}–${mm(b)}] ${String(s.text).trim()}`;
+        const body = String(s.text || "")
+          .replace(/\s+/g, " ")
+          .trim();
+        return `[${mm(a)}–${mm(b)}] ${body}`;
       })
       .join("\n");
   }
@@ -1784,46 +1789,49 @@ async function runPreTranscribeOnFile(videoPath, {
   const srcForTr = stt.langCode || sourceLang || "auto";
 
   if (autoTranslate) {
-    try {
-      const tr = await translateText(originalText, srcForTr, targetLang, null, {
-        force: true,
-      });
-      if (tr && tr.ok && tr.text && String(tr.text).trim()) {
-        text = stitch([tr.text]);
-        translated = !tr.skipped;
-        translateEngine = tr.engine || "nmt";
-      } else if (tr && tr.error) {
-        translateError = tr.error;
-      }
-    } catch (te) {
-      translateError = (te && te.message) || String(te);
-    }
-
-    if (segs.length && text) {
-      const timedSegs = [];
-      for (const s of segs) {
-        const rawSeg = String(s.text || "").trim();
-        if (!rawSeg) {
-          timedSegs.push({ ...s, text: "" });
-          continue;
-        }
-        try {
-          const trs = await translateText(rawSeg, srcForTr, targetLang, null, {
-            force: true,
-          });
+    // Exact translate: ONLY per-segment NMT — same count as transcription (1:1)
+    if (segs.length && typeof translateSegments1to1 === "function") {
+      try {
+        const one = await translateSegments1to1(segs, srcForTr, targetLang, {});
+        const timedSegs = one.segments || [];
+        // Hard assert same length
+        while (timedSegs.length < segs.length) {
+          const s = segs[timedSegs.length];
           timedSegs.push({
             start: s.start,
             end: s.end,
-            text:
-              trs && trs.ok && trs.text
-                ? String(trs.text).replace(/\s+/g, " ").trim()
-                : rawSeg,
+            text: String(s.text || "").trim(),
+            silent: !String(s.text || "").trim(),
           });
-        } catch {
-          timedSegs.push({ start: s.start, end: s.end, text: rawSeg });
         }
+        if (timedSegs.length > segs.length) timedSegs.length = segs.length;
+        text = one.plainText || stitch(timedSegs.map((s) => s.text));
+        timedText = formatTimed(timedSegs);
+        translated = !!one.translated;
+        translateEngine = one.engine || "nmt-seg-1to1";
+      } catch (te) {
+        translateError = (te && te.message) || String(te);
       }
-      timedText = formatTimed(timedSegs);
+    } else {
+      // Fallback whole-text (no segment list)
+      try {
+        const tr = await translateText(
+          originalText,
+          srcForTr,
+          targetLang,
+          null,
+          { force: true }
+        );
+        if (tr && tr.ok && tr.text && String(tr.text).trim()) {
+          text = stitch([tr.text]);
+          translated = !tr.skipped;
+          translateEngine = tr.engine || "nmt";
+        } else if (tr && tr.error) {
+          translateError = tr.error;
+        }
+      } catch (te) {
+        translateError = (te && te.message) || String(te);
+      }
     }
   }
 
@@ -1837,6 +1845,13 @@ async function runPreTranscribeOnFile(videoPath, {
         : text;
   const primaryOriginal =
     useTimed && timedOriginal ? timedOriginal : originalText;
+
+  const trLineCount = timedText
+    ? timedText.split(/\r?\n/).filter((l) => l.trim()).length
+    : 0;
+  const srcLineCount = timedOriginal
+    ? timedOriginal.split(/\r?\n/).filter((l) => l.trim()).length
+    : segs.length;
 
   return {
     ok: true,
@@ -1856,7 +1871,15 @@ async function runPreTranscribeOnFile(videoPath, {
     langCode: stt.langCode || sourceLang || null,
     targetLang,
     durationSec: durationSec || stt.audioDuration || null,
+    /** Full timeline slots (incl. silent) — translation has the same count */
     segments: segs.length,
+    transcriptSegments: srcLineCount,
+    translationSegments: trLineCount || (translated ? segs.length : 0),
+    sameSegmentCount:
+      !translated ||
+      segs.length === 0 ||
+      trLineCount === srcLineCount ||
+      trLineCount === segs.length,
     error: null,
     musicLikely: !!stt.musicLikely,
     workDir: wd,

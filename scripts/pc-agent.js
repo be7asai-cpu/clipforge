@@ -1408,6 +1408,7 @@ async function runJob(job) {
       extractSpeechFromVideoSegmented,
       translateText,
       joinSpeechTexts,
+      translateSegments1to1,
     } = require(path.join(ROOT, "lib", "lang-utils.js"));
     const stitch =
       typeof joinSpeechTexts === "function"
@@ -1417,6 +1418,25 @@ async function runJob(job) {
               .map((t) => String(t || "").replace(/\s+/g, " ").trim())
               .filter(Boolean)
               .join(" ");
+    function formatTimedAll(segs) {
+      if (!Array.isArray(segs) || !segs.length) return "";
+      return segs
+        .filter((s) => s != null)
+        .map((s) => {
+          const a = Number(s.start) || 0;
+          const b = Math.max(a + 0.3, Number(s.end) || a + 1);
+          const mm = (x) => {
+            const m0 = Math.floor(x / 60);
+            const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
+            return String(m0).padStart(2, "0") + ":" + s0;
+          };
+          const body = String(s.text || "")
+            .replace(/\s+/g, " ")
+            .trim();
+          return `[${mm(a)}–${mm(b)}] ${body}`;
+        })
+        .join("\n");
+    }
 
     // Prefer YouTube captions if already loaded into options
     let originalText = "";
@@ -1548,59 +1568,77 @@ async function runJob(job) {
     if (autoTranslate) {
       await reportProgress(job.id, {
         progress: 78,
-        stage: "Tłumaczenie…",
+        stage: "Tłumaczenie 1:1…",
         livePhase: "translating",
         liveOriginal: originalText.slice(0, 1200),
-        log: "Dokładne tłumaczenie → " + targetLang,
+        log:
+          "Dokładne tłumaczenie segment po segmencie → " +
+          targetLang +
+          " (" +
+          segs.length +
+          " = tyle samo co transkrypcja)",
       });
-      try {
-        const tr = await translateText(originalText, srcForTr, targetLang, null, {
-          force: true,
-        });
-        if (tr && tr.ok && tr.text && String(tr.text).trim()) {
-          text = stitch([tr.text]);
-          translated = !tr.skipped;
-        }
-      } catch (te) {
-        log("translate pre-stt:", te.message || te);
-      }
-      if (segs.length) {
-        const timedSegs = [];
-        for (const s of segs) {
-          const raw = String(s.text || "").trim();
-          if (!raw) {
-            timedSegs.push({ ...s, text: "" });
-            continue;
-          }
-          try {
-            const trs = await translateText(raw, srcForTr, targetLang, null, {
-              force: true,
-            });
+      // 1:1 with transcription — never whole-blob NMT that changes segment count
+      if (segs.length && typeof translateSegments1to1 === "function") {
+        try {
+          const one = await translateSegments1to1(
+            segs,
+            srcForTr,
+            targetLang,
+            {
+              onSegment: (info) => {
+                if (info.phase === "done") {
+                  reportProgress(job.id, {
+                    progress: Math.min(
+                      92,
+                      78 + Math.round(((info.index + 1) / info.total) * 14)
+                    ),
+                    stage: `Tłumaczę ${info.index + 1}/${info.total}`,
+                    livePhase: "translating",
+                  }).catch(() => null);
+                }
+              },
+            }
+          );
+          const timedSegs = one.segments || [];
+          while (timedSegs.length < segs.length) {
+            const s = segs[timedSegs.length];
             timedSegs.push({
               start: s.start,
               end: s.end,
-              text:
-                trs && trs.ok && trs.text
-                  ? String(trs.text).replace(/\s+/g, " ").trim()
-                  : raw,
+              text: String(s.text || "").trim(),
+              silent: !String(s.text || "").trim(),
             });
-          } catch {
-            timedSegs.push({ start: s.start, end: s.end, text: raw });
           }
+          if (timedSegs.length > segs.length) timedSegs.length = segs.length;
+          text = one.plainText || stitch(timedSegs.map((s) => s.text));
+          timedText = formatTimedAll(timedSegs);
+          translated = !!one.translated;
+          log(
+            "Tłumaczenie 1:1:",
+            timedSegs.length,
+            "seg = transkrypcja",
+            segs.length
+          );
+        } catch (te) {
+          log("translate 1:1 pre-stt:", te.message || te);
         }
-        timedText = timedSegs
-          .filter((s) => s.text)
-          .map((s) => {
-            const a = Number(s.start) || 0;
-            const b = Math.max(a + 0.3, Number(s.end) || a + 1);
-            const mm = (x) => {
-              const m0 = Math.floor(x / 60);
-              const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
-              return String(m0).padStart(2, "0") + ":" + s0;
-            };
-            return `[${mm(a)}–${mm(b)}] ${s.text}`;
-          })
-          .join("\n");
+      } else {
+        try {
+          const tr = await translateText(
+            originalText,
+            srcForTr,
+            targetLang,
+            null,
+            { force: true }
+          );
+          if (tr && tr.ok && tr.text && String(tr.text).trim()) {
+            text = stitch([tr.text]);
+            translated = !tr.skipped;
+          }
+        } catch (te) {
+          log("translate pre-stt:", te.message || te);
+        }
       }
     }
 
