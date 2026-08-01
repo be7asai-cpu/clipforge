@@ -18,7 +18,7 @@
     />
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
-    <link rel="stylesheet" href="/css/studio.css?v=20260801preStt" />
+    <link rel="stylesheet" href="/css/studio.css?v=20260801exactTr" />
     <link rel="stylesheet" href="/css/auth.css?v=20260728narronly" />
     <link rel="icon" href="/assets/clipforge-192.png" />
     <link rel="apple-touch-icon" href="/assets/clipforge-192.png" />
@@ -561,16 +561,20 @@
               </label>
               <div class="pre-stt-bar" id="pre-stt-bar">
                 <button type="button" class="btn ghost sm" id="btn-extract-transcript">
-                  <span data-i18n="narrator.extractBtn">🎤 Wyodrębnij transkrypcję</span>
+                  <span data-i18n="narrator.extractBtn">🎤 Wyodrębnij + dokładne tłumaczenie</span>
                 </button>
                 <label class="inline pre-stt-timed" title="Wstaw z znacznikami czasu">
                   <input type="checkbox" id="opt-extract-timed" />
                   <span data-i18n="narrator.extractTimed">z czasem</span>
                 </label>
+                <label class="inline pre-stt-timed" title="Zostaw oryginał STT bez tłumaczenia">
+                  <input type="checkbox" id="opt-extract-no-tr" />
+                  <span data-i18n="narrator.extractNoTr">tylko oryginał</span>
+                </label>
                 <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
               </div>
               <p class="hint" data-i18n="narrator.extractHint">
-                Najpierw wrzuć wideo (kolumna 1). Transkrypcja wpadnie do pola poniżej — możesz poprawić i dopiero potem Start.
+                STT z wideo → dokładne tłumaczenie na język docelowy → tekst w polu poniżej. Popraw i Start (tryb «Dokładne tłumaczenie»).
               </p>
 
               <label class="stack">
@@ -900,9 +904,9 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801preStt"></script>
+    <script src="/js/i18n.js?v=20260801exactTr"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260801preStt"></script>
+    <script src="/js/studio.js?v=20260801exactTr"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;

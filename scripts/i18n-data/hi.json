@@ -414,12 +414,18 @@
   "narrator.styleSarcastic": "Sarcastic",
   "narrator.styleDoc": "Documentary",
   "narrator.styleHype": "Hype / play-by-play",
-  "narrator.extractBtn": "🎤 Extract transcript",
+  "narrator.extractBtn": "🎤 Extract + exact translation",
   "narrator.extractTimed": "with times",
-  "narrator.extractHint": "Drop a video in column 1 first. Transcript fills the box below — edit it, then Start.",
+  "narrator.extractHint": "STT from video → exact translation to target language → text in the box. Edit, then Start (Exact translation mode).",
   "narrator.extractNeedFile": "Drop a video in column 1 first.",
   "narrator.extractBusy": "Transcribing… (may take a while)",
   "narrator.extractEmpty": "No speech found (music/silence). Try video captions or paste text.",
   "narrator.extractOk": "Transcript in the box — you can edit it.",
-  "narrator.extractFail": "Transcript error: "
+  "narrator.extractFail": "Transcript error: ",
+  "narrator.extractNoTr": "original only",
+  "narrator.extractBusyTr": "STT + exact translation… (may take a while)",
+  "narrator.extractOkTr": "Exact translation in the box — edit if needed, then Start.",
+  "narrator.extractMetaTr": "translated",
+  "narrator.extractMetaOrig": "STT original",
+  "narrator.extractTrWarn": "translate warning"
 }

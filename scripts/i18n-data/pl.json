@@ -414,12 +414,18 @@
   "narrator.styleSarcastic": "Sarkastyczny",
   "narrator.styleDoc": "Dokumentalny",
   "narrator.styleHype": "Hype / komentator",
-  "narrator.extractBtn": "🎤 Wyodrębnij transkrypcję",
+  "narrator.extractBtn": "🎤 Wyodrębnij + dokładne tłumaczenie",
   "narrator.extractTimed": "z czasem",
-  "narrator.extractHint": "Najpierw wrzuć wideo (kolumna 1). Transkrypcja wpadnie do pola poniżej — możesz poprawić i dopiero potem Start.",
+  "narrator.extractHint": "STT z wideo → dokładne tłumaczenie na język docelowy → tekst w polu. Popraw i Start (tryb «Dokładne tłumaczenie»).",
   "narrator.extractNeedFile": "Najpierw wrzuć wideo w kolumnie 1.",
   "narrator.extractBusy": "Transkrypcja w toku… (może potrwać)",
   "narrator.extractEmpty": "Brak mowy w audio (muzyka / cisza). Spróbuj napisów z filmu albo wklej tekst ręcznie.",
   "narrator.extractOk": "Transkrypcja w polu — możesz poprawić.",
-  "narrator.extractFail": "Błąd transkrypcji: "
+  "narrator.extractFail": "Błąd transkrypcji: ",
+  "narrator.extractNoTr": "tylko oryginał",
+  "narrator.extractBusyTr": "STT + dokładne tłumaczenie… (może potrwać)",
+  "narrator.extractOkTr": "Dokładne tłumaczenie w polu — możesz poprawić, potem Start.",
+  "narrator.extractMetaTr": "przetłumaczono",
+  "narrator.extractMetaOrig": "oryginał STT",
+  "narrator.extractTrWarn": "tłum. ostrzeżenie"
 }

@@ -564,7 +564,7 @@
   refreshTranscriptHint();
   refreshLangBadge();
 
-  /** Pre-job STT → fill #opt-script (and title if empty) for manual edits */
+  /** Pre-job STT + exact translate → fill #opt-script for manual edits */
   async function extractTranscriptToField() {
     const status = $("#extract-transcript-status");
     const btn = $("#btn-extract-transcript");
@@ -585,13 +585,34 @@
       return;
     }
     const wantTimed = !!$("#opt-extract-timed")?.checked;
+    const onlyOriginal = !!$("#opt-extract-no-tr")?.checked;
     const srcLang = $("#opt-source-lang")?.value || "auto";
+    const tgtLang = targetLang() || "pl";
+    // Prefer exact-translate mode when doing full extract+translate
+    if (!onlyOriginal) {
+      const trRadio = document.querySelector(
+        'input[name="narrator-mode"][value="translate"]'
+      );
+      if (trRadio && !trRadio.checked) {
+        trRadio.checked = true;
+        trRadio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      const autoTr = $("#opt-auto-translate");
+      if (autoTr) autoTr.checked = true;
+    }
     const fd = new FormData();
     fd.append("video", selectedFile, selectedFile.name || "video.mp4");
     fd.append("sourceLang", srcLang);
+    fd.append("targetLang", tgtLang);
+    fd.append("autoTranslate", onlyOriginal ? "0" : "1");
     if (btn) btn.disabled = true;
     setSt(
-      tr("narrator.extractBusy", "Transkrypcja w toku… (może potrwać)"),
+      onlyOriginal
+        ? tr("narrator.extractBusy", "Transkrypcja w toku… (może potrwać)")
+        : tr(
+            "narrator.extractBusyTr",
+            "STT + dokładne tłumaczenie… (może potrwać)"
+          ),
       "busy"
     );
     try {
@@ -630,18 +651,34 @@
       }
       refreshLangBadge();
       const meta = [
+        data.translated
+          ? tr("narrator.extractMetaTr", "przetłumaczono") +
+            " → " +
+            (data.targetLang || tgtLang)
+          : tr("narrator.extractMetaOrig", "oryginał STT"),
         data.engine ? String(data.engine) : null,
-        data.langCode ? "lang " + data.langCode : null,
+        data.translateEngine ? "NMT " + data.translateEngine : null,
+        data.langCode ? "src " + data.langCode : null,
         data.durationSec
           ? "~" + Math.round(Number(data.durationSec)) + "s"
           : null,
         data.segments ? data.segments + " seg." : null,
+        data.translateError
+          ? tr("narrator.extractTrWarn", "tłum. ostrzeżenie")
+          : null,
       ]
         .filter(Boolean)
         .join(" · ");
       setSt(
-        tr("narrator.extractOk", "Transkrypcja w polu — możesz poprawić.") +
-          (meta ? " (" + meta + ")" : ""),
+        (data.translated
+          ? tr(
+              "narrator.extractOkTr",
+              "Dokładne tłumaczenie w polu — możesz poprawić, potem Start."
+            )
+          : tr(
+              "narrator.extractOk",
+              "Transkrypcja w polu — możesz poprawić."
+            )) + (meta ? " (" + meta + ")" : ""),
         "ok"
       );
     } catch (e) {
