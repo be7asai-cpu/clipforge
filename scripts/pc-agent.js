@@ -881,7 +881,185 @@ function parseCaptionTime(h, m, s, ms) {
 }
 
 /**
+ * Merge two caption strings without repeating overlapping words.
+ * YouTube auto-subs "roll": "hello world" + "world how are" → "hello world how are"
+ */
+function mergeCaptionOverlap(a, b) {
+  const left = String(a || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const right = String(b || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!left) return right;
+  if (!right) return left;
+  const la = left.toLowerCase();
+  const lb = right.toLowerCase();
+  if (la === lb) return left;
+  // right already fully contained in left
+  if (la.includes(lb) && lb.length >= 4) return left;
+  // left contained in right → take longer (rolling growth)
+  if (lb.includes(la) && la.length >= 4) return right;
+  const wa = left.split(/\s+/).filter(Boolean);
+  const wb = right.split(/\s+/).filter(Boolean);
+  if (!wa.length) return right;
+  if (!wb.length) return left;
+  const maxK = Math.min(wa.length, wb.length, 40);
+  let best = 0;
+  for (let k = maxK; k >= 1; k--) {
+    const tail = wa
+      .slice(-k)
+      .map((x) => x.toLowerCase())
+      .join(" ");
+    const head = wb
+      .slice(0, k)
+      .map((x) => x.toLowerCase())
+      .join(" ");
+    if (tail === head) {
+      best = k;
+      break;
+    }
+  }
+  if (best >= 1) {
+    return (wa.concat(wb.slice(best)).join(" ") || left).replace(/\s+/g, " ").trim();
+  }
+  return (left + " " + right).replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Collapse YouTube rolling auto-captions into clean non-duplicated cues.
+ * Pattern: cue N contains most of cue N-1 plus a few new words.
+ */
+function dedupeRollingCaptions(segments) {
+  if (!Array.isArray(segments) || !segments.length) return [];
+  const ordered = [...segments]
+    .filter((s) => s && String(s.text || "").trim())
+    .sort((a, b) => (Number(a.start) || 0) - (Number(b.start) || 0));
+  const out = [];
+  for (const s of ordered) {
+    const text = String(s.text || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text) continue;
+    if (!out.length) {
+      out.push({
+        start: Math.max(0, Number(s.start) || 0),
+        end: Math.max(
+          (Number(s.start) || 0) + 0.2,
+          Number(s.end) || (Number(s.start) || 0) + 1
+        ),
+        text,
+        silent: false,
+      });
+      continue;
+    }
+    const prev = out[out.length - 1];
+    const ps = Number(prev.start) || 0;
+    const pe = Number(prev.end) || 0;
+    const ss = Number(s.start) || 0;
+    const se = Number(s.end) || ss + 1;
+    const pt = prev.text;
+    const pl = pt.toLowerCase();
+    const tl = text.toLowerCase();
+
+    // Exact same text (spam)
+    if (pl === tl) {
+      prev.end = Math.max(pe, se);
+      continue;
+    }
+    // Rolling: new cue is extension of previous (classic YT ASR)
+    if (
+      tl.startsWith(pl) ||
+      (pl.length >= 8 && tl.includes(pl) && tl.length > pl.length)
+    ) {
+      prev.text = text.length >= pt.length ? text : pt;
+      prev.end = Math.max(pe, se);
+      if (ss < prev.start) prev.start = ss;
+      continue;
+    }
+    // Rolling reverse: previous already contains new (display lag)
+    if (pl.startsWith(tl) || (tl.length >= 8 && pl.includes(tl))) {
+      prev.end = Math.max(pe, se);
+      continue;
+    }
+    // Strong time overlap + word-boundary overlap → merge into one cue
+    const timeClose = ss <= pe + 0.85;
+    if (timeClose) {
+      const merged = mergeCaptionOverlap(pt, text);
+      const naive = (pt + " " + text).replace(/\s+/g, " ").trim();
+      // If merge removed duplication, absorb; if almost no overlap, still may be new sentence
+      if (
+        merged === pt ||
+        merged === text ||
+        merged.length < naive.length * 0.92
+      ) {
+        prev.text = merged;
+        prev.end = Math.max(pe, se);
+        if (ss < prev.start) prev.start = Math.min(ps, ss);
+        continue;
+      }
+    }
+    out.push({
+      start: Math.max(0, ss),
+      end: Math.max(ss + 0.2, se),
+      text,
+      silent: false,
+    });
+  }
+  // Second pass: rebuild plain text with boundary merge (safety)
+  // and drop cues that are pure subsets of neighbors
+  const cleaned = [];
+  for (let i = 0; i < out.length; i++) {
+    const cur = out[i];
+    const next = out[i + 1];
+    if (
+      next &&
+      next.text.toLowerCase().includes(cur.text.toLowerCase()) &&
+      cur.text.length >= 6 &&
+      next.text.length > cur.text.length + 2 &&
+      Number(next.start) - Number(cur.end) < 1.2
+    ) {
+      // cur is prefix of next → skip cur, next will keep full line
+      continue;
+    }
+    if (cleaned.length) {
+      const prev = cleaned[cleaned.length - 1];
+      const merged = mergeCaptionOverlap(prev.text, cur.text);
+      const naive = (prev.text + " " + cur.text).replace(/\s+/g, " ").trim();
+      if (
+        Number(cur.start) <= Number(prev.end) + 0.6 &&
+        (merged === prev.text ||
+          merged === cur.text ||
+          merged.length < naive.length * 0.9)
+      ) {
+        prev.text = merged;
+        prev.end = Math.max(Number(prev.end) || 0, Number(cur.end) || 0);
+        continue;
+      }
+    }
+    cleaned.push({ ...cur });
+  }
+  return cleaned;
+}
+
+/**
+ * Join caption cues to continuous plain text without word duplicates.
+ */
+function captionsToPlainText(segments) {
+  let joined = "";
+  for (const s of segments || []) {
+    const t = String(s && s.text != null ? s.text : "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!t) continue;
+    joined = joined ? mergeCaptionOverlap(joined, t) : t;
+  }
+  return joined.replace(/\s+/g, " ").trim();
+}
+
+/**
  * Parse SRT/VTT into timed segments + plain text (for lektor 1:1 timeline).
+ * Dedupes YouTube auto-caption rolling repeats.
  * @returns {{ text: string, segments: {start:number,end:number,text:string}[], file: string }}
  */
 function parseCaptionsTimed(filePath) {
@@ -922,7 +1100,12 @@ function parseCaptionsTimed(filePath) {
       if (!m) continue;
       const start = parseCaptionTime(m[1], m[2], m[3], m[4]);
       const end = parseCaptionTime(m[5], m[6], m[7], m[8]);
-      const text = textLines.join(" ").replace(/\s+/g, " ").trim();
+      // Within one cue, also merge rolling multi-line (karaoke)
+      let text = "";
+      for (const ln of textLines) {
+        text = text ? mergeCaptionOverlap(text, ln) : ln;
+      }
+      text = text.replace(/\s+/g, " ").trim();
       if (!text) continue;
       segments.push({
         start,
@@ -931,21 +1114,8 @@ function parseCaptionsTimed(filePath) {
         silent: false,
       });
     }
-    // Deduplicate consecutive identical spam (auto-captions often repeat)
-    const deduped = [];
-    for (const s of segments) {
-      const prev = deduped[deduped.length - 1];
-      if (prev && prev.text === s.text && s.start - prev.end < 0.35) {
-        prev.end = Math.max(prev.end, s.end);
-        continue;
-      }
-      deduped.push({ ...s });
-    }
-    const text = deduped
-      .map((s) => s.text)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const deduped = dedupeRollingCaptions(segments);
+    const text = captionsToPlainText(deduped);
     return { text, segments: deduped, file: filePath };
   } catch {
     return { text: "", segments: [], file: filePath };
@@ -1000,16 +1170,25 @@ async function tryDownloadYoutubeCaptions(sourceUrl, destDir) {
     log("napisy YT:", String(e.message || e).slice(0, 120));
   }
   let best = null;
-  let bestScore = 0;
+  let bestScore = -1;
   try {
     for (const n of fs.readdirSync(destDir)) {
       if (!/\.(srt|vtt)$/i.test(n)) continue;
       const p = path.join(destDir, n);
       const parsed = parseCaptionsTimed(p);
-      // score: prefer more timed segments + longer text
+      if (!parsed.text || parsed.text.length < 12) continue;
+      // Prefer official/manual subs over auto (less rolling duplication)
+      const name = n.toLowerCase();
+      const isAuto =
+        /\.auto\./i.test(name) ||
+        /auto/i.test(name) ||
+        /automatic/i.test(name);
+      // Score unique content, not raw length (auto-subs inflate by repeating)
       const score =
-        parsed.segments.length * 10 + Math.min(parsed.text.length, 5000);
-      if (score > bestScore && parsed.text.length >= 12) {
+        Math.min(parsed.text.length, 8000) +
+        parsed.segments.length * 3 +
+        (isAuto ? 0 : 2500);
+      if (score > bestScore) {
         bestScore = score;
         best = parsed;
       }
