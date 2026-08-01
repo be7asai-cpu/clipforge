@@ -716,16 +716,102 @@
   $("#opt-title").addEventListener("input", refreshLangBadge);
   $("#opt-script").addEventListener("input", refreshLangBadge);
 
+  // Tempo mowy: Auto / Wyłącz / suwak ±0.1
+  $("#opt-text-speed-auto")?.addEventListener("change", () => {
+    if ($("#opt-text-speed-auto")?.checked && $("#opt-text-speed-off")) {
+      $("#opt-text-speed-off").checked = false;
+    }
+    syncTextSpeedControls();
+  });
+  $("#opt-text-speed-off")?.addEventListener("change", () => {
+    if ($("#opt-text-speed-off")?.checked && $("#opt-text-speed-auto")) {
+      $("#opt-text-speed-auto").checked = false;
+    }
+    syncTextSpeedControls();
+  });
+  $("#opt-text-speed")?.addEventListener("input", () => {
+    setTextSpeedUi($("#opt-text-speed").value);
+  });
+  $("#opt-text-speed-num")?.addEventListener("change", () => {
+    setTextSpeedUi($("#opt-text-speed-num").value);
+  });
+  $("#opt-text-speed-num")?.addEventListener("input", () => {
+    setTextSpeedUi($("#opt-text-speed-num").value);
+  });
+  $("#btn-text-speed-minus")?.addEventListener("click", () => {
+    setTextSpeedUi(getTextSpeedValue() - 0.1);
+  });
+  $("#btn-text-speed-plus")?.addEventListener("click", () => {
+    setTextSpeedUi(getTextSpeedValue() + 0.1);
+  });
+  syncTextSpeedControls();
+
   refreshModeHint();
   refreshTranscriptHint();
   refreshLangBadge();
 
-  /** Prefer timed transcription format unless user fully disabled it */
+  /** Prefer exact STT timed transcription unless user fully disabled it */
   function wantTimedTranscript() {
     const el = $("#opt-timed-transcript");
     // default ON when control missing
     if (!el) return true;
     return !!el.checked;
+  }
+
+  /** textSpeedMode: auto | off | manual */
+  function getTextSpeedMode() {
+    if ($("#opt-text-speed-off")?.checked) return "off";
+    if ($("#opt-text-speed-auto")?.checked) return "auto";
+    return "manual";
+  }
+
+  /** Slider value 0.5–2.0 step 0.1 (used when mode=manual) */
+  function getTextSpeedValue() {
+    const n = Number($("#opt-text-speed")?.value);
+    if (!Number.isFinite(n)) return 1;
+    return Math.round(Math.min(2, Math.max(0.5, n)) * 10) / 10;
+  }
+
+  function clampTextSpeedUi(v) {
+    let n = Number(v);
+    if (!Number.isFinite(n)) n = 1;
+    n = Math.min(2, Math.max(0.5, n));
+    return Math.round(n * 10) / 10;
+  }
+
+  function setTextSpeedUi(val) {
+    const v = clampTextSpeedUi(val);
+    const range = $("#opt-text-speed");
+    const num = $("#opt-text-speed-num");
+    const lab = $("#opt-text-speed-val");
+    if (range) range.value = String(v);
+    if (num) num.value = String(v);
+    if (lab) {
+      const mode = getTextSpeedMode();
+      lab.textContent =
+        mode === "off"
+          ? "1.0× · " + tr("narrator.speedOffShort", "wył.")
+          : mode === "auto"
+            ? tr("narrator.speedAutoShort", "auto")
+            : v.toFixed(1) + "×";
+    }
+  }
+
+  function syncTextSpeedControls() {
+    const off = !!$("#opt-text-speed-off")?.checked;
+    const auto = !!$("#opt-text-speed-auto")?.checked;
+    // Mutual exclusion: off wins over auto
+    if (off && auto && $("#opt-text-speed-auto")) {
+      $("#opt-text-speed-auto").checked = false;
+    }
+    const locked = off || !!$("#opt-text-speed-auto")?.checked;
+    ["opt-text-speed", "opt-text-speed-num", "btn-text-speed-minus", "btn-text-speed-plus"].forEach(
+      (id) => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = locked;
+      }
+    );
+    setTextSpeedUi(getTextSpeedValue());
   }
 
   /** Apply STT/translate API payload into script field */
@@ -910,11 +996,10 @@
         fd.append("targetLang", tgtLang);
         fd.append("autoTranslate", onlyOriginal ? "0" : "1");
         fd.append("timedTranscript", wantTimed ? "1" : "0");
-        const pace =
-          document.querySelector('input[name="text-speed-mode"]:checked')
-            ?.value || "normal";
-        fd.append("speechPace", pace);
-        fd.append("textSpeedMode", pace);
+        const speedMode = getTextSpeedMode();
+        fd.append("speechPace", speedMode);
+        fd.append("textSpeedMode", speedMode);
+        fd.append("textSpeed", String(getTextSpeedValue()));
         res = await fetch("/api/studio/transcribe", {
           method: "POST",
           body: fd,
@@ -922,9 +1007,7 @@
         });
         data = await res.json().catch(() => ({}));
       } else {
-        const pace =
-          document.querySelector('input[name="text-speed-mode"]:checked')
-            ?.value || "normal";
+        const speedMode = getTextSpeedMode();
         res = await fetch("/api/studio/transcribe", {
           method: "POST",
           credentials: "same-origin",
@@ -935,9 +1018,10 @@
             targetLang: tgtLang,
             autoTranslate: !onlyOriginal,
             timedTranscript: wantTimed,
-            speechPace: pace,
-            textSpeechPace: pace,
-            textSpeedMode: pace,
+            speechPace: speedMode,
+            textSpeechPace: speedMode,
+            textSpeedMode: speedMode,
+            textSpeed: getTextSpeedValue(),
           }),
         });
         data = await res.json().catch(() => ({}));
@@ -1298,24 +1382,10 @@
       autoTranslate: $("#opt-auto-translate").checked,
       /** true = script as timed transcription [mm:ss–mm:ss]; false = plain continuous text */
       timedTranscript: wantTimedTranscript(),
-      textSpeedMode:
-        document.querySelector('input[name="text-speed-mode"]:checked')
-          ?.value || "normal",
-      speechPace:
-        document.querySelector('input[name="text-speed-mode"]:checked')
-          ?.value || "normal",
-      textSpeechPace:
-        document.querySelector('input[name="text-speed-mode"]:checked')
-          ?.value || "normal",
-      textSpeed: (() => {
-        const v =
-          document.querySelector('input[name="text-speed-mode"]:checked')
-            ?.value || "normal";
-        if (v === "slow") return 0.85;
-        if (v === "fast") return 1.2;
-        if (v === "auto") return 1;
-        return 1.0;
-      })(),
+      textSpeedMode: getTextSpeedMode(),
+      speechPace: getTextSpeedMode(),
+      textSpeechPace: getTextSpeedMode(),
+      textSpeed: getTextSpeedValue(),
       narratorVoice: $("#opt-voice").value,
       title: $("#opt-title").value.trim(),
       narratorScript: $("#opt-script").value.trim(),

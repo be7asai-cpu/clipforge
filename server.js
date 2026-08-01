@@ -2365,22 +2365,20 @@ function normalizeJobOptions(options, originalName) {
   if (opts.autoTranslate == null) opts.autoTranslate = true;
   // Default: text for translation as timed transcription; false = plain paragraph
   if (opts.timedTranscript == null) opts.timedTranscript = true;
+  // Tempo: auto | off | manual (+ textSpeed 0.5–2.0 step 0.1)
   if (opts.textSpeedMode == null && opts.speechPace == null) {
-    opts.textSpeedMode = "normal";
-    opts.speechPace = "normal";
+    opts.textSpeedMode = "manual";
+    opts.speechPace = "manual";
   }
-  if (opts.speechPace == null) opts.speechPace = opts.textSpeedMode || "normal";
+  if (opts.speechPace == null) opts.speechPace = opts.textSpeedMode || "manual";
   if (opts.textSpeechPace == null) opts.textSpeechPace = opts.speechPace;
   if (opts.textSpeedMode == null) opts.textSpeedMode = opts.speechPace;
-  // Map pace → Edge rate multiplier
-  const paceMap = { slow: 0.85, wolno: 0.85, normal: 1, normalnie: 1, fast: 1.2, szybko: 1.2 };
-  if (opts.textSpeed == null || opts.speechPace) {
-    const p = String(opts.speechPace || opts.textSpeedMode || "normal").toLowerCase();
-    opts.textSpeed = paceMap[p] != null ? paceMap[p] : 1;
-  } else {
+  if (opts.textSpeed != null) {
     let r = Number(opts.textSpeed);
     if (!Number.isFinite(r)) r = 1;
     opts.textSpeed = Math.round(Math.min(2, Math.max(0.5, r)) * 10) / 10;
+  } else {
+    opts.textSpeed = 1;
   }
   if (!opts.targetLang) opts.targetLang = "pl";
   return opts;
