@@ -396,6 +396,10 @@
 
   // sliders labels
   [
+    ["opt-brightness", "opt-brightness-val"],
+    ["opt-shadows", "opt-shadows-val"],
+    ["opt-highlights", "opt-highlights-val"],
+    ["opt-temperature", "opt-temperature-val"],
     ["opt-sharpen", "opt-sharpen-val"],
     ["opt-contrast", "opt-contrast-val"],
     ["opt-sat", "opt-sat-val"],
@@ -1516,6 +1520,10 @@
         if (lab) lab.textContent = el.value;
       }
     };
+    setRange("#opt-brightness", "#opt-brightness-val", ap.brightness);
+    setRange("#opt-shadows", "#opt-shadows-val", ap.shadows);
+    setRange("#opt-highlights", "#opt-highlights-val", ap.highlights);
+    setRange("#opt-temperature", "#opt-temperature-val", ap.temperature);
     setRange("#opt-sharpen", "#opt-sharpen-val", ap.sharpen);
     setRange("#opt-contrast", "#opt-contrast-val", ap.contrast);
     setRange("#opt-sat", "#opt-sat-val", ap.saturation);
@@ -1545,11 +1553,14 @@
       box.classList.remove("hidden");
       box.textContent =
         t("quality.polishAutoResult", "Auto set") +
-        `: ${t("quality.contrast", "contrast")} ${ap.contrast}` +
+        `: ${t("quality.brightness", "jasność")} ${ap.brightness}` +
+        ` · ${t("quality.shadows", "cienie")} ${ap.shadows}` +
+        ` · ${t("quality.highlights", "światła")} ${ap.highlights}` +
+        ` · ${t("quality.temperature", "temp")} ${ap.temperature}` +
+        ` · ${t("quality.contrast", "kontrast")} ${ap.contrast}` +
         ` · ${t("quality.sat", "sat")} ${ap.saturation}` +
-        ` · ${t("quality.sharpen", "sharp")} ${ap.sharpen}` +
+        ` · ${t("quality.sharpen", "ostrość")} ${ap.sharpen}` +
         ` · ${t("quality.denoise", "denoise")} ${ap.denoise}` +
-        (ap.brightness != null ? ` · B ${ap.brightness}` : "") +
         (ap.rgbR != null
           ? ` · RGB ${ap.rgbR}/${ap.rgbG}/${ap.rgbB}`
           : "") +
@@ -1594,7 +1605,22 @@
         polishMode() === "auto" || narratorOnly
           ? null
           : Number($("#opt-denoise").value),
-      brightness: polishMode() === "auto" || narratorOnly ? null : 50,
+      brightness:
+        polishMode() === "auto" || narratorOnly
+          ? null
+          : Number($("#opt-brightness")?.value ?? 50),
+      shadows:
+        polishMode() === "auto" || narratorOnly
+          ? null
+          : Number($("#opt-shadows")?.value ?? 50),
+      highlights:
+        polishMode() === "auto" || narratorOnly
+          ? null
+          : Number($("#opt-highlights")?.value ?? 50),
+      temperature:
+        polishMode() === "auto" || narratorOnly
+          ? null
+          : Number($("#opt-temperature")?.value ?? 50),
       // RGB balance 0–100 (50 neutral); null in auto → server fills after analysis
       rgbR:
         polishMode() === "auto" || narratorOnly

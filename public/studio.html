@@ -360,10 +360,30 @@
                     </label>
                   </div>
                   <p class="hint" id="polish-auto-hint" data-i18n="quality.polishAutoHint">
-                    Aplikacja sama zbada jasność, kontrast, nasycenie i balanse RGB klatek i ustawi najlepszą korekcję.
+                    Aplikacja sama zbada jasność, cienie/światła, temperaturę, nasycenie i RGB — i ustawi najlepszą korekcję.
                   </p>
                   <p class="hint polish-auto-result hidden" id="polish-auto-result" aria-live="polite"></p>
                   <div class="sliders" id="quality-sliders">
+                    <label class="inline">
+                      <span data-i18n="quality.brightness">Jasność</span>
+                      <input type="range" id="opt-brightness" min="0" max="100" value="50" />
+                      <span id="opt-brightness-val">50</span>
+                    </label>
+                    <label class="inline">
+                      <span data-i18n="quality.shadows">Cienie</span>
+                      <input type="range" id="opt-shadows" min="0" max="100" value="50" />
+                      <span id="opt-shadows-val">50</span>
+                    </label>
+                    <label class="inline">
+                      <span data-i18n="quality.highlights">Światła</span>
+                      <input type="range" id="opt-highlights" min="0" max="100" value="50" />
+                      <span id="opt-highlights-val">50</span>
+                    </label>
+                    <label class="inline">
+                      <span data-i18n="quality.temperature">Temperatura</span>
+                      <input type="range" id="opt-temperature" min="0" max="100" value="50" />
+                      <span id="opt-temperature-val">50</span>
+                    </label>
                     <label class="inline">
                       <span data-i18n="quality.sharpen">Ostrość</span>
                       <input type="range" id="opt-sharpen" min="0" max="100" value="45" />
@@ -385,6 +405,9 @@
                       <span id="opt-denoise-val">15</span>
                     </label>
                   </div>
+                  <p class="hint" data-i18n="quality.exposureHint">
+                    Jasność = całość · Cienie = podciąganie ciemnych · Światła = odzysk prześwietleń · Temperatura: &lt;50 zimno, &gt;50 ciepło (50 = naturalna).
+                  </p>
                   <div class="rgb-block" id="rgb-block">
                     <div class="opt-block-title" data-i18n="quality.rgbTitle">Regulacja kolorów RGB</div>
                     <p class="hint" data-i18n="quality.rgbHint">
