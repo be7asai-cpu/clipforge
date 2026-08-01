@@ -284,6 +284,22 @@
                     </select>
                   </label>
                   <label class="stack">
+                    <span data-i18n="quality.fpsLab">FPS wyniku</span>
+                    <select
+                      id="opt-fps"
+                      data-i18n-title="quality.fpsTitle"
+                      title="Klatki na sekundę w pliku wyjściowym. «Jak oryginał» = bez zmiany. 30/60 pod Reels i TikTok."
+                    >
+                      <option value="source" selected data-i18n="quality.fpsSource">
+                        Jak w oryginale
+                      </option>
+                      <option value="24" data-i18n="quality.fps24">24 fps (filmowy)</option>
+                      <option value="25" data-i18n="quality.fps25">25 fps (PAL)</option>
+                      <option value="30" data-i18n="quality.fps30">30 fps (social / app)</option>
+                      <option value="60" data-i18n="quality.fps60">60 fps (płynny)</option>
+                    </select>
+                  </label>
+                  <label class="stack">
                     <span data-i18n="quality.aiScaleLab">AI skala</span>
                     <select id="opt-ai-scale">
                       <option value="2" selected data-i18n="quality.scale2">×2 (szybko)</option>

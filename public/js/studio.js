@@ -1571,6 +1571,13 @@
       aiScale: Number($("#opt-ai-scale").value) || 2,
       aiModel: $("#opt-ai-model")?.value || "animevideov3",
       targetHeight: Number($("#opt-height").value) || 1080,
+      /** "source" | 24 | 25 | 30 | 60 — output frame rate */
+      targetFps: (() => {
+        const v = String($("#opt-fps")?.value || "source").trim();
+        if (!v || v === "source" || v === "auto") return "source";
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 1 ? n : "source";
+      })(),
       crf: Number($("#opt-crf").value) || 15,
       crfPreset: Number($("#opt-crf").value) <= 15 ? "slow" : "medium",
       // Creative video FX (FFmpeg — free)
