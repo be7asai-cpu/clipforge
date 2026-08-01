@@ -2012,23 +2012,17 @@ async function runJob(job) {
         .join("\n");
     }
 
-    // Auto: Whisper empty/fail → one Google STT retry
-    if (
-      !originalText &&
-      sttEngineOpt === "whisper" &&
-      (engRaw === "auto" ||
-        String(job.options.transcriptSource || "").toLowerCase() === "auto")
-    ) {
+    // Empty speech → try the other engine (Google ↔ Whisper), then YT captions
+    if (!originalText && sttEngineOpt === "whisper" && inputPath && fs.existsSync(inputPath)) {
       try {
         await reportProgress(job.id, {
           progress: 55,
-          stage: "Auto: Google STT…",
-          log: "Whisper bez tekstu — próbuję STT Google…",
+          stage: "STT Google (fallback)…",
+          log: "Whisper bez tekstu — próbuję Google STT…",
         });
-        sttEngineOpt = "google";
         const stt2 = extractSpeechFromVideoSegmented(inputPath, {
           sourceLang: job.options.sourceLang || "auto",
-          workDir: path.join(workDir, "stt_auto_google"),
+          workDir: path.join(workDir, "stt_fb_google"),
           maxSeconds: maxScan,
           noEarlyExit: true,
           minScanRatio: 0.99,
@@ -2046,9 +2040,75 @@ async function runJob(job) {
             [];
           engine = (stt && stt.engine) || "google";
           langCode = stt.langCode || langCode;
+          sttEngineOpt = "google";
         }
       } catch (e2) {
-        log("Auto Google retry:", e2 && e2.message);
+        log("Google fallback:", e2 && e2.message);
+      }
+    }
+    if (!originalText && sttEngineOpt === "google" && inputPath && fs.existsSync(inputPath)) {
+      try {
+        await reportProgress(job.id, {
+          progress: 55,
+          stage: "Whisper (fallback)…",
+          log: "Google STT bez tekstu — próbuję Whisper…",
+        });
+        const stt3 = extractSpeechFromVideoSegmented(inputPath, {
+          sourceLang: job.options.sourceLang || "auto",
+          workDir: path.join(workDir, "stt_fb_whisper"),
+          maxSeconds: maxScan,
+          noEarlyExit: true,
+          minScanRatio: 0.99,
+          hopSec: 8,
+          segmentSec: 8,
+          sttWindowSec: 15,
+          sttEngine: "whisper",
+          whisperModel: whisperModelOpt,
+        });
+        originalText = stitch([stt3 && stt3.text]);
+        if (originalText) {
+          stt = stt3;
+          segs =
+            (Array.isArray(stt.timelineSegments) && stt.timelineSegments) ||
+            (Array.isArray(stt.segments) && stt.segments) ||
+            [];
+          engine = (stt && stt.engine) || "whisper";
+          langCode = stt.langCode || langCode;
+          sttEngineOpt = "whisper";
+        }
+      } catch (e3) {
+        log("Whisper fallback:", e3 && e3.message);
+      }
+    }
+    // YT: last resort — captions (fills editor even when STT fails on music)
+    if (!originalText && isYt) {
+      try {
+        await reportProgress(job.id, {
+          progress: 58,
+          stage: "Napisy YT (fallback)…",
+          log: "STT puste — pobieram napisy YouTube…",
+        });
+        const capsFb = await tryDownloadYoutubeCaptions(platUrl, workDir);
+        if (applyCaptionsToJob(capsFb)) {
+          originalText = String(job.options.narratorScript || "")
+            .replace(/\s+/g, " ")
+            .trim();
+          segs = Array.isArray(job.options.captionSegments)
+            ? job.options.captionSegments
+            : [];
+          engine = "youtube-captions-fallback";
+          timedOriginal = formatTimedAll(segs);
+          if (segs.length) {
+            durationSec = Math.max(
+              durationSec || 0,
+              6,
+              ...segs.map((s) => Number(s.end) || 0)
+            );
+          }
+          log("Fallback napisy OK:", originalText.length, "znaków");
+        }
+      } catch (e4) {
+        log("Captions fallback:", e4 && e4.message);
       }
     }
 
@@ -2056,10 +2116,12 @@ async function runJob(job) {
 
     if (!originalText) {
       throw new Error(
-        "Brak rozpoznanej mowy w audio z linku (muzyka / cisza / brak napisów)." +
-          (sttEngineOpt === "whisper"
-            ? " Sprawdź Whisper (status w Studio) lub wybierz STT Google / napisy."
-            : "")
+        isYt
+          ? "Brak tekstu: STT nic nie rozpoznał i napisy YouTube też puste (muzyka / brak CC / SSL). Wklej tekst ręcznie albo inny film."
+          : "Brak rozpoznanej mowy w audio (muzyka / cisza). Spróbuj Whisper, napisy YouTube (link) albo wklej tekst ręcznie." +
+              (sttEngineOpt === "whisper"
+                ? " Sprawdź Whisper w Studio."
+                : "")
       );
     }
 

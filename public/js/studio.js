@@ -1480,8 +1480,23 @@
       );
       return { ok: !!applied, data, applied: !!applied, fromAgent: true };
     }
+    // Server returned ok:false with empty STT — surface error (not silent empty)
+    if (data.ok === false || data.error) {
+      if (!extractPayloadHasText(data)) {
+        throw new Error(
+          data.error ||
+            "Brak rozpoznanej mowy (muzyka / cisza)."
+        );
+      }
+    }
     if (!extractPayloadHasText(data)) {
-      return { ok: false, data, applied: false, empty: true };
+      return {
+        ok: false,
+        data,
+        applied: false,
+        empty: true,
+        error: data.error || null,
+      };
     }
     const applied = applyExtractPayload(
       data,
@@ -1561,14 +1576,73 @@
       setSt,
     };
     try {
-      const result = await runOneExtractSource(srcMode, ctx);
+      let result = await runOneExtractSource(srcMode, ctx);
       if (result.applied) return;
-      // Empty — message matches chosen source (never mix napisy ↔ mowa)
-      if (srcMode === "captions") {
+
+      // Primary empty → one automatic secondary (YT only), so editor still gets text
+      const isYtUrl =
+        url && /youtube\.com|youtu\.be/i.test(url) && !selectedFile;
+      if (
+        isYtUrl &&
+        (srcMode === "stt" || srcMode === "whisper")
+      ) {
+        setSt(
+          tr(
+            "narrator.extractBusyFallbackCaps",
+            "Brak mowy w STT — próbuję napisy YouTube…"
+          ),
+          "busy"
+        );
+        result = await runOneExtractSource("captions", ctx);
+        if (result.applied) {
+          if (status && status.classList.contains("is-ok")) {
+            status.textContent =
+              (status.textContent || "") +
+              " · " +
+              tr(
+                "narrator.extractViaFallbackCaps",
+                "źródło: napisy YT (STT puste)"
+              );
+          }
+          return;
+        }
+      }
+      if (isYtUrl && srcMode === "captions") {
+        setSt(
+          tr(
+            "narrator.extractBusyFallbackStt",
+            "Brak napisów — próbuję STT z dźwięku…"
+          ),
+          "busy"
+        );
+        result = await runOneExtractSource("stt", ctx);
+        if (result.applied) {
+          if (status && status.classList.contains("is-ok")) {
+            status.textContent =
+              (status.textContent || "") +
+              " · " +
+              tr(
+                "narrator.extractViaFallbackStt",
+                "źródło: STT (napisy puste)"
+              );
+          }
+          return;
+        }
+      }
+
+      if (srcMode === "captions" && !isYtUrl) {
+        setSt(
+          tr(
+            "narrator.extractCapsNeedYt",
+            "«Z napisów» wymaga linku YouTube w kolumnie 1."
+          ),
+          "err"
+        );
+      } else if (srcMode === "captions") {
         setSt(
           tr(
             "narrator.extractEmptyCaps",
-            "Brak napisów YouTube na tym filmie (wyłączone / SSL / yt-dlp). Wybierz «Z dźwięku» albo wklej tekst ręcznie."
+            "Brak napisów YouTube i STT też puste. Wklej tekst ręcznie albo sprawdź, czy film ma CC."
           ),
           "err"
         );
@@ -1576,24 +1650,25 @@
         setSt(
           tr(
             "narrator.extractEmpty",
-            "Brak mowy w audio (muzyka / cisza). Spróbuj napisów YouTube albo wklej tekst ręcznie."
-          ),
+            "Brak mowy w audio (muzyka / cisza). Przy linku YT: włącz «Z napisów» albo wklej tekst ręcznie."
+          ) +
+            (isYtUrl
+              ? " " +
+                tr(
+                  "narrator.extractEmptyHintYt",
+                  "Napisy też niedostępne (brak CC / SSL)."
+                )
+              : ""),
           "err"
         );
       }
     } catch (e) {
       const msg = String(e.message || e || "");
-      // Agent already returns clear captions errors
-      if (/napis/i.test(msg) || srcMode === "captions") {
-        setSt(
-          tr("narrator.extractFailCaps", "Napisy: ") + msg,
-          "err"
-        );
+      // Prefer the real agent error (more specific than generic empty)
+      if (/napis|CC|SSL|yt-dlp/i.test(msg) || srcMode === "captions") {
+        setSt(tr("narrator.extractFailCaps", "Napisy: ") + msg, "err");
       } else {
-        setSt(
-          tr("narrator.extractFail", "Błąd transkrypcji: ") + msg,
-          "err"
-        );
+        setSt(tr("narrator.extractFail", "Błąd: ") + msg, "err");
       }
     } finally {
       if (btn) btn.disabled = false;

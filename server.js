@@ -1892,21 +1892,56 @@ async function runPreTranscribeOnFile(videoPath, {
   const segs = Array.isArray(stt.timelineSegments) ? stt.timelineSegments : [];
   let timedOriginal = formatTimed(segs);
 
+  // Local file: if Google STT empty, try Whisper once (and vice versa)
+  if (!originalText && engine !== "whisper") {
+    try {
+      stt = extractSpeechFromVideoSegmented(videoPath, {
+        sourceLang: sourceLang || "auto",
+        workDir: path.join(wd, "stt_fb_whisper"),
+        ...sttOpts,
+        sttEngine: "whisper",
+        whisperModel:
+          whisperModel || process.env.WHISPER_MODEL || "base",
+      });
+      originalText = stitch([stt.text]);
+      if (originalText) {
+        engine = "whisper";
+      }
+    } catch {
+      /* whisper optional */
+    }
+  }
+  if (!originalText && engine === "whisper") {
+    try {
+      stt = extractSpeechFromVideoSegmented(videoPath, {
+        sourceLang: sourceLang || "auto",
+        workDir: path.join(wd, "stt_fb_google"),
+        ...sttOpts,
+        sttEngine: "google",
+      });
+      originalText = stitch([stt.text]);
+    } catch {
+      /* ignore */
+    }
+  }
+
   if (!originalText) {
     return {
-      ok: true,
+      ok: false,
       text: "",
       originalText: "",
       timedText: "",
       timedOriginal: "",
       title: titleGuess,
       translated: false,
-      engine: stt.engine || null,
+      engine: stt.engine || engine || null,
       langCode: stt.langCode || sourceLang || null,
       targetLang,
       durationSec: durationSec || stt.audioDuration || null,
       segments: segs.length,
-      error: stt.error || "Brak rozpoznanej mowy",
+      error:
+        stt.error ||
+        "Brak rozpoznanej mowy (muzyka / cisza). Przy YouTube wybierz «Z napisów» albo wklej tekst.",
       musicLikely: !!stt.musicLikely,
       workDir: wd,
     };
