@@ -1477,13 +1477,14 @@ async function runJob(job) {
       } catch {
         /* ignore */
       }
+      // Full film (up to 3 h) — text must cover entire duration
       const maxSeconds = Math.min(
-        1200,
-        Math.max(5, Number(job.options.maxSeconds) || 600)
+        10800,
+        Math.max(5, Number(job.options.maxSeconds) || 10800)
       );
       const maxScan =
-        durationSec > 0
-          ? Math.min(durationSec + 1, maxSeconds)
+        durationSec > 0.5
+          ? Math.min(durationSec + 1.5, maxSeconds)
           : maxSeconds;
       const sttWork = path.join(workDir, "pre_stt");
       let stt = extractSpeechFromVideoSegmented(inputPath, {
@@ -1491,8 +1492,8 @@ async function runJob(job) {
         maxSeconds: maxScan,
         workDir: sttWork,
         noEarlyExit: true,
-        minScanRatio: 0.98,
-        // Exact translation: 3s windows
+        minScanRatio: 0.99,
+        // Exact translation: 3s windows across whole video
         segmentSec: 3,
         onSegment: (info) => {
           if (info && info.phase === "done") {

@@ -1636,7 +1636,7 @@ async function runPreTranscribeOnFile(videoPath, {
   targetLang = "pl",
   autoTranslate = true,
   timedTranscript = true,
-  maxSeconds = 600,
+  maxSeconds = 10800,
   originalName = "video.mp4",
   workDir = null,
 } = {}) {
@@ -1685,9 +1685,10 @@ async function runPreTranscribeOnFile(videoPath, {
     const { ffmpegPath } = require("./lib/studio-pipeline");
     const ff = ffmpegPath();
     const { spawnSync } = require("child_process");
-    const pr = spawnSync(ff, ["-i", videoPath], {
+    const pr = spawnSync(ff, ["-hide_banner", "-i", videoPath], {
       encoding: "utf8",
       windowsHide: true,
+      maxBuffer: 20 * 1024 * 1024,
     });
     const errOut = (pr.stderr || "") + (pr.stdout || "");
     const m =
@@ -1702,11 +1703,13 @@ async function runPreTranscribeOnFile(videoPath, {
     /* ignore probe */
   }
 
+  // ALWAYS scan the whole film (not capped at 10 min). Hard max 3 h.
+  const hardMax = Math.min(10800, Math.max(5, Number(maxSeconds) || 10800));
   const maxScan =
-    durationSec > 0
-      ? Math.min(durationSec + 1, maxSeconds)
-      : Math.min(1200, Math.max(5, maxSeconds));
-  // Exact translation extract: 3s STT windows
+    durationSec > 0.5
+      ? Math.min(durationSec + 1.5, hardMax)
+      : hardMax;
+  // Exact translation extract: 3s STT windows across full duration
   const sttSegSec = 3;
   let stt = extractSpeechFromVideoSegmented(videoPath, {
     sourceLang,
@@ -1729,11 +1732,12 @@ async function runPreTranscribeOnFile(videoPath, {
     originalText = stitch([stt.text]);
   }
   if (!originalText) {
+    // Still full length — do not cut to 180s (missed end of film)
     for (const langTry of ["en", "pl"]) {
       if (sourceLang === langTry) continue;
       stt = extractSpeechFromVideoSegmented(videoPath, {
         sourceLang: langTry,
-        maxSeconds: Math.min(maxScan, 180),
+        maxSeconds: maxScan,
         workDir: path.join(wd, "stt_" + langTry),
         noEarlyExit: true,
         segmentSec: sttSegSec,
@@ -1883,8 +1887,8 @@ app.post("/api/studio/transcribe", (req, res) => {
       body?.autoTranslate === "true" ||
       body?.autoTranslate === true;
     const maxSeconds = Math.min(
-      1200,
-      Math.max(5, Number(body?.maxSeconds) || 600)
+      10800,
+      Math.max(5, Number(body?.maxSeconds) || 10800)
     );
     const timedTranscript =
       body?.timedTranscript == null ||
