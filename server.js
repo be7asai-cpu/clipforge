@@ -1629,234 +1629,375 @@ app.get("/api/studio/languages", (_req, res) => {
 });
 
 /**
- * Pre-job STT + exact translate → fill narrator script for manual edits.
- * POST multipart: video, sourceLang, targetLang, autoTranslate (default 1), maxSeconds
+ * Shared pre-job STT + optional exact translate (file path on disk).
+ */
+async function runPreTranscribeOnFile(videoPath, {
+  sourceLang = "auto",
+  targetLang = "pl",
+  autoTranslate = true,
+  maxSeconds = 600,
+  originalName = "video.mp4",
+  workDir = null,
+} = {}) {
+  const {
+    extractSpeechFromVideoSegmented,
+    translateText,
+    joinSpeechTexts,
+  } = require("./lib/lang-utils");
+  // joinSpeechTexts may not exist on older agent copies — local fallback
+  const stitch =
+    typeof joinSpeechTexts === "function"
+      ? joinSpeechTexts
+      : (arr) =>
+          (arr || [])
+            .map((t) => String(t || "").replace(/\s+/g, " ").trim())
+            .filter(Boolean)
+            .join(" ");
+
+  const wd =
+    workDir ||
+    path.join(
+      studioJobs.WORK_DIR || path.join(__dirname, "data", "studio", "work"),
+      "pre_stt_" + Date.now().toString(36)
+    );
+  fs.mkdirSync(wd, { recursive: true });
+
+  function formatTimed(segs) {
+    if (!Array.isArray(segs) || !segs.length) return "";
+    return segs
+      .filter((s) => s && String(s.text || "").trim())
+      .map((s) => {
+        const a = Number(s.start) || 0;
+        const b = Math.max(a + 0.3, Number(s.end) || a + 1);
+        const mm = (x) => {
+          const m0 = Math.floor(x / 60);
+          const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
+          return String(m0).padStart(2, "0") + ":" + s0;
+        };
+        return `[${mm(a)}–${mm(b)}] ${String(s.text).trim()}`;
+      })
+      .join("\n");
+  }
+
+  let durationSec = 0;
+  try {
+    const { ffmpegPath } = require("./lib/studio-pipeline");
+    const ff = ffmpegPath();
+    const { spawnSync } = require("child_process");
+    const pr = spawnSync(ff, ["-i", videoPath], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const errOut = (pr.stderr || "") + (pr.stdout || "");
+    const m =
+      errOut.match(/Duration:\s*(\d+):(\d+):(\d+[.,]\d+)/) ||
+      errOut.match(/Duration:\s*(\d+):(\d+):(\d+)\b/);
+    if (m) {
+      const sec = Number(String(m[3]).replace(",", "."));
+      durationSec =
+        Number(m[1]) * 3600 + Number(m[2]) * 60 + (Number.isFinite(sec) ? sec : 0);
+    }
+  } catch {
+    /* ignore probe */
+  }
+
+  const maxScan =
+    durationSec > 0
+      ? Math.min(durationSec + 1, maxSeconds)
+      : Math.min(1200, Math.max(5, maxSeconds));
+  let stt = extractSpeechFromVideoSegmented(videoPath, {
+    sourceLang,
+    maxSeconds: maxScan,
+    workDir: path.join(wd, "stt"),
+    noEarlyExit: true,
+    minScanRatio: 0.98,
+  });
+  let originalText = stitch([stt.text]);
+  if (!originalText && sourceLang && sourceLang !== "auto") {
+    stt = extractSpeechFromVideoSegmented(videoPath, {
+      sourceLang: "auto",
+      maxSeconds: maxScan,
+      workDir: path.join(wd, "stt_auto"),
+      noEarlyExit: true,
+      minScanRatio: 0.98,
+    });
+    originalText = stitch([stt.text]);
+  }
+  if (!originalText) {
+    for (const langTry of ["en", "pl"]) {
+      if (sourceLang === langTry) continue;
+      stt = extractSpeechFromVideoSegmented(videoPath, {
+        sourceLang: langTry,
+        maxSeconds: Math.min(maxScan, 180),
+        workDir: path.join(wd, "stt_" + langTry),
+        noEarlyExit: true,
+      });
+      originalText = stitch([stt.text]);
+      if (originalText) break;
+    }
+  }
+
+  const titleGuess = String(originalName || "video")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_\-]+/g, " ")
+    .trim()
+    .slice(0, 120);
+
+  const segs = Array.isArray(stt.timelineSegments) ? stt.timelineSegments : [];
+  const timedOriginal = formatTimed(segs);
+
+  if (!originalText) {
+    return {
+      ok: true,
+      text: "",
+      originalText: "",
+      timedText: "",
+      timedOriginal: "",
+      title: titleGuess,
+      translated: false,
+      engine: stt.engine || null,
+      langCode: stt.langCode || sourceLang || null,
+      targetLang,
+      durationSec: durationSec || stt.audioDuration || null,
+      segments: segs.length,
+      error: stt.error || "Brak rozpoznanej mowy",
+      musicLikely: !!stt.musicLikely,
+      workDir: wd,
+    };
+  }
+
+  let text = originalText;
+  let timedText = timedOriginal;
+  let translated = false;
+  let translateEngine = null;
+  let translateError = null;
+  const srcForTr = stt.langCode || sourceLang || "auto";
+
+  if (autoTranslate) {
+    try {
+      const tr = await translateText(originalText, srcForTr, targetLang, null, {
+        force: true,
+      });
+      if (tr && tr.ok && tr.text && String(tr.text).trim()) {
+        text = stitch([tr.text]);
+        translated = !tr.skipped;
+        translateEngine = tr.engine || "nmt";
+      } else if (tr && tr.error) {
+        translateError = tr.error;
+      }
+    } catch (te) {
+      translateError = (te && te.message) || String(te);
+    }
+
+    if (segs.length && text) {
+      const timedSegs = [];
+      for (const s of segs) {
+        const rawSeg = String(s.text || "").trim();
+        if (!rawSeg) {
+          timedSegs.push({ ...s, text: "" });
+          continue;
+        }
+        try {
+          const trs = await translateText(rawSeg, srcForTr, targetLang, null, {
+            force: true,
+          });
+          timedSegs.push({
+            start: s.start,
+            end: s.end,
+            text:
+              trs && trs.ok && trs.text
+                ? String(trs.text).replace(/\s+/g, " ").trim()
+                : rawSeg,
+          });
+        } catch {
+          timedSegs.push({ start: s.start, end: s.end, text: rawSeg });
+        }
+      }
+      timedText = formatTimed(timedSegs);
+    }
+  }
+
+  return {
+    ok: true,
+    text,
+    originalText,
+    timedText,
+    timedOriginal,
+    title: titleGuess,
+    translated,
+    translateEngine,
+    translateError,
+    autoTranslate: !!autoTranslate,
+    engine: stt.engine || null,
+    langCode: stt.langCode || sourceLang || null,
+    targetLang,
+    durationSec: durationSec || stt.audioDuration || null,
+    segments: segs.length,
+    error: null,
+    musicLikely: !!stt.musicLikely,
+    workDir: wd,
+  };
+}
+
+/**
+ * Pre-job STT + exact translate → fill narrator script.
+ * - multipart: video file
+ * - JSON/multipart field url: direct file or platform (PC agent)
  */
 app.post("/api/studio/transcribe", (req, res) => {
-  studioUpload.single("video")(req, res, async (err) => {
-    if (err) {
-      return res.status(400).json({ error: err.message || "Upload error" });
-    }
+  const ct = String(req.headers["content-type"] || "");
+  const isJson = ct.includes("application/json");
+
+  const handle = async (file, body) => {
     const uid = studioUserId(req);
     if (auth.isAuthRequired() && !uid) {
       return res.status(401).json({ error: "Wymagane logowanie" });
     }
-    if (!req.file || !req.file.path) {
-      return res.status(400).json({
-        error:
-          "Brak pliku wideo — wrzuć klip w kolumnie 1, potem wyodrębnij.",
-      });
-    }
-    const videoPath = req.file.path;
-    const originalName = req.file.originalname || "video.mp4";
-    let sourceLang = String(req.body?.sourceLang || "auto").trim() || "auto";
-    const targetLang = String(req.body?.targetLang || "pl").trim() || "pl";
+    const email = req.user?.email || null;
+    const sourceLang = String(body?.sourceLang || "auto").trim() || "auto";
+    const targetLang = String(body?.targetLang || "pl").trim() || "pl";
     const autoTranslate =
-      req.body?.autoTranslate == null ||
-      req.body?.autoTranslate === "" ||
-      req.body?.autoTranslate === "1" ||
-      req.body?.autoTranslate === "true" ||
-      req.body?.autoTranslate === true;
+      body?.autoTranslate == null ||
+      body?.autoTranslate === "" ||
+      body?.autoTranslate === "1" ||
+      body?.autoTranslate === "true" ||
+      body?.autoTranslate === true;
     const maxSeconds = Math.min(
       1200,
-      Math.max(5, Number(req.body?.maxSeconds) || 600)
+      Math.max(5, Number(body?.maxSeconds) || 600)
     );
-    const workDir = path.join(
-      studioJobs.WORK_DIR || path.join(__dirname, "data", "studio", "work"),
-      "pre_stt_" + Date.now().toString(36)
-    );
+    const url = String(body?.url || "").trim();
 
-    function formatTimed(segs) {
-      if (!Array.isArray(segs) || !segs.length) return "";
-      return segs
-        .filter((s) => s && String(s.text || "").trim())
-        .map((s) => {
-          const a = Number(s.start) || 0;
-          const b = Math.max(a + 0.3, Number(s.end) || a + 1);
-          const mm = (x) => {
-            const m0 = Math.floor(x / 60);
-            const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
-            return String(m0).padStart(2, "0") + ":" + s0;
-          };
-          return `[${mm(a)}–${mm(b)}] ${String(s.text).trim()}`;
-        })
-        .join("\n");
+    // ── URL path (no uploaded file) ──
+    if ((!file || !file.path) && url) {
+      const urlVideo = require("./lib/url-video");
+      const classified = urlVideo.classifyVideoUrl(url);
+      if (!classified.ok) {
+        return res.status(400).json({ error: classified.error });
+      }
+
+      // Platform (YouTube/…) → PC agent only
+      if (classified.kind === "platform") {
+        const online = pcAgent.isOnline(uid, email);
+        if (!online) {
+          return res.status(400).json({
+            error:
+              "Wyodrębnianie z " +
+              (classified.platform || "platformy") +
+              " wymaga PC · ON. Odpal agenta, potem spróbuj ponownie — albo wrzuć plik lokalnie.",
+            needPcAgent: true,
+            platform: classified.platform || null,
+          });
+        }
+        const titleGuess =
+          (classified.platform || "Platform") +
+          " " +
+          new Date().toISOString().slice(0, 10) +
+          ".mp4";
+        const options = normalizeJobOptions(
+          {
+            preTranscribeOnly: true,
+            narrator: false,
+            subtitles: false,
+            delogo: false,
+            upscale: "off",
+            polish: false,
+            sourceUrl: url.slice(0, 800),
+            sourceKind: "platform",
+            sourcePlatform: classified.platform || null,
+            sourceLang,
+            targetLang,
+            autoTranslate: !!autoTranslate,
+            maxSeconds,
+          },
+          titleGuess
+        );
+        const job = studioJobs.createJob({
+          originalName: titleGuess,
+          inputPath: null,
+          options,
+          userId: uid || "local",
+          email,
+          executor: "pc",
+        });
+        return res.status(202).json({
+          ok: true,
+          pending: true,
+          jobId: job.id,
+          job: studioJobs.publicJob(job),
+          hint:
+            "Agent PC pobiera wideo (yt-dlp) i robi STT — poczekaj, tekst wpadnie do pola.",
+        });
+      }
+
+      // Direct file URL → download on server then STT
+      let dest = null;
+      let workDir = null;
+      try {
+        studioJobs.ensureDirs();
+        const tmpName =
+          "trurl_" +
+          Date.now().toString(36) +
+          "_" +
+          Math.random().toString(36).slice(2, 8) +
+          ".bin";
+        dest = path.join(studioJobs.UPLOAD_DIR, tmpName);
+        res.setTimeout(300000);
+        const info = await urlVideo.downloadDirectVideo(url, dest);
+        const finalName = info.originalName || "video.mp4";
+        const result = await runPreTranscribeOnFile(dest, {
+          sourceLang,
+          targetLang,
+          autoTranslate,
+          maxSeconds,
+          originalName: finalName,
+        });
+        workDir = result.workDir;
+        delete result.workDir;
+        return res.json(result);
+      } catch (e) {
+        console.error("[transcribe url]", e);
+        return res.status(400).json({
+          error: (e && e.message) || "Nie udało się pobrać / przepisać z linku",
+        });
+      } finally {
+        try {
+          if (dest && fs.existsSync(dest)) fs.unlinkSync(dest);
+        } catch {
+          /* ignore */
+        }
+        try {
+          if (workDir) fs.rmSync(workDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
     }
 
+    if (!file || !file.path) {
+      return res.status(400).json({
+        error:
+          "Brak pliku lub linku — wrzuć wideo / wklej URL w kolumnie 1, potem wyodrębnij.",
+      });
+    }
+
+    const videoPath = file.path;
+    const originalName = file.originalname || "video.mp4";
+    let workDir = null;
     try {
-      fs.mkdirSync(workDir, { recursive: true });
-      const {
-        extractSpeechFromVideoSegmented,
-        translateText,
-      } = require("./lib/lang-utils");
-      let durationSec = 0;
-      try {
-        const { ffmpegPath } = require("./lib/studio-pipeline");
-        const ff = ffmpegPath();
-        const { spawnSync } = require("child_process");
-        const pr = spawnSync(ff, ["-i", videoPath], {
-          encoding: "utf8",
-          windowsHide: true,
-        });
-        const errOut = (pr.stderr || "") + (pr.stdout || "");
-        const m = errOut.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
-        if (m) {
-          durationSec =
-            Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
-        }
-      } catch {
-        /* ignore probe */
-      }
-      const maxScan =
-        durationSec > 0 ? Math.min(durationSec + 1, maxSeconds) : maxSeconds;
-      let stt = extractSpeechFromVideoSegmented(videoPath, {
+      const result = await runPreTranscribeOnFile(videoPath, {
         sourceLang,
-        maxSeconds: maxScan,
-        workDir: path.join(workDir, "stt"),
-        noEarlyExit: true,
-        minScanRatio: 0.98,
-      });
-      let originalText = String(stt.text || "")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (!originalText && sourceLang && sourceLang !== "auto") {
-        stt = extractSpeechFromVideoSegmented(videoPath, {
-          sourceLang: "auto",
-          maxSeconds: maxScan,
-          workDir: path.join(workDir, "stt_auto"),
-          noEarlyExit: true,
-          minScanRatio: 0.98,
-        });
-        originalText = String(stt.text || "")
-          .replace(/\s+/g, " ")
-          .trim();
-      }
-      if (!originalText) {
-        for (const langTry of ["en", "pl"]) {
-          if (sourceLang === langTry) continue;
-          stt = extractSpeechFromVideoSegmented(videoPath, {
-            sourceLang: langTry,
-            maxSeconds: Math.min(maxScan, 180),
-            workDir: path.join(workDir, "stt_" + langTry),
-            noEarlyExit: true,
-          });
-          originalText = String(stt.text || "")
-            .replace(/\s+/g, " ")
-            .trim();
-          if (originalText) break;
-        }
-      }
-
-      const titleGuess = String(originalName)
-        .replace(/\.[^.]+$/, "")
-        .replace(/[_\-]+/g, " ")
-        .trim()
-        .slice(0, 120);
-
-      const segs = Array.isArray(stt.timelineSegments)
-        ? stt.timelineSegments
-        : [];
-      const timedOriginal = formatTimed(segs);
-
-      if (!originalText) {
-        return res.json({
-          ok: true,
-          text: "",
-          originalText: "",
-          timedText: "",
-          timedOriginal: "",
-          title: titleGuess,
-          translated: false,
-          engine: stt.engine || null,
-          langCode: stt.langCode || sourceLang || null,
-          targetLang,
-          durationSec: durationSec || stt.audioDuration || null,
-          segments: segs.length,
-          error: stt.error || "Brak rozpoznanej mowy",
-          musicLikely: !!stt.musicLikely,
-        });
-      }
-
-      // Exact translation → target language (default on)
-      let text = originalText;
-      let timedText = timedOriginal;
-      let translated = false;
-      let translateEngine = null;
-      let translateError = null;
-      const srcForTr = stt.langCode || sourceLang || "auto";
-
-      if (autoTranslate) {
-        try {
-          const tr = await translateText(originalText, srcForTr, targetLang, null, {
-            force: true,
-          });
-          if (tr && tr.ok && tr.text && String(tr.text).trim()) {
-            text = String(tr.text).replace(/\s+/g, " ").trim();
-            translated = !tr.skipped;
-            translateEngine = tr.engine || "nmt";
-          } else if (tr && tr.error) {
-            translateError = tr.error;
-          }
-        } catch (te) {
-          translateError = (te && te.message) || String(te);
-        }
-
-        // Timed lines: translate each spoken segment (exact 1:1 slots)
-        if (segs.length && text) {
-          const timedSegs = [];
-          for (const s of segs) {
-            const rawSeg = String(s.text || "").trim();
-            if (!rawSeg) {
-              timedSegs.push({ ...s, text: "" });
-              continue;
-            }
-            try {
-              const trs = await translateText(
-                rawSeg,
-                srcForTr,
-                targetLang,
-                null,
-                { force: true }
-              );
-              timedSegs.push({
-                start: s.start,
-                end: s.end,
-                text:
-                  trs && trs.ok && trs.text
-                    ? String(trs.text).replace(/\s+/g, " ").trim()
-                    : rawSeg,
-              });
-            } catch {
-              timedSegs.push({ start: s.start, end: s.end, text: rawSeg });
-            }
-          }
-          timedText = formatTimed(timedSegs);
-        }
-      }
-
-      res.json({
-        ok: true,
-        /** Text for the script field: translated (exact) when autoTranslate */
-        text,
-        originalText,
-        timedText,
-        timedOriginal,
-        title: titleGuess,
-        translated,
-        translateEngine,
-        translateError,
-        autoTranslate,
-        engine: stt.engine || null,
-        langCode: stt.langCode || sourceLang || null,
         targetLang,
-        durationSec: durationSec || stt.audioDuration || null,
-        segments: segs.length,
-        error: null,
-        musicLikely: !!stt.musicLikely,
+        autoTranslate,
+        maxSeconds,
+        originalName,
       });
+      workDir = result.workDir;
+      delete result.workDir;
+      return res.json(result);
     } catch (e) {
       console.error("[transcribe]", e);
-      res.status(500).json({
+      return res.status(500).json({
         error: (e && e.message) || "Transkrypcja nieudana",
       });
     } finally {
@@ -1866,12 +2007,94 @@ app.post("/api/studio/transcribe", (req, res) => {
         /* ignore */
       }
       try {
-        fs.rmSync(workDir, { recursive: true, force: true });
+        if (workDir) fs.rmSync(workDir, { recursive: true, force: true });
       } catch {
         /* ignore */
       }
     }
+  };
+
+  if (isJson) {
+    return handle(null, req.body || {}).catch((e) => {
+      console.error("[transcribe json]", e);
+      res.status(500).json({ error: e.message || "Transkrypcja nieudana" });
+    });
+  }
+
+  studioUpload.single("video")(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || "Upload error" });
+    }
+    try {
+      await handle(req.file, {
+        ...(req.body || {}),
+        // allow url field alongside empty file
+        url: req.body?.url || req.body?.sourceUrl,
+      });
+    } catch (e) {
+      console.error("[transcribe mp]", e);
+      res.status(500).json({ error: e.message || "Transkrypcja nieudana" });
+    }
   });
+});
+
+/** Agent finishes pre-transcribe-only job (no result video). */
+app.post("/api/studio/agent/jobs/:id/complete-transcript", async (req, res) => {
+  try {
+    const row = await requireAgent(req, res);
+    if (!row) return;
+    const job = studioJobs.getJob(req.params.id);
+    if (!job || !agentOwnsJob(job, row)) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    const body = req.body || {};
+    const text = String(body.text || body.script || "").trim();
+    const originalText = String(body.originalText || text).trim();
+    const timedText = String(body.timedText || "").trim();
+    const timedOriginal = String(body.timedOriginal || "").trim();
+    studioJobs.updateJob(job.id, {
+      status: "done",
+      progress: 100,
+      stage: "Transkrypcja gotowa",
+      finishedAt: new Date().toISOString(),
+      outputPath: null,
+      previewPath: null,
+      liveScript: text || originalText,
+      liveOriginal: originalText,
+      livePhase: "done",
+      result: {
+        ...(job.result || {}),
+        script: text || originalText,
+        scriptPlain: text || originalText,
+        originalText,
+        timedScript: timedText || null,
+        timedOriginal: timedOriginal || null,
+        preTranscribe: true,
+        language: {
+          original: originalText,
+          translated: !!body.translated,
+          sourceLang: body.langCode
+            ? { code: body.langCode, label: body.langCode }
+            : null,
+          targetLang: body.targetLang
+            ? { code: body.targetLang, label: body.targetLang }
+            : null,
+          timedScript: timedText || null,
+          timedOriginal: timedOriginal || null,
+        },
+        engine: body.engine || null,
+        duration: body.durationSec || null,
+      },
+      log:
+        "Pre-STT z linku OK · " +
+        (text || originalText).slice(0, 80) +
+        ((text || originalText).length > 80 ? "…" : ""),
+    });
+    res.json({ ok: true, job: studioJobs.publicJob(studioJobs.getJob(job.id)) });
+  } catch (err) {
+    console.error("complete-transcript:", err);
+    res.status(500).json({ error: err.message || "complete-transcript" });
+  }
 });
 
 app.get("/api/studio/jobs", (req, res) => {

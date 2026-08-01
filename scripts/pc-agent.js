@@ -1390,8 +1390,252 @@ async function runJob(job) {
     log:
       "Pobrano plik (" +
       Math.round(inputSize / 1024) +
-      " KB) — start pipeline lokalnie",
+      " KB) — " +
+      (job.options?.preTranscribeOnly
+        ? "tylko STT z linku…"
+        : "start pipeline lokalnie"),
   });
+
+  // ── Pre-transcribe only (extract text from URL, no full render) ──
+  if (job.options?.preTranscribeOnly) {
+    await reportProgress(job.id, {
+      progress: 20,
+      stage: "STT z dźwięku…",
+      livePhase: "extracting",
+      log: "Wyodrębniam mowę (Google STT)…",
+    });
+    const {
+      extractSpeechFromVideoSegmented,
+      translateText,
+      joinSpeechTexts,
+    } = require(path.join(ROOT, "lib", "lang-utils.js"));
+    const stitch =
+      typeof joinSpeechTexts === "function"
+        ? joinSpeechTexts
+        : (arr) =>
+            (arr || [])
+              .map((t) => String(t || "").replace(/\s+/g, " ").trim())
+              .filter(Boolean)
+              .join(" ");
+
+    // Prefer YouTube captions if already loaded into options
+    let originalText = "";
+    let timedOriginal = "";
+    let engine = null;
+    let langCode = job.options.sourceLang || "auto";
+    let durationSec = 0;
+    let segs = [];
+
+    if (
+      job.options.fromYoutubeCaptions &&
+      job.options.narratorScript &&
+      String(job.options.narratorScript).trim().length > 8
+    ) {
+      originalText = String(job.options.narratorScript).replace(/\s+/g, " ").trim();
+      segs = Array.isArray(job.options.captionSegments)
+        ? job.options.captionSegments
+        : [];
+      engine = "youtube-captions";
+      timedOriginal = segs
+        .filter((s) => s && s.text)
+        .map((s) => {
+          const a = Number(s.start) || 0;
+          const b = Math.max(a + 0.3, Number(s.end) || a + 1);
+          const mm = (x) => {
+            const m0 = Math.floor(x / 60);
+            const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
+            return String(m0).padStart(2, "0") + ":" + s0;
+          };
+          return `[${mm(a)}–${mm(b)}] ${String(s.text).trim()}`;
+        })
+        .join("\n");
+      await reportProgress(job.id, {
+        progress: 55,
+        stage: "Napisy z platformy",
+        liveOriginal: originalText.slice(0, 1200),
+        log: "Używam napisów z filmu (" + originalText.length + " znaków)",
+      });
+    } else {
+      // Probe duration
+      try {
+        const pr = spawnSync(ff, ["-hide_banner", "-i", inputPath], {
+          encoding: "utf8",
+          windowsHide: true,
+          maxBuffer: 20 * 1024 * 1024,
+        });
+        const errOut = String((pr.stderr || "") + (pr.stdout || ""));
+        const m =
+          errOut.match(/Duration:\s*(\d+):(\d+):(\d+[.,]\d+)/) ||
+          errOut.match(/Duration:\s*(\d+):(\d+):(\d+)\b/);
+        if (m) {
+          const sec = Number(String(m[3]).replace(",", "."));
+          durationSec =
+            Number(m[1]) * 3600 +
+            Number(m[2]) * 60 +
+            (Number.isFinite(sec) ? sec : 0);
+        }
+      } catch {
+        /* ignore */
+      }
+      const maxSeconds = Math.min(
+        1200,
+        Math.max(5, Number(job.options.maxSeconds) || 600)
+      );
+      const maxScan =
+        durationSec > 0
+          ? Math.min(durationSec + 1, maxSeconds)
+          : maxSeconds;
+      const sttWork = path.join(workDir, "pre_stt");
+      let stt = extractSpeechFromVideoSegmented(inputPath, {
+        sourceLang: job.options.sourceLang || "auto",
+        maxSeconds: maxScan,
+        workDir: sttWork,
+        noEarlyExit: true,
+        minScanRatio: 0.98,
+        onSegment: (info) => {
+          if (info && info.phase === "done") {
+            reportProgress(job.id, {
+              progress: Math.min(70, 20 + Math.round((info.pct || 0) * 0.5)),
+              stage: "STT " + (info.pct || 0) + "%",
+              livePhase: "extracting",
+              liveOriginal: (info.textSoFar || "").slice(0, 1200),
+            }).catch(() => null);
+          }
+        },
+      });
+      originalText = stitch([stt.text]);
+      engine = stt.engine || "stt";
+      langCode = stt.langCode || langCode;
+      segs = Array.isArray(stt.timelineSegments) ? stt.timelineSegments : [];
+      if (!originalText && Array.isArray(job.options.captionSegmentsBackup)) {
+        segs = job.options.captionSegmentsBackup;
+        originalText = stitch(segs.map((s) => s.text));
+        engine = "youtube-captions-backup";
+      }
+      timedOriginal = segs
+        .filter((s) => s && s.text)
+        .map((s) => {
+          const a = Number(s.start) || 0;
+          const b = Math.max(a + 0.3, Number(s.end) || a + 1);
+          const mm = (x) => {
+            const m0 = Math.floor(x / 60);
+            const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
+            return String(m0).padStart(2, "0") + ":" + s0;
+          };
+          return `[${mm(a)}–${mm(b)}] ${String(s.text).trim()}`;
+        })
+        .join("\n");
+    }
+
+    if (!originalText) {
+      throw new Error(
+        "Brak rozpoznanej mowy w audio z linku (muzyka / cisza / brak napisów)."
+      );
+    }
+
+    let text = originalText;
+    let timedText = timedOriginal;
+    let translated = false;
+    const targetLang = job.options.targetLang || "pl";
+    const autoTranslate =
+      job.options.autoTranslate == null || job.options.autoTranslate !== false;
+    const srcForTr = langCode || job.options.sourceLang || "auto";
+
+    if (autoTranslate) {
+      await reportProgress(job.id, {
+        progress: 78,
+        stage: "Tłumaczenie…",
+        livePhase: "translating",
+        liveOriginal: originalText.slice(0, 1200),
+        log: "Dokładne tłumaczenie → " + targetLang,
+      });
+      try {
+        const tr = await translateText(originalText, srcForTr, targetLang, null, {
+          force: true,
+        });
+        if (tr && tr.ok && tr.text && String(tr.text).trim()) {
+          text = stitch([tr.text]);
+          translated = !tr.skipped;
+        }
+      } catch (te) {
+        log("translate pre-stt:", te.message || te);
+      }
+      if (segs.length) {
+        const timedSegs = [];
+        for (const s of segs) {
+          const raw = String(s.text || "").trim();
+          if (!raw) {
+            timedSegs.push({ ...s, text: "" });
+            continue;
+          }
+          try {
+            const trs = await translateText(raw, srcForTr, targetLang, null, {
+              force: true,
+            });
+            timedSegs.push({
+              start: s.start,
+              end: s.end,
+              text:
+                trs && trs.ok && trs.text
+                  ? String(trs.text).replace(/\s+/g, " ").trim()
+                  : raw,
+            });
+          } catch {
+            timedSegs.push({ start: s.start, end: s.end, text: raw });
+          }
+        }
+        timedText = timedSegs
+          .filter((s) => s.text)
+          .map((s) => {
+            const a = Number(s.start) || 0;
+            const b = Math.max(a + 0.3, Number(s.end) || a + 1);
+            const mm = (x) => {
+              const m0 = Math.floor(x / 60);
+              const s0 = (x - m0 * 60).toFixed(1).padStart(4, "0");
+              return String(m0).padStart(2, "0") + ":" + s0;
+            };
+            return `[${mm(a)}–${mm(b)}] ${s.text}`;
+          })
+          .join("\n");
+      }
+    }
+
+    await reportProgress(job.id, {
+      progress: 95,
+      stage: "Transkrypcja gotowa",
+      livePhase: "done",
+      liveScript: text.slice(0, 2000),
+      liveOriginal: originalText.slice(0, 2000),
+      log: "STT OK · " + text.length + " znaków" + (translated ? " (przetłumaczono)" : ""),
+    });
+
+    const up = await request(
+      "POST",
+      `/api/studio/agent/jobs/${job.id}/complete-transcript`,
+      {
+        token: agentToken,
+        body: {
+          text,
+          originalText,
+          timedText,
+          timedOriginal,
+          translated,
+          engine,
+          langCode,
+          targetLang,
+          durationSec: durationSec || null,
+        },
+      }
+    );
+    if (up.status >= 400) {
+      throw new Error(
+        up.data?.error ||
+          "complete-transcript HTTP " + up.status + " — zaktualizuj chmurę / agenta"
+      );
+    }
+    log("Pre-transcribe gotowe:", job.id, text.slice(0, 60));
+    return;
+  }
 
   // Prefer agent-local pipeline (same folder as this script's install)
   const { runPipeline } = require(path.join(ROOT, "lib", "studio-pipeline.js"));

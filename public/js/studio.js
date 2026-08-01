@@ -719,7 +719,126 @@
   refreshTranscriptHint();
   refreshLangBadge();
 
-  /** Pre-job STT + exact translate → fill #opt-script for manual edits */
+  /** Apply STT/translate API payload into script field */
+  function applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt) {
+    const plain = String(data.text || data.script || "").trim();
+    const timed = String(data.timedText || data.timedScript || "").trim();
+    const useText = wantTimed && timed ? timed : plain;
+    if (!useText) {
+      setSt(
+        data.error ||
+          tr(
+            "narrator.extractEmpty",
+            "Brak mowy w audio (muzyka / cisza). Spróbuj napisów z filmu albo wklej tekst ręcznie."
+          ),
+        "err"
+      );
+      return false;
+    }
+    const ta = $("#opt-script");
+    if (ta) {
+      ta.value = useText;
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    const titleEl = $("#opt-title");
+    if (titleEl && !String(titleEl.value || "").trim() && data.title) {
+      titleEl.value = data.title;
+      titleEl.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    refreshLangBadge();
+    const meta = [
+      data.translated
+        ? tr("narrator.extractMetaTr", "przetłumaczono") +
+          " → " +
+          (data.targetLang || tgtLang)
+        : tr("narrator.extractMetaOrig", "oryginał STT"),
+      data.engine ? String(data.engine) : null,
+      data.translateEngine ? "NMT " + data.translateEngine : null,
+      data.langCode ? "src " + data.langCode : null,
+      data.durationSec
+        ? "~" + Math.round(Number(data.durationSec)) + "s"
+        : null,
+      data.segments ? data.segments + " seg." : null,
+      data.translateError
+        ? tr("narrator.extractTrWarn", "tłum. ostrzeżenie")
+        : null,
+      data.fromUrl ? "URL" : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    setSt(
+      (data.translated && !onlyOriginal
+        ? tr(
+            "narrator.extractOkTr",
+            "Dokładne tłumaczenie w polu — możesz poprawić, potem Start."
+          )
+        : tr(
+            "narrator.extractOk",
+            "Transkrypcja w polu — możesz poprawić."
+          )) + (meta ? " (" + meta + ")" : ""),
+      "ok"
+    );
+    return true;
+  }
+
+  /** Poll pre-transcribe job from platform URL until script ready */
+  async function pollPreTranscribeJob(jobId, wantTimed, onlyOriginal, tgtLang, setSt) {
+    const t0 = Date.now();
+    const maxMs = 12 * 60 * 1000;
+    while (Date.now() - t0 < maxMs) {
+      await new Promise((r) => setTimeout(r, 1800));
+      const res = await fetch("/api/studio/jobs/" + jobId + "?_=" + Date.now(), {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => ({}));
+      const job = data.job;
+      if (!job) continue;
+      const stage = job.stage || "";
+      const live = job.liveScript || job.liveOriginal || "";
+      if (job.status === "running" || job.status === "queued") {
+        setSt(
+          tr("narrator.extractBusyUrl", "Z linku: {stage}")
+            .replace("{stage}", stage || "…") +
+            (live ? " · " + String(live).slice(0, 40) + "…" : ""),
+          "busy"
+        );
+        continue;
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || "STT z linku nieudane");
+      }
+      if (job.status === "done") {
+        const r = job.result || {};
+        return applyExtractPayload(
+          {
+            text: r.script || r.scriptPlain || job.liveScript || "",
+            timedText: r.timedScript || r.language?.timedScript || "",
+            originalText: r.originalText || r.language?.original || job.liveOriginal,
+            translated: !!(r.language && r.language.translated),
+            engine: r.engine || null,
+            langCode: r.language?.sourceLang?.code || null,
+            targetLang: tgtLang,
+            durationSec: r.duration || null,
+            fromUrl: true,
+            title: job.originalName,
+          },
+          wantTimed,
+          onlyOriginal,
+          tgtLang,
+          setSt
+        );
+      }
+    }
+    throw new Error(
+      tr(
+        "narrator.extractUrlTimeout",
+        "Timeout STT z linku — sprawdź agenta PC i spróbuj ponownie."
+      )
+    );
+  }
+
+  /** Pre-job STT + exact translate → fill #opt-script (file OR link) */
   async function extractTranscriptToField() {
     const status = $("#extract-transcript-status");
     const btn = $("#btn-extract-transcript");
@@ -729,11 +848,12 @@
       status.classList.remove("is-busy", "is-ok", "is-err");
       if (kind) status.classList.add("is-" + kind);
     };
-    if (!selectedFile) {
+    const url = videoUrlInput();
+    if (!selectedFile && !url) {
       setSt(
         tr(
           "narrator.extractNeedFile",
-          "Najpierw wrzuć wideo w kolumnie 1."
+          "Najpierw wrzuć wideo albo wklej link w kolumnie 1."
         ),
         "err"
       );
@@ -755,87 +875,72 @@
       const autoTr = $("#opt-auto-translate");
       if (autoTr) autoTr.checked = true;
     }
-    const fd = new FormData();
-    fd.append("video", selectedFile, selectedFile.name || "video.mp4");
-    fd.append("sourceLang", srcLang);
-    fd.append("targetLang", tgtLang);
-    fd.append("autoTranslate", onlyOriginal ? "0" : "1");
     if (btn) btn.disabled = true;
     setSt(
-      onlyOriginal
-        ? tr("narrator.extractBusy", "Transkrypcja w toku… (może potrwać)")
+      selectedFile
+        ? onlyOriginal
+          ? tr("narrator.extractBusy", "Transkrypcja w toku… (może potrwać)")
+          : tr(
+              "narrator.extractBusyTr",
+              "STT + dokładne tłumaczenie… (może potrwać)"
+            )
         : tr(
-            "narrator.extractBusyTr",
-            "STT + dokładne tłumaczenie… (może potrwać)"
+            "narrator.extractBusyFromUrl",
+            "Pobieram z linku + STT… (PC · ON przy YouTube)"
           ),
       "busy"
     );
     try {
-      const res = await fetch("/api/studio/transcribe", {
-        method: "POST",
-        body: fd,
-        credentials: "same-origin",
-      });
-      const data = await res.json().catch(() => ({}));
+      let res;
+      let data;
+      if (selectedFile) {
+        const fd = new FormData();
+        fd.append("video", selectedFile, selectedFile.name || "video.mp4");
+        fd.append("sourceLang", srcLang);
+        fd.append("targetLang", tgtLang);
+        fd.append("autoTranslate", onlyOriginal ? "0" : "1");
+        res = await fetch("/api/studio/transcribe", {
+          method: "POST",
+          body: fd,
+          credentials: "same-origin",
+        });
+        data = await res.json().catch(() => ({}));
+      } else {
+        res = await fetch("/api/studio/transcribe", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url,
+            sourceLang: srcLang,
+            targetLang: tgtLang,
+            autoTranslate: !onlyOriginal,
+          }),
+        });
+        data = await res.json().catch(() => ({}));
+      }
       if (!res.ok) {
         throw new Error(data.error || "HTTP " + res.status);
       }
-      const plain = String(data.text || "").trim();
-      const timed = String(data.timedText || "").trim();
-      const useText = wantTimed && timed ? timed : plain;
-      if (!useText) {
+      // Platform URL → agent job — poll until script ready
+      if (data.pending && data.jobId) {
         setSt(
-          data.error ||
-            tr(
-              "narrator.extractEmpty",
-              "Brak mowy w audio (muzyka / cisza). Spróbuj napisów z filmu albo wklej tekst ręcznie."
-            ),
-          "err"
+          tr(
+            "narrator.extractBusyAgent",
+            "Agent PC: pobieranie + STT z linku…"
+          ),
+          "busy"
+        );
+        await pollPreTranscribeJob(
+          data.jobId,
+          wantTimed,
+          onlyOriginal,
+          tgtLang,
+          setSt
         );
         return;
       }
-      const ta = $("#opt-script");
-      if (ta) {
-        ta.value = useText;
-        ta.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      const titleEl = $("#opt-title");
-      if (titleEl && !String(titleEl.value || "").trim() && data.title) {
-        titleEl.value = data.title;
-        titleEl.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      refreshLangBadge();
-      const meta = [
-        data.translated
-          ? tr("narrator.extractMetaTr", "przetłumaczono") +
-            " → " +
-            (data.targetLang || tgtLang)
-          : tr("narrator.extractMetaOrig", "oryginał STT"),
-        data.engine ? String(data.engine) : null,
-        data.translateEngine ? "NMT " + data.translateEngine : null,
-        data.langCode ? "src " + data.langCode : null,
-        data.durationSec
-          ? "~" + Math.round(Number(data.durationSec)) + "s"
-          : null,
-        data.segments ? data.segments + " seg." : null,
-        data.translateError
-          ? tr("narrator.extractTrWarn", "tłum. ostrzeżenie")
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      setSt(
-        (data.translated
-          ? tr(
-              "narrator.extractOkTr",
-              "Dokładne tłumaczenie w polu — możesz poprawić, potem Start."
-            )
-          : tr(
-              "narrator.extractOk",
-              "Transkrypcja w polu — możesz poprawić."
-            )) + (meta ? " (" + meta + ")" : ""),
-        "ok"
-      );
+      applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt);
     } catch (e) {
       setSt(
         tr("narrator.extractFail", "Błąd transkrypcji: ") +

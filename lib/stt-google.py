@@ -391,9 +391,15 @@ except Exception as e:
 out["audioDuration"] = float(duration)
 save()
 
-# Dense overlapping windows so speech at end of clip is not missed
-# (was step=8 → only mid-dialogue; user reported cut at ~26s)
-starts, chunk_len = build_starts(duration, step=4.0, chunk_len=12.0)
+# Sliding windows: Node already splits long clips into ~6s outer segments.
+# Dense step=4 + chunk=12 caused 2–3× duplicated text (user report).
+# - short / outer segment (start_sec set or ≤18s): ONE window, whole audio
+# - full long clip: mild overlap only (step≈10, chunk=12 → ~2s overlap)
+if start_sec > 0.05 or duration <= 18.0 or max_sec <= 18:
+    starts = [0.0]
+    chunk_len = max(0.8, float(duration))
+else:
+    starts, chunk_len = build_starts(duration, step=10.0, chunk_len=12.0)
 starts = starts[: min(len(starts), 200)]
 out["attempted"] = len(starts)
 
@@ -554,6 +560,94 @@ def try_window(start, clen, tag, wav_src=None, force=False):
     }, None
 
 
+def merge_overlap_texts(a, b):
+    """Stitch two STT strings without repeating overlapping words."""
+    a = (a or "").strip()
+    b = (b or "").strip()
+    if not a:
+        return b
+    if not b:
+        return a
+    al = a.lower()
+    bl = b.lower()
+    if bl in al:
+        return a
+    if al in bl:
+        return b
+    wa = a.split()
+    wb = b.split()
+    if not wa:
+        return b
+    if not wb:
+        return a
+    max_k = min(len(wa), len(wb), 48)
+    best = 0
+    for k in range(max_k, 0, -1):
+        left = [x.lower() for x in wa[-k:]]
+        right = [x.lower() for x in wb[:k]]
+        if left == right:
+            best = k
+            break
+    if best >= 1:
+        return " ".join(wa + wb[best:]).strip()
+    # partial fuzzy: last 3+ words of a appear inside b
+    if len(wa) >= 3:
+        tail = " ".join(wa[-min(6, len(wa)) :]).lower()
+        pos = bl.find(tail)
+        if pos >= 0:
+            # keep a + remainder of b after the matched tail
+            cut = pos + len(tail)
+            rest = b[cut:].strip()
+            return (a + (" " + rest if rest else "")).strip()
+    return (a + " " + b).strip()
+
+
+def stitch_segments(segs):
+    """Merge time-overlapping / repeated STT windows into clean timeline."""
+    if not segs:
+        return []
+    ordered = sorted(segs, key=lambda s: float(s.get("start") or 0))
+    out_segs = []
+    for seg in ordered:
+        t = (seg.get("text") or "").strip()
+        if not t:
+            continue
+        if not out_segs:
+            out_segs.append(dict(seg, text=t))
+            continue
+        prev = out_segs[-1]
+        ps = float(prev.get("start") or 0)
+        pe = float(prev.get("end") or 0)
+        ss = float(seg.get("start") or 0)
+        se = float(seg.get("end") or 0)
+        pt = (prev.get("text") or "").strip()
+        # time overlap / adjacent windows from dense slide
+        if ss <= pe + 0.75:
+            merged = merge_overlap_texts(pt, t)
+            prev["text"] = merged
+            prev["end"] = max(pe, se)
+            if float(seg.get("score") or 0) > float(prev.get("score") or 0):
+                prev["score"] = seg.get("score")
+                prev["lang"] = seg.get("lang") or prev.get("lang")
+            continue
+        # no time overlap but text is almost pure repeat
+        merged = merge_overlap_texts(pt, t)
+        if merged == pt:
+            prev["end"] = max(pe, se)
+            continue
+        if merged == t and len(t) >= len(pt):
+            out_segs[-1] = dict(seg, text=t, start=min(ps, ss))
+            continue
+        # if merge shortened a lot vs naive join, still adjacent speech
+        naive = (pt + " " + t).strip()
+        if len(merged) < len(naive) * 0.92 and ss - pe < 2.5:
+            prev["text"] = merged
+            prev["end"] = max(pe, se)
+            continue
+        out_segs.append(dict(seg, text=t))
+    return out_segs
+
+
 def add_segment(seg):
     """Append segment if not duplicate of nearby window."""
     if not seg:
@@ -575,17 +669,44 @@ def add_segment(seg):
         ) < 6.0:
             s["end"] = max(float(s["end"]), float(seg["end"]))
             return False
+        # high word-overlap near-duplicate
+        existing = (s.get("text") or "").strip()
+        if existing and abs(float(s["start"]) - float(seg["start"])) < 8.0:
+            m = merge_overlap_texts(existing, t)
+            if m == existing or len(m) <= len(existing) + 2:
+                s["end"] = max(float(s["end"]), float(seg["end"]))
+                return False
+            if abs(float(s["start"]) - float(seg["start"])) < 4.0:
+                s["text"] = m
+                s["end"] = max(float(s["end"]), float(seg["end"]))
+                return True
     segments.append(seg)
     return True
 
 
 def publish_partial():
-    segments.sort(key=lambda s: float(s.get("start") or 0))
-    texts = [s["text"] for s in segments]
-    out["segments"] = segments
+    stitched = stitch_segments(segments)
+    # keep global list in sync with stitched content for later appends
+    segments[:] = stitched
+    texts = [s["text"] for s in segments if (s.get("text") or "").strip()]
+    out["segments"] = [
+        {
+            "start": float(s.get("start") or 0),
+            "end": float(s.get("end") or 0),
+            "text": (s.get("text") or "").strip(),
+            "lang": s.get("lang"),
+            "score": s.get("score"),
+        }
+        for s in segments
+        if (s.get("text") or "").strip()
+    ]
     out["partial"] = texts
-    out["text"] = " ".join(texts).strip()
-    out["chunks"] = len(segments)
+    # final stitch across all texts once more (belt + suspenders)
+    joined = ""
+    for t in texts:
+        joined = merge_overlap_texts(joined, t) if joined else t
+    out["text"] = joined.strip()
+    out["chunks"] = len(out["segments"])
     out["failed"] = failed
     if segments:
         out["coverageStart"] = float(segments[0]["start"])
