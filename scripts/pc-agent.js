@@ -1444,10 +1444,10 @@ async function runJob(job) {
     );
   }
 
-  // Text source: «stt» = audio only; «captions» = YouTube / film subs
+  // Text source: stt | whisper | captions | auto (try captions then STT)
   job.options = job.options || {};
-  const wantCaptions =
-    String(job.options.transcriptSource || "stt").toLowerCase() === "captions";
+  const srcMode = String(job.options.transcriptSource || "stt").toLowerCase();
+  const wantCaptions = srcMode === "captions" || srcMode === "auto";
   // Force pure STT — never pull YouTube caption text into the script
   if (!wantCaptions) {
     job.options.fromYoutubeCaptions = false;
@@ -1518,13 +1518,25 @@ async function runJob(job) {
         }
       }
     } else {
+      // Auto / captions: brak napisów → STT (Whisper jeśli wybrany / auto)
+      const engPref = String(
+        job.options.sttEngine || job.options.transcriptSource || "google"
+      ).toLowerCase();
+      const useWhisperNext =
+        engPref === "whisper" || engPref === "auto" || srcMode === "auto";
       await reportProgress(job.id, {
         progress: 10,
-        stage: "Brak napisów — STT z dźwięku",
-        log:
-          "Brak napisów na filmie. Przełączam na rozpoznawanie mowy z audio.",
+        stage: useWhisperNext
+          ? "Brak napisów — Whisper / STT"
+          : "Brak napisów — STT z dźwięku",
+        log: useWhisperNext
+          ? "Brak napisów. Auto: próbuję Whisper (jeśli ON), potem Google STT."
+          : "Brak napisów na filmie. Przełączam na rozpoznawanie mowy z audio.",
       });
-      job.options.transcriptSource = "stt";
+      job.options.transcriptSource = useWhisperNext ? "auto" : "stt";
+      if (useWhisperNext && engPref !== "google") {
+        job.options.sttEngine = "whisper";
+      }
       job.options.fromYoutubeCaptions = false;
     }
   } else if (
@@ -1620,11 +1632,12 @@ async function runJob(job) {
 
   // ── Pre-transcribe only (extract text from URL, no full render) ──
   if (job.options?.preTranscribeOnly) {
-    const sttEngineOpt =
-      String(job.options.sttEngine || job.options.transcriptSource || "google")
-        .toLowerCase() === "whisper"
-        ? "whisper"
-        : "google";
+    // whisper | google | auto→prefer whisper then google retry below
+    const engRaw = String(
+      job.options.sttEngine || job.options.transcriptSource || "google"
+    ).toLowerCase();
+    let sttEngineOpt =
+      engRaw === "whisper" || engRaw === "auto" ? "whisper" : "google";
     const whisperModelOpt =
       String(job.options.whisperModel || process.env.WHISPER_MODEL || "base").trim() ||
       "base";
@@ -1857,6 +1870,46 @@ async function runJob(job) {
           return `[${mm(a)}–${mm(b)}] ${String(s.text).trim()}`;
         })
         .join("\n");
+    }
+
+    // Auto: Whisper empty/fail → one Google STT retry
+    if (
+      !originalText &&
+      sttEngineOpt === "whisper" &&
+      (engRaw === "auto" ||
+        String(job.options.transcriptSource || "").toLowerCase() === "auto")
+    ) {
+      try {
+        await reportProgress(job.id, {
+          progress: 55,
+          stage: "Auto: Google STT…",
+          log: "Whisper bez tekstu — próbuję STT Google…",
+        });
+        sttEngineOpt = "google";
+        const stt2 = extractSpeechFromVideoSegmented(inputPath, {
+          sourceLang: job.options.sourceLang || "auto",
+          workDir: path.join(workDir, "stt_auto_google"),
+          maxSeconds: maxScan,
+          noEarlyExit: true,
+          minScanRatio: 0.99,
+          hopSec: 8,
+          segmentSec: 8,
+          sttWindowSec: 15,
+          sttEngine: "google",
+        });
+        originalText = stitch([stt2 && stt2.text]);
+        if (originalText) {
+          stt = stt2;
+          segs =
+            (Array.isArray(stt.timelineSegments) && stt.timelineSegments) ||
+            (Array.isArray(stt.segments) && stt.segments) ||
+            [];
+          engine = (stt && stt.engine) || "google";
+          langCode = stt.langCode || langCode;
+        }
+      } catch (e2) {
+        log("Auto Google retry:", e2 && e2.message);
+      }
     }
 
     stopSttKeepAlive();

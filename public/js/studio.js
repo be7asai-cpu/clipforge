@@ -834,12 +834,12 @@
     }
   }
 
-  /** Extract-only: stt = Google, whisper = local Whisper, captions = YT subs */
+  /** Extract → editor: auto | stt | whisper | captions */
   function extractSource() {
     const v =
       document.querySelector('input[name="extract-source"]:checked')?.value ||
-      "stt";
-    if (v === "whisper" || v === "captions") return v;
+      "auto";
+    if (v === "whisper" || v === "captions" || v === "auto") return v;
     return "stt";
   }
 
@@ -847,9 +847,54 @@
     return $("#opt-whisper-model")?.value || "base";
   }
 
+  /** Cached Whisper probe for Auto cascade */
+  let _whisperOkCache = { t: 0, ok: false };
+  async function isWhisperAvailable() {
+    if (Date.now() - _whisperOkCache.t < 45000) return _whisperOkCache.ok;
+    try {
+      const res = await fetch("/api/studio/whisper-status", {
+        credentials: "same-origin",
+      });
+      const st = await res.json().catch(() => ({}));
+      _whisperOkCache = { t: Date.now(), ok: !!(st && st.ok) };
+      return _whisperOkCache.ok;
+    } catch {
+      _whisperOkCache = { t: Date.now(), ok: false };
+      return false;
+    }
+  }
+
+  /**
+   * Order of sources for Auto: YT captions (link) → Whisper → Google STT.
+   * Fixed single source when user picks one radio.
+   */
+  async function resolveExtractSourceOrder() {
+    const mode = extractSource();
+    if (mode === "stt" || mode === "whisper" || mode === "captions") {
+      return [mode];
+    }
+    // auto
+    const order = [];
+    const url = videoUrlInput();
+    if (
+      url &&
+      /youtube\.com|youtu\.be|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|vimeo\.com/i.test(
+        url
+      )
+    ) {
+      order.push("captions");
+    }
+    if (await isWhisperAvailable()) order.push("whisper");
+    order.push("stt");
+    // unique preserve order
+    return order.filter((s, i, a) => a.indexOf(s) === i);
+  }
+
   function syncExtractSourceUi() {
     const wrap = $("#whisper-model-wrap");
-    if (wrap) wrap.hidden = extractSource() !== "whisper";
+    const mode = extractSource();
+    // Show Whisper model for whisper OR auto (auto may use Whisper)
+    if (wrap) wrap.hidden = mode !== "whisper" && mode !== "auto";
   }
   document.querySelectorAll('input[name="extract-source"]').forEach((el) => {
     el.addEventListener("change", syncExtractSourceUi);
@@ -864,6 +909,7 @@
         credentials: "same-origin",
       });
       const st = await res.json().catch(() => ({}));
+      _whisperOkCache = { t: Date.now(), ok: !!(st && st.ok) };
       if (st && st.ok) {
         el.textContent = tr(
           "narrator.whisperStatusOn",
@@ -881,6 +927,7 @@
         if (st && st.error) el.title = String(st.error).slice(0, 200);
       }
     } catch {
+      _whisperOkCache = { t: Date.now(), ok: false };
       el.textContent = tr(
         "narrator.whisperStatusOff",
         "Whisper: OFF — w terminalu: pip install -U faster-whisper"
@@ -1030,11 +1077,33 @@
     return wantSmartRewrite() && (el ? !!el.checked : true);
   }
 
+  /** «Tekst do edytora»: 6s segments in field + Start uses editor clocks */
   function wantTimedTranscript() {
     const el = $("#opt-timed-transcript");
     // default ON when control missing
     if (!el) return true;
     return !!el.checked;
+  }
+  /** Alias for UI wording — same checkbox */
+  function wantEditorFill() {
+    return wantTimedTranscript();
+  }
+
+  function extractPayloadHasText(data) {
+    if (!data || data.ok === false) return false;
+    const chunks = [
+      data.text,
+      data.script,
+      data.plainText,
+      data.plainOriginal,
+      data.timedText,
+      data.timedScript,
+      data.originalText,
+    ];
+    for (const c of chunks) {
+      if (String(c || "").replace(/\s+/g, " ").trim().length >= 8) return true;
+    }
+    return false;
   }
 
   /** textSpeedMode: auto | off | manual */
@@ -1218,11 +1287,11 @@
     const okMsg = isTimed
       ? tr(
           "narrator.extractOkExact",
-          "W polu «Tekst do tłumaczenia»: segmenty z czasem 1:1 jak w źródle."
+          "W edytorze: segmenty co 6s (te same czasy przy Start)."
         )
       : tr(
           "narrator.extractOk",
-          "W polu «Tekst do tłumaczenia»: tekst ciągły."
+          "W edytorze: tekst ciągły."
         );
     setSt(okMsg + (meta ? " (" + meta + ")" : ""), "ok");
     return true;
@@ -1299,7 +1368,162 @@
     );
   }
 
-  /** Pre-job STT + exact translate → fill #opt-script (file OR link) */
+  function busyMsgForSource(srcMode, wModel, onlyOriginal) {
+    if (selectedFile) {
+      if (srcMode === "captions") {
+        return tr(
+          "narrator.extractBusyCaps",
+          "Pobieram napisy z filmu… (może potrwać)"
+        );
+      }
+      if (srcMode === "whisper") {
+        return tr(
+          "narrator.extractBusyWhisper",
+          "Whisper lokalny ({model})… pierwsze uruchomienie może ściągnąć model"
+        ).replace("{model}", wModel);
+      }
+      return onlyOriginal
+        ? tr(
+            "narrator.extractBusy",
+            "Rozpoznaję mowę z dźwięku… (może potrwać)"
+          )
+        : tr(
+            "narrator.extractBusyTr",
+            "STT z dźwięku + tłumaczenie… (może potrwać)"
+          );
+    }
+    if (srcMode === "captions") {
+      return tr(
+        "narrator.extractBusyFromUrlCaps",
+        "Z linku: napisy YouTube… (PC · ON)"
+      );
+    }
+    if (srcMode === "whisper") {
+      return tr(
+        "narrator.extractBusyFromUrlWhisper",
+        "Z linku: Whisper lokalny… (PC · ON)"
+      );
+    }
+    return tr(
+      "narrator.extractBusyFromUrl",
+      "Z linku: pobieram wideo + STT z dźwięku… (PC · ON)"
+    );
+  }
+
+  /**
+   * One extract attempt for a concrete source → raw API result or throws.
+   * Fills #opt-script via applyExtractPayload / poll when successful text.
+   * Returns { ok, data, applied } — applied=true when field was filled.
+   */
+  async function runOneExtractSource(
+    srcMode,
+    {
+      wantTimed,
+      smartRewrite,
+      useOllama,
+      onlyOriginal,
+      srcLang,
+      tgtLang,
+      wModel,
+      url,
+      setSt,
+    }
+  ) {
+    setSt(busyMsgForSource(srcMode, wModel, onlyOriginal), "busy");
+    let res;
+    let data;
+    if (selectedFile) {
+      const fd = new FormData();
+      fd.append("video", selectedFile, selectedFile.name || "video.mp4");
+      fd.append("sourceLang", srcLang);
+      fd.append("targetLang", tgtLang);
+      fd.append("autoTranslate", onlyOriginal ? "0" : "1");
+      fd.append("timedTranscript", wantTimed ? "1" : "0");
+      fd.append("smartRewrite", smartRewrite ? "1" : "0");
+      fd.append("useOllama", useOllama ? "1" : "0");
+      fd.append("transcriptSource", srcMode);
+      fd.append("sttEngine", srcMode === "whisper" ? "whisper" : "google");
+      fd.append("whisperModel", wModel);
+      const speedMode = getTextSpeedMode();
+      fd.append("speechPace", speedMode);
+      fd.append("textSpeedMode", speedMode);
+      fd.append("textSpeed", String(getTextSpeedValue()));
+      res = await fetch("/api/studio/transcribe", {
+        method: "POST",
+        body: fd,
+        credentials: "same-origin",
+      });
+      data = await res.json().catch(() => ({}));
+    } else {
+      const speedMode = getTextSpeedMode();
+      res = await fetch("/api/studio/transcribe", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          sourceLang: srcLang,
+          targetLang: tgtLang,
+          autoTranslate: !onlyOriginal,
+          timedTranscript: wantTimed,
+          smartRewrite,
+          useOllama,
+          transcriptSource: srcMode,
+          sttEngine: srcMode === "whisper" ? "whisper" : "google",
+          whisperModel: wModel,
+          speechPace: speedMode,
+          textSpeechPace: speedMode,
+          textSpeedMode: speedMode,
+          textSpeed: getTextSpeedValue(),
+        }),
+      });
+      data = await res.json().catch(() => ({}));
+    }
+    if (!res.ok) {
+      const err = new Error(data.error || "HTTP " + res.status);
+      err._extractData = data;
+      throw err;
+    }
+    // Platform URL → agent job — poll until script ready
+    if (data.pending && data.jobId) {
+      setSt(
+        srcMode === "captions"
+          ? tr(
+              "narrator.extractBusyAgentCaps",
+              "Agent PC: napisy YouTube z linku…"
+            )
+          : tr(
+              "narrator.extractBusyAgent",
+              "Agent PC: pobieranie + STT z dźwięku…"
+            ),
+        "busy"
+      );
+      const applied = await pollPreTranscribeJob(
+        data.jobId,
+        wantTimed,
+        onlyOriginal,
+        tgtLang,
+        setSt
+      );
+      return { ok: !!applied, data, applied: !!applied, fromAgent: true };
+    }
+    if (!extractPayloadHasText(data)) {
+      return { ok: false, data, applied: false, empty: true };
+    }
+    const applied = applyExtractPayload(
+      data,
+      wantTimed,
+      onlyOriginal,
+      tgtLang,
+      setSt
+    );
+    return { ok: !!applied, data, applied: !!applied };
+  }
+
+  /**
+   * Pre-job extract → fill #opt-script from all available sources (Auto cascade)
+   * or a single forced source. Applies Pro lektor / 6s grid / rewrite via server.
+   */
   async function extractTranscriptToField() {
     const status = $("#extract-transcript-status");
     const btn = $("#btn-extract-transcript");
@@ -1320,7 +1544,8 @@
       );
       return;
     }
-    const wantTimed = wantTimedTranscript();
+    // Always prefer timed editor fill when checkbox on (default)
+    const wantTimed = wantEditorFill();
     const smartRewrite = wantSmartRewrite();
     const useOllama = wantUseOllama();
     const onlyOriginal = !!$("#opt-extract-no-tr")?.checked;
@@ -1339,130 +1564,84 @@
       if (autoTr) autoTr.checked = true;
     }
     if (btn) btn.disabled = true;
-    // Dedicated extract option (not the Start/lektor radios above)
-    const srcMode = extractSource(); // stt | whisper | captions
     const wModel = whisperModel();
-    setSt(
-      selectedFile
-        ? srcMode === "captions"
-          ? tr(
-              "narrator.extractBusyCaps",
-              "Pobieram napisy z filmu… (może potrwać)"
-            )
-          : srcMode === "whisper"
-            ? tr(
-                "narrator.extractBusyWhisper",
-                "Whisper lokalny ({model})… pierwsze uruchomienie może ściągnąć model"
-              ).replace("{model}", wModel)
-            : onlyOriginal
-              ? tr(
-                  "narrator.extractBusy",
-                  "Rozpoznaję mowę z dźwięku… (może potrwać)"
-                )
-              : tr(
-                  "narrator.extractBusyTr",
-                  "STT z dźwięku + tłumaczenie… (może potrwać)"
-                )
-        : srcMode === "captions"
-          ? tr(
-              "narrator.extractBusyFromUrlCaps",
-              "Z linku: napisy YouTube… (PC · ON)"
-            )
-          : srcMode === "whisper"
-            ? tr(
-                "narrator.extractBusyFromUrlWhisper",
-                "Z linku: Whisper lokalny… (PC · ON)"
-              )
-            : tr(
-                "narrator.extractBusyFromUrl",
-                "Z linku: pobieram wideo + STT z dźwięku… (PC · ON)"
-              ),
-      "busy"
-    );
+    const order = await resolveExtractSourceOrder();
+    const isAuto = extractSource() === "auto";
+    if (isAuto && order.length > 1) {
+      setSt(
+        tr(
+          "narrator.extractBusyAuto",
+          "Do edytora · Auto: {sources}…"
+        ).replace("{sources}", order.join(" → ")),
+        "busy"
+      );
+    }
+    const ctx = {
+      wantTimed,
+      smartRewrite,
+      useOllama,
+      onlyOriginal,
+      srcLang,
+      tgtLang,
+      wModel,
+      url,
+      setSt,
+    };
+    const errors = [];
     try {
-      let res;
-      let data;
-      if (selectedFile) {
-        const fd = new FormData();
-        fd.append("video", selectedFile, selectedFile.name || "video.mp4");
-        fd.append("sourceLang", srcLang);
-        fd.append("targetLang", tgtLang);
-        fd.append("autoTranslate", onlyOriginal ? "0" : "1");
-        fd.append("timedTranscript", wantTimed ? "1" : "0");
-        fd.append("smartRewrite", smartRewrite ? "1" : "0");
-        fd.append("useOllama", useOllama ? "1" : "0");
-        fd.append("transcriptSource", srcMode);
-        fd.append(
-          "sttEngine",
-          srcMode === "whisper" ? "whisper" : "google"
-        );
-        fd.append("whisperModel", wModel);
-        const speedMode = getTextSpeedMode();
-        fd.append("speechPace", speedMode);
-        fd.append("textSpeedMode", speedMode);
-        fd.append("textSpeed", String(getTextSpeedValue()));
-        res = await fetch("/api/studio/transcribe", {
-          method: "POST",
-          body: fd,
-          credentials: "same-origin",
-        });
-        data = await res.json().catch(() => ({}));
-      } else {
-        const speedMode = getTextSpeedMode();
-        res = await fetch("/api/studio/transcribe", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url,
-            sourceLang: srcLang,
-            targetLang: tgtLang,
-            autoTranslate: !onlyOriginal,
-            timedTranscript: wantTimed,
-            smartRewrite,
-            useOllama,
-            transcriptSource: srcMode,
-            sttEngine: srcMode === "whisper" ? "whisper" : "google",
-            whisperModel: wModel,
-            speechPace: speedMode,
-            textSpeechPace: speedMode,
-            textSpeedMode: speedMode,
-            textSpeed: getTextSpeedValue(),
-          }),
-        });
-        data = await res.json().catch(() => ({}));
-      }
-      if (!res.ok) {
-        throw new Error(data.error || "HTTP " + res.status);
-      }
-      // Platform URL → agent job — poll until script ready
-      if (data.pending && data.jobId) {
-        setSt(
-          srcMode === "captions"
-            ? tr(
-                "narrator.extractBusyAgentCaps",
-                "Agent PC: napisy YouTube z linku…"
+      for (let i = 0; i < order.length; i++) {
+        const srcMode = order[i];
+        try {
+          if (isAuto && order.length > 1) {
+            setSt(
+              tr(
+                "narrator.extractBusyAutoStep",
+                "Do edytora · {src} ({i}/{n})…"
               )
-            : tr(
-                "narrator.extractBusyAgent",
-                "Agent PC: pobieranie + STT z dźwięku…"
-              ),
-          "busy"
-        );
-        await pollPreTranscribeJob(
-          data.jobId,
-          wantTimed,
-          onlyOriginal,
-          tgtLang,
-          setSt
-        );
-        return;
+                .replace("{src}", srcMode)
+                .replace("{i}", String(i + 1))
+                .replace("{n}", String(order.length)),
+              "busy"
+            );
+          }
+          const result = await runOneExtractSource(srcMode, ctx);
+          if (result.applied) {
+            // Tag which source won (append to status if already set by apply)
+            if (isAuto && status && status.textContent) {
+              status.textContent =
+                status.textContent +
+                " · " +
+                tr("narrator.extractViaSrc", "źródło: {src}").replace(
+                  "{src}",
+                  srcMode
+                );
+            }
+            return;
+          }
+          if (result.empty) {
+            errors.push(srcMode + ": pusto");
+            // cascade to next source
+            continue;
+          }
+        } catch (e) {
+          errors.push(srcMode + ": " + (e.message || e));
+          // cascade unless last / single forced source
+          if (i < order.length - 1) continue;
+          throw e;
+        }
       }
-      applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt);
+      setSt(
+        tr(
+          "narrator.extractEmpty",
+          "Brak mowy w audio (muzyka / cisza). Spróbuj napisów z filmu albo wklej tekst ręcznie."
+        ) + (errors.length ? " [" + errors.join("; ") + "]" : ""),
+        "err"
+      );
     } catch (e) {
       setSt(
         tr("narrator.extractFail", "Błąd transkrypcji: ") +
-          (e.message || e),
+          (e.message || e) +
+          (errors.length ? " · " + errors.join("; ") : ""),
         "err"
       );
     } finally {
@@ -1882,25 +2061,38 @@
       narrator: narratorOnly ? true : optNarrator.checked,
       narratorMode: narratorMode(),
       describeStyle: describeStyle(),
-      /** stt = speech-to-text (default, as before); captions = video subs → timed transcript */
+      /**
+       * When editor has text + «Tekst do edytora» ON → Start uses editor (pipeline).
+       * Else empty field: auto/stt/whisper/captions for live extract on Start.
+       */
       transcriptSource: (() => {
-        // Prefer extract-source if user set Whisper for STT path
+        const script = String($("#opt-script")?.value || "").trim();
+        // Editor is source — pipeline skips second STT when timed + script
+        if (script.length >= 8 && wantEditorFill()) return "stt";
         const ex = extractSource();
-        if (ex === "whisper") return "whisper";
+        if (ex === "whisper" || ex === "captions" || ex === "auto") return ex;
         return (
           document.querySelector('input[name="transcript-source"]:checked')
             ?.value || "stt"
         );
       })(),
-      sttEngine: extractSource() === "whisper" ? "whisper" : "google",
+      sttEngine: (() => {
+        const ex = extractSource();
+        if (ex === "whisper") return "whisper";
+        if (ex === "auto") return "auto";
+        return "google";
+      })(),
       whisperModel: whisperModel(),
       sourceLang: $("#opt-source-lang")?.value || "auto",
       targetLang: targetLang(),
       autoTranslate: $("#opt-auto-translate").checked,
       /** Pro lektor: per-language segmentation / rate / silence merge */
       proNarrator: $("#opt-pro-narrator")?.checked !== false,
-      /** true = script as timed transcription [mm:ss–mm:ss]; false = plain continuous text */
-      timedTranscript: wantTimedTranscript(),
+      /**
+       * true = editor 6s hop + Start from field (source = translation clocks);
+       * false = plain continuous text
+       */
+      timedTranscript: wantEditorFill(),
       textSpeedMode: getTextSpeedMode(),
       speechPace: getTextSpeedMode(),
       textSpeechPace: getTextSpeedMode(),

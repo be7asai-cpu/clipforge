@@ -663,17 +663,18 @@
               </p>
               <label
                 class="inline"
-                title="8 równych segmentów z edytora = źródło i tłumaczenie (te same czasy)."
+                title="Po Wyodrębnij: tekst do edytora (segmenty co 6s). Przy Start: źródło = edytor, te same czasy."
               >
                 <input type="checkbox" id="opt-timed-transcript" checked />
                 <span data-i18n="narrator.timedTrLab"
-                  >Segmenty co 6s z edytora (źródło = tłumaczenie, te same czasy)</span
+                  >📥 Tekst do edytora (segmenty co 6s · Start z pola)</span
                 >
               </label>
               <p class="hint" data-i18n="narrator.timedTrHint">
-                Zaznaczone: po Wyodrębnij pole ma segmenty co 6 sekund (0–6, 6–12, … do końca filmu).
-                To samo dla napisów YouTube. Przy Start źródło = edytor; tłumaczenie/lektor/napisy =
-                te same segmenty i start/end (bez ponownego STT i bez drugiego NMT, jeśli tekst już przetłumaczony).
+                Włączone: «Wyodrębnij do edytora» bierze tekst ze źródła niżej (Auto / STT / Whisper / napisy),
+                układa segmenty co 6s (0–6, 6–12, …) z Pro lektorem i przeredagowaniem — i wkleja do pola.
+                Przy Start źródło = edytor; tłumaczenie/lektor/napisy = te same segmenty i czasy
+                (bez drugiego NMT, jeśli tekst już przetłumaczony).
               </p>
               <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
 
@@ -705,13 +706,21 @@
                 Lista głosów zależy od języka docelowego (Edge neural).
               </p>
               <div class="opt-block extract-source-block" id="extract-source-block">
-                <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">Źródło wyodrębniania tekstu</div>
+                <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">
+                  Źródło tekstu do edytora
+                </div>
                 <div class="seg" role="radiogroup" id="extract-source-group">
-                  <label title="Google Web Speech (szybkie, wymaga netu) — domyślne STT">
-                    <input type="radio" name="extract-source" value="stt" checked />
+                  <label title="Kolejno: napisy YT (gdy link) → Whisper (gdy ON) → STT Google">
+                    <input type="radio" name="extract-source" value="auto" checked />
+                    <span data-i18n="narrator.extractSrcAuto"
+                      >⚡ Auto (wszystkie dostępne)</span
+                    >
+                  </label>
+                  <label title="Google Web Speech (szybkie, wymaga netu)">
+                    <input type="radio" name="extract-source" value="stt" />
                     <span data-i18n="narrator.extractSrcStt">🎤 STT Google (online)</span>
                   </label>
-                  <label title="OpenAI Whisper lokalnie na PC — osobna opcja, nie Ollama. pip install openai-whisper">
+                  <label title="Whisper lokalnie na PC — osobno od Ollamy">
                     <input type="radio" name="extract-source" value="whisper" />
                     <span data-i18n="narrator.extractSrcWhisper">🎧 Whisper (lokalny AI)</span>
                   </label>
@@ -730,7 +739,8 @@
                   </select>
                 </label>
                 <p class="hint" data-i18n="narrator.extractSrcHint">
-                  «Wyodrębnij»: STT Google = online · Whisper = lokalny model (osobno od Ollamy) · Napisy = YT/film.
+                  Do edytora: Auto próbuje napisy → Whisper → Google. Możesz wymusić jedno źródło.
+                  Wynik zawsze z opcjami powyżej (Pro lektor, segmenty 6s, przeredagowanie).
                 </p>
                 <p class="hint" id="whisper-status" data-i18n="narrator.whisperStatusWait">
                   Sprawdzam Whisper…
@@ -770,7 +780,7 @@
               </div>
               <div class="pre-stt-bar" id="pre-stt-bar">
                 <button type="button" class="btn ghost sm" id="btn-extract-transcript">
-                  <span data-i18n="narrator.extractBtn">🎤 Wyodrębnij + dokładne tłumaczenie</span>
+                  <span data-i18n="narrator.extractBtn">📥 Wyodrębnij do edytora</span>
                 </button>
                 <label class="inline pre-stt-timed" title="Zostaw oryginał bez tłumaczenia">
                   <input type="checkbox" id="opt-extract-no-tr" />
@@ -779,8 +789,8 @@
                 <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
               </div>
               <p class="hint" data-i18n="narrator.extractHint">
-                Wyodrębnij → tekst w polu (z czasem 1:1 jeśli włączone wyżej, albo ciągły) → popraw → Start.
-                Źródło: STT z dźwięku albo napisy YT.
+                Wyodrębnij do edytora → tekst w polu (segmenty co 6s gdy włączone wyżej) → popraw → Start.
+                Start bierze źródło z edytora (te same czasy). Źródło: Auto / STT / Whisper / napisy.
               </p>
 
               <label class="stack">
@@ -802,7 +812,8 @@
                 ></textarea>
               </label>
               <p class="hint" data-i18n="narrator.scriptHint">
-                Opcja «Tekst z czasem 1:1» → linie z zegarami jak STT/wideo. Bez niej → ciągły akapit. Źródło: STT albo napisy YT przy Wyodrębnij.
+                «Tekst do edytora» włączone → linie [00:00 → 00:06] co 6s. Wyłączone → ciągły akapit.
+                Przy Start z tekstem w polu: źródło = edytor (bez ponownego STT).
               </p>
 
               <div class="opt-block text-speed-block" id="text-speed-block">

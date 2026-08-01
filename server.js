@@ -2123,16 +2123,23 @@ app.post("/api/studio/transcribe", (req, res) => {
     )
       .trim()
       .toLowerCase() || "normal";
-    // stt/google | whisper | captions
+    // stt/google | whisper | captions | auto (client cascade; agent may resolve)
     let transcriptSource = String(body?.transcriptSource || "stt")
       .trim()
       .toLowerCase();
-    if (transcriptSource !== "captions" && transcriptSource !== "whisper") {
+    if (
+      transcriptSource !== "captions" &&
+      transcriptSource !== "whisper" &&
+      transcriptSource !== "auto"
+    ) {
       transcriptSource = "stt";
     }
+    // auto → prefer whisper when body says so, else google (client usually picks concrete src)
+    const bodyEngine = String(body?.sttEngine || "").toLowerCase();
     const sttEngine =
       transcriptSource === "whisper" ||
-      String(body?.sttEngine || "").toLowerCase() === "whisper"
+      bodyEngine === "whisper" ||
+      (transcriptSource === "auto" && bodyEngine === "whisper")
         ? "whisper"
         : "google";
     const whisperModel = String(
@@ -2209,8 +2216,12 @@ app.post("/api/studio/transcribe", (req, res) => {
           transcriptSource,
           hint:
             transcriptSource === "captions"
-              ? "Agent PC pobiera napisy z filmu (YouTube) — tekst wpadnie do pola."
-              : "Agent PC pobiera wideo i rozpoznaje mowę z dźwięku (STT) — bez napisów YouTube.",
+              ? "Agent PC pobiera napisy z filmu (YouTube) — tekst wpadnie do edytora."
+              : transcriptSource === "auto"
+                ? "Agent PC: Auto do edytora (napisy → Whisper → STT)."
+                : transcriptSource === "whisper"
+                  ? "Agent PC: Whisper lokalny → tekst do edytora."
+                  : "Agent PC pobiera wideo i rozpoznaje mowę z dźwięku (STT) — do edytora.",
         });
       }
 
@@ -2645,14 +2656,22 @@ function normalizeJobOptions(options, originalName) {
   opts.filename = originalName;
   if (opts.narrator == null) opts.narrator = true;
   if (opts.autoTranslate == null) opts.autoTranslate = true;
-  // Default: text for translation as timed transcription; false = plain paragraph
+  // Default: text for translation as timed transcription (editor 6s grid); false = plain
   if (opts.timedTranscript == null) opts.timedTranscript = true;
-  // stt = recognize speech from audio; captions = YouTube / video subs
-  if (
-    opts.transcriptSource == null ||
-    (opts.transcriptSource !== "captions" && opts.transcriptSource !== "stt")
-  ) {
+  // stt | whisper | captions | auto — sources for extract / empty-editor Start
+  const srcOk = new Set(["stt", "whisper", "captions", "auto"]);
+  if (opts.transcriptSource == null || !srcOk.has(String(opts.transcriptSource).toLowerCase())) {
     opts.transcriptSource = "stt";
+  } else {
+    opts.transcriptSource = String(opts.transcriptSource).toLowerCase();
+  }
+  if (opts.sttEngine == null) {
+    opts.sttEngine =
+      opts.transcriptSource === "whisper"
+        ? "whisper"
+        : opts.transcriptSource === "auto"
+          ? "auto"
+          : "google";
   }
   // Tempo: auto | off | manual (+ textSpeed 0.5–2.0 step 0.1)
   if (opts.textSpeedMode == null && opts.speechPace == null) {
