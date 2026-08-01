@@ -1285,10 +1285,10 @@
   }
 
   /**
-   * Apply extract → ONLY #opt-script (Tekst do tłumaczenia).
-   * Does not change voice, Start path, or other options beyond this field.
-   * wantTimed ON  → segment lines [start → end] 1:1 with source STT/captions
-   * wantTimed OFF → continuous plain paragraph
+   * Apply extract → ONLY #opt-script.
+   * Editor extract = always continuous plain (no hop grid yet).
+   * Segmentation happens later at Start / after rewrite in pipeline.
+   * wantTimed is ignored for fill — kept for API compat only.
    */
   function applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt) {
     const plainPrefer = String(
@@ -1296,28 +1296,19 @@
     ).trim();
     const raw = String(data.text || data.script || "").trim();
     const timed = String(data.timedText || data.timedScript || "").trim();
-    // Prefer dedicated timed payload; also accept timed lines inside text/script
-    const timedRaw =
-      timed ||
-      (countExactCues(raw) >= 1 ? raw : "") ||
-      (countExactCues(plainPrefer) >= 1 ? plainPrefer : "");
-    const timedClean = cleanTimedScriptText(timedRaw);
+    // Prefer continuous plain; strip markers if server sent hop lines by mistake
     const plainClean = toPlainScriptText(
-      plainPrefer || (countExactCues(raw) ? "" : raw) || timed
+      plainPrefer || raw || timed
     );
-    let useText = "";
+    let useText = plainClean;
     let isTimed = false;
-    if (wantTimed && timedClean && countExactCues(timedClean) >= 1) {
-      // ONLY the translation textarea — segment clocks from source
-      useText = timedClean;
-      isTimed = true;
-    } else if (wantTimed && plainClean) {
-      // Timed requested but API sent plain only — still show plain in field
-      useText = plainClean;
-      isTimed = false;
-    } else {
-      useText = plainClean || toPlainScriptText(timedClean);
-      isTimed = false;
+    // Optional: if user pastes / API returns natural STT cues and plain empty, keep cues
+    if (!useText) {
+      const timedClean = cleanTimedScriptText(timed || raw);
+      if (timedClean && countExactCues(timedClean) >= 1) {
+        useText = timedClean;
+        isTimed = true;
+      }
     }
     if (!useText) {
       setSt(
@@ -1347,9 +1338,12 @@
       isTimed
         ? tr(
             "narrator.extractMetaExact",
-            "pole tekstu · {n} segmentów 1:1 ze źródłem"
+            "pole · {n} cue (surowe) · segmentacja przy Start"
           ).replace("{n}", String(nCues || data.exactCueCount || "?"))
-        : tr("narrator.extractMetaPlain", "pole tekstu · ciągły"),
+        : tr(
+            "narrator.extractMetaPlain",
+            "pole · ciągły tekst · segmenty przy Start"
+          ),
       data.translated && !onlyOriginal
         ? tr("narrator.extractMetaTr", "przetłumaczono") +
           " → " +
@@ -1371,15 +1365,10 @@
     ]
       .filter(Boolean)
       .join(" · ");
-    const okMsg = isTimed
-      ? tr(
-          "narrator.extractOkExact",
-          "W edytorze: segmenty co 6s (te same czasy przy Start)."
-        )
-      : tr(
-          "narrator.extractOk",
-          "W edytorze: tekst ciągły."
-        );
+    const okMsg = tr(
+      "narrator.extractOk",
+      "W edytorze: ciągły tekst. Segmentacja 6s dopiero przy Start (po przeróbce)."
+    );
     setSt(okMsg + (meta ? " (" + meta + ")" : ""), "ok");
     return true;
   }
@@ -1667,7 +1656,8 @@
       );
       return;
     }
-    const wantTimed = true; // editor mode always segments
+    // No hop-segmentation on extract — continuous text only; segments at Start
+    const wantTimed = false;
     const smartRewrite = wantSmartRewrite();
     const useOllama = wantUseOllama();
     const onlyOriginal = !!$("#opt-extract-no-tr")?.checked;
@@ -2196,8 +2186,8 @@
       /** Pro lektor: per-language segmentation / rate / silence merge */
       proNarrator: $("#opt-pro-narrator")?.checked !== false,
       /**
-       * true = editor 6s hop + Start from field (source = translation clocks);
-       * false = plain continuous text
+       * Editor ON + text in field → Start builds hop segments AFTER processing
+       * (from continuous editor text). Extract itself never forces hop lines.
        */
       timedTranscript: wantEditorFill(),
       textSpeedMode: getTextSpeedMode(),

@@ -2186,7 +2186,9 @@ async function runJob(job) {
     const targetLang = job.options.targetLang || "pl";
     const autoTranslate =
       job.options.autoTranslate == null || job.options.autoTranslate !== false;
-    const useTimedForm = job.options.timedTranscript !== false;
+    // Pre-transcribe → editor: always continuous plain (no hop grid).
+    // Hop segments are built later at Start after processing.
+    const useTimedForm = false;
     const srcForTr = langCode || job.options.sourceLang || "auto";
 
     const filmDur = Math.max(
@@ -2359,16 +2361,9 @@ async function runJob(job) {
       transcriptMode = "even-timeline";
     }
 
-    // Timed ON → exact clocks in field (same system as STT / video / YT cues).
-    // Timed OFF → continuous plain only.
-    const outText =
-      useTimedForm && timedText
-        ? timedText
-        : useTimedForm && timedOriginal
-          ? timedOriginal
-          : text;
-    const outOriginal =
-      useTimedForm && timedOriginal ? timedOriginal : originalText;
+    // Always continuous plain into editor (segment later at Start)
+    const outText = text;
+    const outOriginal = originalText;
 
     await reportProgress(job.id, {
       progress: 95,

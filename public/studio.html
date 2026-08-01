@@ -674,27 +674,25 @@
                 Lista głosów zależy od języka docelowego (Edge neural).
               </p>
 
-              <!-- Master switch: editor + extract options only when ON -->
+              <!-- Master switch: only opens extract/edit panel (no hop-segmentation yet) -->
               <label
                 class="inline editor-master"
-                title="Włącz, by wyciągnąć tekst do pola, edytować segmenty i Start z edytora"
+                title="Włącz, by wyciągnąć tekst do pola i edytować. Segmentacja dopiero przy Start / po przeróbce."
               >
                 <input type="checkbox" id="opt-timed-transcript" />
-                <span data-i18n="narrator.timedTrLab"
-                  >📥 Tekst do edytora (segmenty · Start z pola)</span
-                >
+                <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora</span>
               </label>
               <p class="hint compact" data-i18n="narrator.timedTrHintOff" id="timed-tr-hint-off">
-                Wyłączone: przy Start tekst bierze się automatycznie z filmu (dźwięk / napisy YT — jedna
-                ścieżka Auto). Zaznacz, by ręcznie wyodrębnić, poprawić i użyć edytora.
+                Wyłączone: przy Start tekst z filmu automatycznie. Zaznacz, by ręcznie wyodrębnić i
+                poprawić w polu (bez segmentacji na tym etapie).
               </p>
               <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
 
               <!-- Nested: only when «Tekst do edytora» is checked -->
               <div class="editor-advanced hidden" id="editor-advanced">
                 <p class="hint compact" data-i18n="narrator.timedTrHint">
-                  Wyodrębnij → segmenty w polu → popraw → Start z edytora (te same czasy, bez drugiego NMT
-                  jeśli już przetłumaczone).
+                  Wyodrębnij → ciągły tekst w polu → popraw. Segmenty 6s powstają dopiero przy Start
+                  (po przeredagowaniu / w pipeline), nie przy samym wyciągnięciu.
                 </p>
 
                 <div class="opt-block extract-source-block" id="extract-source-block">
@@ -798,11 +796,12 @@
                     id="opt-script"
                     rows="6"
                     data-i18n-placeholder="narrator.scriptPh"
-                    placeholder="Wyodrębnij lub wklej. Segmenty: [00:00 → 00:06] tekst"
+                    placeholder="Wyodrębnij lub wklej ciągły tekst. Segmenty powstaną przy Start."
                   ></textarea>
                 </label>
                 <p class="hint compact" data-i18n="narrator.scriptHint">
-                  Segmenty co 6s. Start z polem = źródło z edytora (bez ponownego STT).
+                  Ciągły tekst w polu. Segmentacja 6s dopiero przy Start (po przeróbce), nie przy
+                  Wyodrębnij.
                 </p>
               </div>
 

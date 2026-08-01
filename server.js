@@ -2082,16 +2082,12 @@ async function runPreTranscribeOnFile(videoPath, {
     timedText = formatTimed(exactTr.segments || []);
   }
 
-  // Field: timed 8s lines when option on; plain continuous when off. Lektor unchanged.
-  const useTimed = timedTranscript !== false;
-  const primaryText =
-    useTimed && timedText
-      ? timedText
-      : useTimed && timedOriginal
-        ? timedOriginal
-        : text;
-  const primaryOriginal =
-    useTimed && timedOriginal ? timedOriginal : originalText;
+  // Extract to editor: always continuous plain in primary field.
+  // Hop grid (6s) is built later at Start / after rewrite in pipeline — not here.
+  // timedText kept in payload for optional display; text/plainText = continuous.
+  const useTimed = timedTranscript === true;
+  const primaryText = text; // continuous after fit/translate
+  const primaryOriginal = originalText;
 
   const trLineCount = timedText
     ? timedText.split(/\r?\n/).filter((l) => l.trim()).length
