@@ -986,19 +986,29 @@
     if (hintOff) hintOff.hidden = on;
     syncExtractSourceUi();
   }
-  $("#opt-timed-transcript")?.addEventListener("change", syncEditorAdvancedUi);
-  // Ensure default ON if missing attribute after old cache
-  (function ensureEditorDefaultOn() {
-    const ed = $("#opt-timed-transcript");
-    if (ed && !ed.checked && !ed.dataset.userToggled) {
-      // keep HTML default; only force if neither checked nor explicit off stored
-    }
-    syncEditorAdvancedUi();
-  })();
   $("#opt-timed-transcript")?.addEventListener("change", () => {
     const ed = $("#opt-timed-transcript");
     if (ed) ed.dataset.userToggled = "1";
+    syncEditorAdvancedUi();
   });
+  // Force editor ON on first load (required path for Whisper → pole tekstu)
+  (function ensureEditorDefaultOn() {
+    const ed = $("#opt-timed-transcript");
+    if (ed && !ed.dataset.userToggled) {
+      ed.checked = true;
+    }
+    // Prefer Whisper if nothing user-picked (hard audio / memes)
+    const anySrc = document.querySelector(
+      'input[name="extract-source"]:checked'
+    );
+    if (!anySrc) {
+      const w = document.querySelector(
+        'input[name="extract-source"][value="whisper"]'
+      );
+      if (w) w.checked = true;
+    }
+    syncEditorAdvancedUi();
+  })();
 
   async function refreshWhisperStatus() {
     const el = $("#whisper-status");
