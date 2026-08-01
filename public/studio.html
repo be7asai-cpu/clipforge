@@ -550,12 +550,12 @@
                 <input type="checkbox" id="opt-auto-translate" checked />
                 <span data-i18n="narrator.autoTrLab">Tłumacz na język docelowy (można wyłączyć = oryginał)</span>
               </label>
-              <label class="inline" title="Format [czas] linia — jak napisy. Wyłącz = jeden ciągły akapit.">
+              <label class="inline" title="Format [czas] linia. Zaznacz → lektor czyta w tych oknach czasu.">
                 <input type="checkbox" id="opt-timed-transcript" checked />
-                <span data-i18n="narrator.timedTrLab">Tekst jako transkrypcja z czasem</span>
+                <span data-i18n="narrator.timedTrLab">Tekst jako transkrypcja z czasem (użyj przy lektorze)</span>
               </label>
               <p class="hint" data-i18n="narrator.timedTrHint">
-                Włączone: linie [00:00–00:06] … (tłumaczenie też w tym formacie). Wyłącz całkowicie = zwykły ciągły tekst.
+                Zaznaczone: wyodrębnij → linie [00:00→00:06] w polu; przy Start lektor mówi w tych samych oknach. Odznacz całkowicie = ciągły tekst bez osi czasu.
               </p>
               <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
 
@@ -928,9 +928,9 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801timedTr"></script>
+    <script src="/js/i18n.js?v=20260801timedLektor"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260801timedTr"></script>
+    <script src="/js/studio.js?v=20260801timedLektor"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;
