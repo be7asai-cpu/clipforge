@@ -2356,6 +2356,9 @@
       const open = $("#btn-open");
       open.href = job.downloadUrl;
 
+      // Codec export panel (H.264 High / HEVC / AAC) for app uploads
+      wireResultExport(job);
+
       // Before / after embedded players
       fillComparePlayers(job, r);
 
@@ -2435,6 +2438,154 @@
     const rm = $("#result-out-meta");
     if (om) om.textContent = "—";
     if (rm) rm.textContent = "—";
+  }
+
+  /**
+   * Result panel: re-encode download with best app codecs (H.264 High / HEVC / AAC).
+   */
+  function wireResultExport(job) {
+    const box = $("#result-export");
+    const status = $("#export-status");
+    if (!box || !job || !job.id) return;
+    box.dataset.jobId = job.id;
+    const setEx = (msg, kind) => {
+      if (!status) return;
+      status.textContent = msg || "";
+      status.classList.remove("is-busy", "is-ok", "is-err");
+      if (kind) status.classList.add("is-" + kind);
+    };
+    setEx("", null);
+
+    // Disable HEVC button if server reports no encoder (best-effort probe)
+    fetch("/api/studio/export-profiles", { credentials: "same-origin" })
+      .then((r) => r.json().catch(() => ({})))
+      .then((data) => {
+        const hevc = (data.profiles || []).find((p) => p.id === "hevc");
+        const btn = $("#btn-export-hevc");
+        if (btn && hevc && hevc.available === false) {
+          btn.disabled = true;
+          btn.title = hevc.reason || "HEVC niedostępne";
+        } else if (btn) {
+          btn.disabled = false;
+          btn.title = "";
+        }
+      })
+      .catch(() => {});
+
+    if (box.dataset.exportWired === "1") return;
+    box.dataset.exportWired = "1";
+
+    box.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("[data-export]");
+      if (!btn || btn.disabled) return;
+      const profile = btn.getAttribute("data-export") || "app";
+      const jid = box.dataset.jobId || (lastDoneJob && lastDoneJob.id);
+      if (!jid) {
+        setEx(
+          tr("result.exportNoJob", "Brak gotowego joba do eksportu."),
+          "err"
+        );
+        return;
+      }
+      const labels = {
+        app: tr("result.exportApp", "App / Social (H.264 + AAC)"),
+        hq: tr("result.exportHq", "Max jakość H.264"),
+        hevc: tr("result.exportHevc", "HEVC H.265"),
+        audio: tr("result.exportAudio", "Dźwięk AAC 320k"),
+      };
+      setEx(
+        tr("result.exportBusy", "Koduję: {name}… (może potrwać)")
+          .replace("{name}", labels[profile] || profile),
+        "busy"
+      );
+      const allBtns = box.querySelectorAll("[data-export]");
+      allBtns.forEach((b) => {
+        b.disabled = true;
+      });
+      try {
+        const url =
+          "/api/studio/jobs/" +
+          encodeURIComponent(jid) +
+          "/export?profile=" +
+          encodeURIComponent(profile) +
+          "&_=" +
+          Date.now();
+        const res = await fetch(url, { credentials: "same-origin" });
+        if (!res.ok) {
+          let errMsg = "HTTP " + res.status;
+          try {
+            const j = await res.json();
+            if (j && j.error) errMsg = j.error;
+          } catch (_) {
+            /* ignore */
+          }
+          throw new Error(errMsg);
+        }
+        const blob = await res.blob();
+        if (!blob || blob.size < 200) {
+          throw new Error(
+            tr("result.exportEmpty", "Pusty plik eksportu — spróbuj ponownie.")
+          );
+        }
+        let filename =
+          (job.originalName || lastDoneJob?.originalName || "clip")
+            .replace(/\.[^.]+$/, "") +
+          "_clipforge_" +
+          profile;
+        const cd = res.headers.get("Content-Disposition") || "";
+        const m = cd.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
+        if (m && m[1]) {
+          try {
+            filename = decodeURIComponent(m[1].replace(/"/g, "").trim());
+          } catch (_) {
+            filename = m[1].replace(/"/g, "").trim();
+          }
+        } else {
+          const ext =
+            profile === "audio"
+              ? ".m4a"
+              : blob.type && blob.type.includes("audio")
+                ? ".m4a"
+                : ".mp4";
+          if (!/\.(mp4|m4a|mov)$/i.test(filename)) filename += ext;
+        }
+        const a = document.createElement("a");
+        const obj = URL.createObjectURL(blob);
+        a.href = obj;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(obj), 4000);
+        setEx(
+          tr("result.exportOk", "Zapisano: {name}")
+            .replace("{name}", filename) +
+            " · " +
+            (Math.round((blob.size / (1024 * 1024)) * 10) / 10) +
+            " MB",
+          "ok"
+        );
+      } catch (e) {
+        setEx(
+          tr("result.exportFail", "Eksport: ") + (e.message || e),
+          "err"
+        );
+      } finally {
+        allBtns.forEach((b) => {
+          // re-enable; HEVC may be re-disabled by probe on next wire
+          b.disabled = false;
+        });
+        // re-run probe for hevc
+        fetch("/api/studio/export-profiles", { credentials: "same-origin" })
+          .then((r) => r.json().catch(() => ({})))
+          .then((data) => {
+            const hevc = (data.profiles || []).find((p) => p.id === "hevc");
+            const hb = $("#btn-export-hevc");
+            if (hb && hevc && hevc.available === false) hb.disabled = true;
+          })
+          .catch(() => {});
+      }
+    });
   }
 
   function fillComparePlayers(job, result) {

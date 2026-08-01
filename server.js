@@ -2350,6 +2350,62 @@ app.get("/api/studio/jobs/:id/download", (req, res) => {
 });
 
 /**
+ * Available codec export profiles for result panel (H.264 High / HEVC / AAC).
+ */
+app.get("/api/studio/export-profiles", (_req, res) => {
+  try {
+    const { availableProfiles } = require("./lib/export-codecs");
+    res.json(availableProfiles());
+  } catch (e) {
+    res.status(500).json({ error: e.message || "export-profiles" });
+  }
+});
+
+/**
+ * Re-encode finished job with best codecs for apps (FacePub / Reels / TikTok).
+ * Query: ?profile=app|hq|hevc|audio
+ */
+app.get("/api/studio/jobs/:id/export", (req, res) => {
+  const job = getOwnedJob(req, res);
+  if (!job) return;
+  if (job.status !== "done") {
+    return res.status(404).json({ error: "Job nie jest gotowy" });
+  }
+  if (!job.outputPath || !fs.existsSync(job.outputPath)) {
+    // Local-disk agent result: no server file to re-encode
+    if (job.localMedia) {
+      return res.status(400).json({
+        error:
+          "Wynik jest na dysku PC (agent). Otwórz folder / użyj «Pobierz MP4», albo przenieś job na serwer, żeby przeenkodować kodeki.",
+        localDisk: true,
+      });
+    }
+    return res.status(404).json({ error: "Brak gotowego pliku wideo" });
+  }
+  const profile = String(req.query.profile || "app").toLowerCase();
+  try {
+    const { exportWithProfile, PROFILES } = require("./lib/export-codecs");
+    const result = exportWithProfile(job.outputPath, profile);
+    const base = (job.originalName || "clip").replace(/\.[^.]+$/, "");
+    const p = PROFILES[profile] || PROFILES.app || result.profile;
+    const name =
+      base +
+      "_clipforge_" +
+      (p.id || profile) +
+      (p.ext || path.extname(result.path) || ".mp4");
+    if (p.mime) res.setHeader("Content-Type", p.mime);
+    res.setHeader("X-ClipForge-Export-Profile", p.id || profile);
+    res.setHeader("X-ClipForge-Export-Reused", result.reused ? "1" : "0");
+    return sendOwnedFile(req, res, result.path, name);
+  } catch (e) {
+    console.error("[export codecs]", e.message || e);
+    return res.status(500).json({
+      error: e.message || "Eksport kodeków nieudany",
+    });
+  }
+});
+
+/**
  * Extract audio only (mp3) from finished result video.
  * Cached next to output as *_audio.mp3. Local-disk jobs use agent /media/.../audio.mp3 instead.
  */

@@ -963,6 +963,30 @@
               <a class="btn ghost" id="btn-audio" href="#" download data-i18n="result.audio">Wyodrębnij dźwięk</a>
               <a class="btn ghost" id="btn-open" href="#" target="_blank" data-i18n="result.open">Otwórz w przeglądarce</a>
             </div>
+            <div class="result-export" id="result-export">
+              <div class="result-export-title" data-i18n="result.exportTitle">
+                Zapisz w najlepszych kodekach (dla appki)
+              </div>
+              <p class="hint" data-i18n="result.exportHint">
+                Przeenkoduj wynik do uniwersalnych kodeków pod FacePub / Reels / TikTok:
+                H.264 High + AAC 320k (lub HEVC, gdy FFmpeg ma libx265).
+              </p>
+              <div class="result-actions result-export-actions" id="result-export-actions">
+                <button type="button" class="btn primary sm" id="btn-export-app" data-export="app">
+                  📱 <span data-i18n="result.exportApp">App / Social (H.264 + AAC)</span>
+                </button>
+                <button type="button" class="btn ghost sm" id="btn-export-hq" data-export="hq">
+                  ⭐ <span data-i18n="result.exportHq">Max jakość H.264</span>
+                </button>
+                <button type="button" class="btn ghost sm" id="btn-export-hevc" data-export="hevc">
+                  🎞 <span data-i18n="result.exportHevc">HEVC H.265 (mniejszy)</span>
+                </button>
+                <button type="button" class="btn ghost sm" id="btn-export-audio" data-export="audio">
+                  🔊 <span data-i18n="result.exportAudio">Dźwięk AAC 320k</span>
+                </button>
+              </div>
+              <p class="hint" id="export-status" aria-live="polite"></p>
+            </div>
             <!-- keep img for legacy share thumb; hidden -->
             <img id="result-preview" alt="" class="hidden" hidden />
             <details class="script-box">

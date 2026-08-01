@@ -1731,6 +1731,40 @@ body.clipforge-only {
   gap: 10px;
   margin-bottom: 12px;
 }
+.result-export {
+  margin: 4px 0 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 240, 255, 0.18);
+  background: rgba(0, 40, 55, 0.35);
+}
+.result-export-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin: 0 0 6px;
+  color: var(--text, #e8f7fb);
+}
+.result-export .hint {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.result-export-actions {
+  margin-bottom: 6px;
+}
+#export-status {
+  min-height: 1.2em;
+  margin: 4px 0 0;
+}
+#export-status.is-busy {
+  color: #7ec8ff;
+}
+#export-status.is-ok {
+  color: #6dffa8;
+}
+#export-status.is-err {
+  color: #ff8f8f;
+}
 @media (max-width: 900px) {
   .compare-players {
     grid-template-columns: 1fr;
