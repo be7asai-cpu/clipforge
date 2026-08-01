@@ -360,7 +360,7 @@
                     </label>
                   </div>
                   <p class="hint" id="polish-auto-hint" data-i18n="quality.polishAutoHint">
-                    Aplikacja sama zbada jasność, kontrast i nasycenie klatek i ustawi najlepszą korekcję.
+                    Aplikacja sama zbada jasność, kontrast, nasycenie i balanse RGB klatek i ustawi najlepszą korekcję.
                   </p>
                   <p class="hint polish-auto-result hidden" id="polish-auto-result" aria-live="polite"></p>
                   <div class="sliders" id="quality-sliders">
@@ -384,6 +384,37 @@
                       <input type="range" id="opt-denoise" min="0" max="100" value="15" />
                       <span id="opt-denoise-val">15</span>
                     </label>
+                  </div>
+                  <div class="rgb-block" id="rgb-block">
+                    <div class="opt-block-title" data-i18n="quality.rgbTitle">Regulacja kolorów RGB</div>
+                    <p class="hint" data-i18n="quality.rgbHint">
+                      50 = neutralnie. W trybie auto analiza wideo ustawi R/G/B (korekcja castu: za czerwone, zielone, niebieskie).
+                    </p>
+                    <div class="sliders" id="rgb-sliders">
+                      <label class="inline rgb-r">
+                        <span data-i18n="quality.rgbR">Czerwony (R)</span>
+                        <input type="range" id="opt-rgb-r" min="0" max="100" value="50" />
+                        <span id="opt-rgb-r-val">50</span>
+                      </label>
+                      <label class="inline rgb-g">
+                        <span data-i18n="quality.rgbG">Zielony (G)</span>
+                        <input type="range" id="opt-rgb-g" min="0" max="100" value="50" />
+                        <span id="opt-rgb-g-val">50</span>
+                      </label>
+                      <label class="inline rgb-b">
+                        <span data-i18n="quality.rgbB">Niebieski (B)</span>
+                        <input type="range" id="opt-rgb-b" min="0" max="100" value="50" />
+                        <span id="opt-rgb-b-val">50</span>
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn ghost sm"
+                      id="btn-rgb-reset"
+                      data-i18n="quality.rgbReset"
+                    >
+                      Reset RGB (50/50/50)
+                    </button>
                   </div>
                 </div>
               </div>

@@ -338,9 +338,12 @@
     const on = $("#opt-polish")?.checked;
     const polishOpts = $("#polish-opts");
     const sliders = $("#quality-sliders");
+    const rgbSliders = $("#rgb-sliders");
+    const rgbBlock = $("#rgb-block");
     const hint = $("#polish-auto-hint");
     const preset = $("#opt-quality-preset");
     if (polishOpts) polishOpts.classList.toggle("hidden", !on);
+    if (rgbBlock) rgbBlock.classList.toggle("hidden", !on);
     const auto = polishMode() === "auto";
     if (sliders) {
       sliders.classList.toggle("is-disabled", auto);
@@ -348,6 +351,14 @@
         el.disabled = auto;
       });
     }
+    if (rgbSliders) {
+      rgbSliders.classList.toggle("is-disabled", auto);
+      rgbSliders.querySelectorAll("input").forEach((el) => {
+        el.disabled = auto;
+      });
+    }
+    const rgbReset = $("#btn-rgb-reset");
+    if (rgbReset) rgbReset.disabled = auto || !on;
     if (hint) hint.classList.toggle("hidden", !auto || !on);
     if (preset) {
       // auto analysis chooses soft/balanced/sharp/punch; hide forced preset when auto
@@ -389,6 +400,9 @@
     ["opt-contrast", "opt-contrast-val"],
     ["opt-sat", "opt-sat-val"],
     ["opt-denoise", "opt-denoise-val"],
+    ["opt-rgb-r", "opt-rgb-r-val"],
+    ["opt-rgb-g", "opt-rgb-g-val"],
+    ["opt-rgb-b", "opt-rgb-b-val"],
   ].forEach(([id, vid]) => {
     const el = $("#" + id);
     const lab = $("#" + vid);
@@ -397,6 +411,14 @@
         lab.textContent = el.value;
       });
     }
+  });
+  $("#btn-rgb-reset")?.addEventListener("click", () => {
+    ["opt-rgb-r", "opt-rgb-g", "opt-rgb-b"].forEach((id) => {
+      const el = $("#" + id);
+      const lab = $("#" + id + "-val");
+      if (el) el.value = "50";
+      if (lab) lab.textContent = "50";
+    });
   });
 
   const LANG_NAMES = {
@@ -1498,6 +1520,9 @@
     setRange("#opt-contrast", "#opt-contrast-val", ap.contrast);
     setRange("#opt-sat", "#opt-sat-val", ap.saturation);
     setRange("#opt-denoise", "#opt-denoise-val", ap.denoise);
+    setRange("#opt-rgb-r", "#opt-rgb-r-val", ap.rgbR);
+    setRange("#opt-rgb-g", "#opt-rgb-g-val", ap.rgbG);
+    setRange("#opt-rgb-b", "#opt-rgb-b-val", ap.rgbB);
     const preset = $("#opt-quality-preset");
     if (preset && ap.qualityPreset && ap.qualityPreset !== "auto") {
       // show chosen preset as value while keeping disabled in auto mode
@@ -1525,6 +1550,9 @@
         ` · ${t("quality.sharpen", "sharp")} ${ap.sharpen}` +
         ` · ${t("quality.denoise", "denoise")} ${ap.denoise}` +
         (ap.brightness != null ? ` · B ${ap.brightness}` : "") +
+        (ap.rgbR != null
+          ? ` · RGB ${ap.rgbR}/${ap.rgbG}/${ap.rgbB}`
+          : "") +
         (ap.qualityPreset ? ` · ${ap.qualityPreset}` : "");
     }
   }
@@ -1567,6 +1595,19 @@
           ? null
           : Number($("#opt-denoise").value),
       brightness: polishMode() === "auto" || narratorOnly ? null : 50,
+      // RGB balance 0–100 (50 neutral); null in auto → server fills after analysis
+      rgbR:
+        polishMode() === "auto" || narratorOnly
+          ? null
+          : Number($("#opt-rgb-r")?.value ?? 50),
+      rgbG:
+        polishMode() === "auto" || narratorOnly
+          ? null
+          : Number($("#opt-rgb-g")?.value ?? 50),
+      rgbB:
+        polishMode() === "auto" || narratorOnly
+          ? null
+          : Number($("#opt-rgb-b")?.value ?? 50),
       upscale: narratorOnly ? "off" : upscale,
       aiScale: Number($("#opt-ai-scale").value) || 2,
       aiModel: $("#opt-ai-model")?.value || "animevideov3",
