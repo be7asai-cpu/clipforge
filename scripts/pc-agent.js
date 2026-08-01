@@ -1871,11 +1871,11 @@ async function runJob(job) {
       exactCueCount =
         nSegs.length ||
         timedText.split(/\n/).filter((l) => l.trim()).length;
-      transcriptMode = "edit-field-8s";
+      transcriptMode = "edit-field-8parts";
       log(
-        "Pole edycji 8s:",
-        exactCueCount,
-        "segmentów (tylko tekst do tłumaczenia)"
+        "Pole edycji: 8 równych segmentów (długość/" +
+          exactCueCount +
+          ", tylko tekst do tłumaczenia)"
       );
     } else if (typeof buildTimedScriptFromText === "function") {
       const exactOrig = buildTimedScriptFromText({

@@ -1849,7 +1849,7 @@ async function runPreTranscribeOnFile(videoPath, {
         buildEditField8sSegments(sttSlots, text, { durationSec: filmDur })) ||
       [];
     exactCueCount = nSegs.length || timedText.split(/\n/).filter((l) => l.trim()).length;
-    transcriptMode = "edit-field-8s";
+    transcriptMode = "edit-field-8parts";
   } else if (typeof buildTimedScriptFromText === "function") {
     const exactOrig = buildTimedScriptFromText({
       text: originalText,

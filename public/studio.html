@@ -552,17 +552,17 @@
               </label>
               <label
                 class="inline"
-                title="Tylko edycja tekstu: transkrypcja co 8 s jak skan STT. Nie zmienia lektora."
+                title="Tylko edycja: cała długość filmu podzielona na 8 równych segmentów. Nie zmienia lektora."
               >
                 <input type="checkbox" id="opt-timed-transcript" checked />
                 <span data-i18n="narrator.timedTrLab"
-                  >W polu edycji: transkrypcja 8‑sekundowa (jak STT)</span
+                  >W polu edycji: 8 równych segmentów (długość / 8)</span
                 >
               </label>
               <p class="hint" data-i18n="narrator.timedTrHint">
-                Tylko «Tekst do tłumaczenia» po Wyodrębnij: linie
-                [00:00.00 → 00:08.00], [00:08.00 → 00:16.00]… — jak okna STT.
-                Lektor / głos / montaż bez zmian. Odznacz = ciągły tekst w polu.
+                Tylko «Tekst do tłumaczenia» po Wyodrębnij: zawsze 8 linii —
+                cała ścieżka podzielona na 8 równych części (np. film 80 s → po 10 s).
+                Lektor / głos bez zmian. Odznacz = ciągły tekst w polu.
               </p>
               <div class="lang-badge" id="lang-badge" data-i18n="narrator.badge">źródło → cel: —</div>
 
@@ -995,7 +995,7 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801edit8s"></script>
+    <script src="/js/i18n.js?v=20260801parts8"></script>
     <script src="/js/auth-ui.js?v=20260731compare"></script>
     <script src="/js/studio.js?v=20260801fieldOnly"></script>
     <script>
