@@ -1514,8 +1514,10 @@ async function runJob(job) {
         workDir: sttWork,
         noEarlyExit: true,
         minScanRatio: 0.99,
-        // Exact translation: 3s windows across whole video
-        segmentSec: 3,
+        // Full text: long STT windows (15s) hop 8s — not 3s (was incomplete)
+        hopSec: 8,
+        segmentSec: 8,
+        sttWindowSec: 15,
         onSegment: (info) => {
           if (info && info.phase === "done") {
             reportProgress(job.id, {

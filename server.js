@@ -1717,38 +1717,37 @@ async function runPreTranscribeOnFile(videoPath, {
     durationSec > 0.5
       ? Math.min(durationSec + 1.5, hardMax)
       : hardMax;
-  // Exact translation extract: 3s STT windows across full duration
-  const sttSegSec = 3;
+  // Full-film STT: long recognition windows (15s) + hop 8s — 3s was too short (incomplete text)
+  // After STT, text is packed onto 3s timeline for display/lektor separately
+  const sttOpts = {
+    maxSeconds: maxScan,
+    noEarlyExit: true,
+    minScanRatio: 0.99,
+    hopSec: 8,
+    segmentSec: 8,
+    sttWindowSec: 15,
+  };
   let stt = extractSpeechFromVideoSegmented(videoPath, {
     sourceLang,
-    maxSeconds: maxScan,
     workDir: path.join(wd, "stt"),
-    noEarlyExit: true,
-    minScanRatio: 0.98,
-    segmentSec: sttSegSec,
+    ...sttOpts,
   });
   let originalText = stitch([stt.text]);
   if (!originalText && sourceLang && sourceLang !== "auto") {
     stt = extractSpeechFromVideoSegmented(videoPath, {
       sourceLang: "auto",
-      maxSeconds: maxScan,
       workDir: path.join(wd, "stt_auto"),
-      noEarlyExit: true,
-      minScanRatio: 0.98,
-      segmentSec: sttSegSec,
+      ...sttOpts,
     });
     originalText = stitch([stt.text]);
   }
   if (!originalText) {
-    // Still full length — do not cut to 180s (missed end of film)
     for (const langTry of ["en", "pl"]) {
       if (sourceLang === langTry) continue;
       stt = extractSpeechFromVideoSegmented(videoPath, {
         sourceLang: langTry,
-        maxSeconds: maxScan,
         workDir: path.join(wd, "stt_" + langTry),
-        noEarlyExit: true,
-        segmentSec: sttSegSec,
+        ...sttOpts,
       });
       originalText = stitch([stt.text]);
       if (originalText) break;
