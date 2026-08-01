@@ -1624,15 +1624,13 @@
       status.classList.remove("is-busy", "is-ok", "is-err");
       if (kind) status.classList.add("is-" + kind);
     };
+    // Auto-open editor panel if user triggered extract somehow without checkbox
     if (!wantEditorFill()) {
-      setSt(
-        tr(
-          "narrator.extractNeedEditor",
-          "Najpierw zaznacz «Tekst do edytora» powyżej."
-        ),
-        "err"
-      );
-      return;
+      const ed = $("#opt-timed-transcript");
+      if (ed) {
+        ed.checked = true;
+        ed.dispatchEvent(new Event("change", { bubbles: true }));
+      }
     }
     const url = videoUrlInput();
     if (!selectedFile && !url) {
