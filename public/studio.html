@@ -707,26 +707,26 @@
               </p>
               <div class="opt-block extract-source-block" id="extract-source-block">
                 <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">
-                  Źródło tekstu do edytora
+                  Źródło tekstu do edytora (wybierz jedno)
                 </div>
                 <div class="seg" role="radiogroup" id="extract-source-group">
-                  <label title="Kolejno: napisy YT (gdy link) → Whisper (gdy ON) → STT Google">
-                    <input type="radio" name="extract-source" value="auto" checked />
-                    <span data-i18n="narrator.extractSrcAuto"
-                      >⚡ Auto (wszystkie dostępne)</span
+                  <label title="Tylko dźwięk — Google Web Speech (online)">
+                    <input type="radio" name="extract-source" value="stt" checked />
+                    <span data-i18n="narrator.extractSrcStt"
+                      >🎤 Z dźwięku · Google STT</span
                     >
                   </label>
-                  <label title="Google Web Speech (szybkie, wymaga netu)">
-                    <input type="radio" name="extract-source" value="stt" />
-                    <span data-i18n="narrator.extractSrcStt">🎤 STT Google (online)</span>
-                  </label>
-                  <label title="Whisper lokalnie na PC — osobno od Ollamy">
+                  <label title="Tylko dźwięk — Whisper lokalnie (nie Ollama)">
                     <input type="radio" name="extract-source" value="whisper" />
-                    <span data-i18n="narrator.extractSrcWhisper">🎧 Whisper (lokalny AI)</span>
+                    <span data-i18n="narrator.extractSrcWhisper"
+                      >🎧 Z dźwięku · Whisper</span
+                    >
                   </label>
-                  <label title="Pobierz gotowe napisy z YouTube / filmu">
+                  <label title="Tylko napisy YouTube — bez STT. Wymaga linku YT i PC·ON.">
                     <input type="radio" name="extract-source" value="captions" />
-                    <span data-i18n="narrator.extractSrcCaps">📝 Z napisów YouTube / filmu</span>
+                    <span data-i18n="narrator.extractSrcCaps"
+                      >📝 Z napisów YouTube (bez STT)</span
+                    >
                   </label>
                 </div>
                 <label class="stack mt-sm" id="whisper-model-wrap" hidden>
@@ -739,8 +739,8 @@
                   </select>
                 </label>
                 <p class="hint" data-i18n="narrator.extractSrcHint">
-                  Do edytora: Auto próbuje napisy → Whisper → Google. Możesz wymusić jedno źródło.
-                  Wynik zawsze z opcjami powyżej (Pro lektor, segmenty 6s, przeredagowanie).
+                  Albo dźwięk (STT/Whisper), albo napisy YT — nie miesza się. Napisy = tylko link
+                  YouTube + PC·ON. Dźwięk = plik lub link (pobiera wideo).
                 </p>
                 <p class="hint" id="whisper-status" data-i18n="narrator.whisperStatusWait">
                   Sprawdzam Whisper…

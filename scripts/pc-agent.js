@@ -1190,52 +1190,10 @@ function parseCaptionsTimed(filePath) {
 }
 
 /**
- * Download YouTube (auto)captions → timed transcription.
- * @returns {{ text: string, segments: object[], file: string|null }|null}
+ * Pick best .srt/.vtt from destDir (after yt-dlp caption download).
+ * @returns {{ text: string, segments: object[], file: string }|null}
  */
-async function tryDownloadYoutubeCaptions(sourceUrl, destDir) {
-  if (!/youtube\.com|youtu\.be/i.test(String(sourceUrl || ""))) return null;
-  let ytdlp;
-  try {
-    ytdlp = await ensureYtDlp();
-  } catch {
-    return null;
-  }
-  fs.mkdirSync(destDir, { recursive: true });
-  const outTpl = path.join(destDir, "ytcaps");
-  try {
-    for (const n of fs.readdirSync(destDir)) {
-      if (/^ytcaps/i.test(n)) {
-        try {
-          fs.unlinkSync(path.join(destDir, n));
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  // Prefer manual + auto; broad lang list; convert to srt for timing
-  const args = [
-    "--skip-download",
-    "--no-warnings",
-    "--write-auto-sub",
-    "--write-sub",
-    "--sub-langs",
-    "en.*,pl.*,en,pl,en-US,en-GB,es.*,de.*,fr.*,pt.*,ru.*,it.*,zh.*,ja.*,ko.*,all",
-    "--convert-subs",
-    "srt",
-    "-o",
-    outTpl,
-    String(sourceUrl),
-  ];
-  log("Pobieram napisy YT → transkrypcja z czasem…");
-  try {
-    await runYtDlpAsync(ytdlp, args, { timeoutMs: 120 * 1000 });
-  } catch (e) {
-    log("napisy YT:", String(e.message || e).slice(0, 120));
-  }
+function pickBestCaptionFile(destDir) {
   let best = null;
   let bestScore = -1;
   try {
@@ -1244,13 +1202,11 @@ async function tryDownloadYoutubeCaptions(sourceUrl, destDir) {
       const p = path.join(destDir, n);
       const parsed = parseCaptionsTimed(p);
       if (!parsed.text || parsed.text.length < 12) continue;
-      // Prefer official/manual subs over auto (less rolling duplication)
       const name = n.toLowerCase();
       const isAuto =
         /\.auto\./i.test(name) ||
         /auto/i.test(name) ||
         /automatic/i.test(name);
-      // Score unique content, not raw length (auto-subs inflate by repeating)
       const score =
         Math.min(parsed.text.length, 8000) +
         parsed.segments.length * 3 +
@@ -1263,18 +1219,138 @@ async function tryDownloadYoutubeCaptions(sourceUrl, destDir) {
   } catch {
     /* ignore */
   }
-  if (best && best.text && best.segments.length) {
-    log(
-      "Napisy YT OK:",
-      best.segments.length,
-      "cue,",
-      best.text.length,
-      "znaków z",
-      path.basename(best.file)
-    );
-    return best;
+  return best && best.text && best.segments && best.segments.length
+    ? best
+    : null;
+}
+
+/**
+ * Download YouTube (auto)captions → timed transcription.
+ * Retries several yt-dlp clients — Windows OpenSSL often fails with
+ * "decryption failed or bad record mac" on the default web client.
+ * @returns {{ text: string, segments: object[], file: string|null }|null}
+ */
+async function tryDownloadYoutubeCaptions(sourceUrl, destDir) {
+  if (!/youtube\.com|youtu\.be/i.test(String(sourceUrl || ""))) return null;
+  let ytdlp;
+  try {
+    ytdlp = await ensureYtDlp();
+  } catch {
+    return null;
   }
-  log("Brak napisów YT (albo puste)");
+  fs.mkdirSync(destDir, { recursive: true });
+  const outTpl = path.join(destDir, "ytcaps");
+  function wipeCaps() {
+    try {
+      for (const n of fs.readdirSync(destDir)) {
+        if (/^ytcaps/i.test(n) || /\.(srt|vtt)$/i.test(n)) {
+          try {
+            fs.unlinkSync(path.join(destDir, n));
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Distinct attempts: player clients + SSL workarounds (order matters)
+  const attempts = [
+    {
+      label: "android+web",
+      extra: ["--extractor-args", "youtube:player_client=android,web"],
+      langs: "en.*,pl.*,en,pl,en-US,en-GB,es.*,de.*,fr.*,pt.*,ru.*,it.*,zh.*,ja.*,ko.*",
+    },
+    {
+      label: "tv+ios",
+      extra: ["--extractor-args", "youtube:player_client=tv,ios,mweb"],
+      langs: "en.*,pl.*,en,pl,all",
+    },
+    {
+      label: "web_safari",
+      extra: ["--extractor-args", "youtube:player_client=web_safari,android"],
+      langs: "en,pl,en-US,en-GB,all",
+    },
+    {
+      label: "legacy-ssl",
+      extra: ["--legacy-server-connect", "--socket-timeout", "30"],
+      langs: "en.*,pl.*,en,pl,all",
+    },
+    {
+      label: "insecure-ssl",
+      // Last resort: flaky Windows OpenSSL "bad record mac"
+      extra: ["--no-check-certificates", "--socket-timeout", "30"],
+      langs: "en,pl,en-US,all",
+    },
+  ];
+
+  let lastErr = "";
+  for (let i = 0; i < attempts.length; i++) {
+    const att = attempts[i];
+    wipeCaps();
+    const args = [
+      "--skip-download",
+      "--no-warnings",
+      "--write-auto-sub",
+      "--write-sub",
+      "--sub-langs",
+      att.langs,
+      "--convert-subs",
+      "srt",
+      "--retries",
+      "3",
+      "--fragment-retries",
+      "3",
+      ...att.extra,
+      "-o",
+      outTpl,
+      String(sourceUrl),
+    ];
+    log(
+      "Pobieram napisy YT [" +
+        (i + 1) +
+        "/" +
+        attempts.length +
+        " · " +
+        att.label +
+        "]…"
+    );
+    try {
+      const r = await runYtDlpAsync(ytdlp, args, { timeoutMs: 90 * 1000 });
+      if (r && r.status !== 0) {
+        const errMix = String((r.stderr || "") + (r.stdout || "")).slice(0, 200);
+        lastErr = errMix || "exit " + r.status;
+        if (/SSL|bad record mac|decryption failed|TLS|certificate/i.test(errMix)) {
+          log("napisy YT SSL:", lastErr.slice(0, 140));
+        } else {
+          log("napisy YT exit:", r.status, lastErr.slice(0, 100));
+        }
+      }
+    } catch (e) {
+      lastErr = String(e.message || e);
+      log("napisy YT err:", lastErr.slice(0, 140));
+    }
+    const best = pickBestCaptionFile(destDir);
+    if (best) {
+      log(
+        "Napisy YT OK:",
+        best.segments.length,
+        "cue,",
+        best.text.length,
+        "znaków ·",
+        att.label,
+        "·",
+        path.basename(best.file || "")
+      );
+      return best;
+    }
+  }
+  log(
+    "Brak napisów YT (puste lub SSL). Ostatni błąd:",
+    (lastErr || "—").slice(0, 160)
+  );
   return null;
 }
 
@@ -1450,184 +1526,196 @@ async function runJob(job) {
     stage: "Start na PC…",
     log: "Agent start — id " + job.id,
   });
-  if (job.sourceKind === "platform" || job.options?.sourceKind === "platform") {
-    log(
-      "Źródło platformy:",
-      job.sourcePlatform || job.options?.sourcePlatform || "?",
-      (job.sourceUrl || job.options?.sourceUrl || "").slice(0, 80)
-    );
-    await reportProgress(job.id, {
-      progress: 3,
-      stage: "Pobieranie z platformy…",
-      log: "yt-dlp: " + (job.sourceUrl || job.options?.sourceUrl || "").slice(0, 100),
-    });
-  }
-  // Short ASCII path — avoids Windows path/encoding issues in FFmpeg
-  const ext = (path.extname(job.originalName || "") || ".mp4").toLowerCase();
-  const safeExt = /^\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(ext) ? ext : ".mp4";
-  const inputPath = path.join(workDir, "input" + safeExt);
 
-  await downloadInput(job, inputPath);
-  let inputSize = 0;
-  try {
-    inputSize = fs.statSync(inputPath).size;
-  } catch {
-    inputSize = 0;
-  }
-  log("Input saved", inputPath, inputSize, "bytes");
-  if (inputSize < 64) {
-    throw new Error(
-      "Pobrany plik jest pusty/uszkodzony (" +
-        inputSize +
-        " B). Sprawdź upload na chmurze."
-    );
-  }
-
-  // Text source: stt | whisper | captions | auto (try captions then STT)
+  // Text source: captions OR speech — exclusive for extract; no mixed messaging
   job.options = job.options || {};
   const srcMode = String(job.options.transcriptSource || "stt").toLowerCase();
-  const wantCaptions = srcMode === "captions" || srcMode === "auto";
-  // Force pure STT — never pull YouTube caption text into the script
-  if (!wantCaptions) {
+  const captionsOnly = srcMode === "captions";
+  const speechOnly =
+    srcMode === "stt" || srcMode === "whisper" || srcMode === "google";
+  const wantCaptions = captionsOnly; // never mix with STT when user picked napisy
+  const platUrl = job.sourceUrl || job.options?.sourceUrl || null;
+  const preOnly = !!job.options.preTranscribeOnly;
+  const isYt =
+    platUrl &&
+    isPlatformUrl(platUrl) &&
+    /youtube\.com|youtu\.be/i.test(platUrl);
+
+  // Force pure speech — never pull YouTube caption text into the script
+  if (speechOnly || !wantCaptions) {
     job.options.fromYoutubeCaptions = false;
     job.options.captionSegments = null;
     job.options.captionSegmentsBackup = null;
     job.options.narratorScriptBackup = null;
   }
-  const platUrl = job.sourceUrl || job.options?.sourceUrl || null;
-  if (
-    wantCaptions &&
-    platUrl &&
-    isPlatformUrl(platUrl) &&
-    /youtube\.com|youtu\.be/i.test(platUrl)
-  ) {
+
+  // Short ASCII path — avoids Windows path/encoding issues in FFmpeg
+  const ext = (path.extname(job.originalName || "") || ".mp4").toLowerCase();
+  const safeExt = /^\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(ext) ? ext : ".mp4";
+  const inputPath = path.join(workDir, "input" + safeExt);
+
+  /**
+   * Apply caption payload into job.options (pre-STT path uses this).
+   * @returns {boolean}
+   */
+  function applyCaptionsToJob(caps) {
+    if (!caps || !caps.text || !caps.segments || !caps.segments.length) {
+      return false;
+    }
+    const segs = caps.segments.map((s, i) => ({
+      start: s.start,
+      end: s.end,
+      text: s.text,
+      silent: false,
+      sttIndex: i,
+    }));
+    const plainCaps = String(caps.text || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (
+      !job.options.narratorScript ||
+      String(job.options.narratorScript).trim().length < 40
+    ) {
+      job.options.narratorScript = plainCaps;
+    }
+    job.options.fromYoutubeCaptions = true;
+    job.options.transcriptSource = "captions";
+    job.options.captionSegments = segs;
+    job.options.captionSegmentsBackup = segs;
+    job.options.narratorScriptBackup = plainCaps;
+    if (caps.file && fs.existsSync(caps.file)) {
+      try {
+        const srtDest = path.join(workDir, "youtube_captions.srt");
+        fs.copyFileSync(caps.file, srtDest);
+        job.options.youtubeCaptionsPath = srtDest;
+      } catch {
+        /* ignore */
+      }
+    }
+    log(
+      "Napisy → tekst ciągły:",
+      plainCaps.length,
+      "znaków,",
+      segs.length,
+      "cue"
+    );
+    return true;
+  }
+
+  // ── Captions-only extract: napisy FIRST, no full video download ──
+  if (preOnly && captionsOnly) {
+    if (!isYt) {
+      throw new Error(
+        "«Z napisów» działa tylko z linkiem YouTube. Wklej URL YT albo wybierz «Z dźwięku»."
+      );
+    }
     await reportProgress(job.id, {
       progress: 8,
       stage: "Napisy YouTube…",
-      log: "Pobieram napisy z filmu (opcja «Z napisów»)…",
+      log: "Tylko napisy (bez STT) — pobieram napisy, bez pełnego wideo…",
     });
     const caps = await tryDownloadYoutubeCaptions(platUrl, workDir);
-    if (caps && caps.text && caps.segments && caps.segments.length) {
-      const segs = caps.segments.map((s, i) => ({
-        start: s.start,
-        end: s.end,
-        text: s.text,
-        silent: false,
-        sttIndex: i,
-      }));
-      // Continuous plain text only (no time markers in script field)
-      const plainCaps = String(caps.text || "")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (
-        !job.options.narratorScript ||
-        String(job.options.narratorScript).trim().length < 40
-      ) {
-        job.options.narratorScript = plainCaps;
-      }
-      job.options.fromYoutubeCaptions = true;
-      job.options.transcriptSource = "captions";
-      job.options.captionSegments = segs;
-      job.options.captionSegmentsBackup = segs;
-      job.options.narratorScriptBackup = plainCaps;
+    if (!applyCaptionsToJob(caps)) {
+      throw new Error(
+        "Brak napisów YouTube na tym filmie (wyłączone / SSL / yt-dlp). " +
+          "Wybierz «Z dźwięku (STT/Whisper)» albo wklej tekst ręcznie."
+      );
+    }
+    await reportProgress(job.id, {
+      progress: 14,
+      stage: "Tekst z napisów",
+      log:
+        "Napisy YouTube OK (" +
+        String(job.options.narratorScript || "").length +
+        " znaków). Bez STT.",
+      livePhase: "source",
+      liveOriginal: String(job.options.narratorScript || "").slice(0, 1200),
+    });
+    // No video file — preTranscribe will use caption times for duration
+  } else {
+    // Speech path (or full render): download video
+    if (job.sourceKind === "platform" || job.options?.sourceKind === "platform") {
       log(
-        "Napisy → tekst ciągły:",
-        plainCaps.length,
-        "znaków,",
-        caps.segments.length,
-        "cue wewn. do lektora"
+        "Źródło platformy:",
+        job.sourcePlatform || job.options?.sourcePlatform || "?",
+        (job.sourceUrl || job.options?.sourceUrl || "").slice(0, 80)
       );
       await reportProgress(job.id, {
-        progress: 14,
-        stage: "Tekst z napisów",
+        progress: 3,
+        stage: "Pobieranie z platformy…",
         log:
-          "Napisy YouTube → cały tekst ciągły (" +
-          plainCaps.length +
-          " znaków). Pomijam STT dźwięku.",
-        livePhase: "source",
-        liveOriginal: plainCaps.slice(0, 1200),
+          "yt-dlp: " +
+          (job.sourceUrl || job.options?.sourceUrl || "").slice(0, 100) +
+          (speechOnly ? " · tylko dźwięk/STT (bez napisów)" : ""),
       });
-      if (caps.file && fs.existsSync(caps.file)) {
-        try {
-          const srtDest = path.join(workDir, "youtube_captions.srt");
-          fs.copyFileSync(caps.file, srtDest);
-          job.options.youtubeCaptionsPath = srtDest;
-        } catch {
-          /* ignore */
-        }
-      }
-    } else {
-      // Auto / captions: brak napisów → STT (Whisper jeśli wybrany / auto)
-      const engPref = String(
-        job.options.sttEngine || job.options.transcriptSource || "google"
-      ).toLowerCase();
-      const useWhisperNext =
-        engPref === "whisper" || engPref === "auto" || srcMode === "auto";
-      await reportProgress(job.id, {
-        progress: 10,
-        stage: useWhisperNext
-          ? "Brak napisów — Whisper / STT"
-          : "Brak napisów — STT z dźwięku",
-        log: useWhisperNext
-          ? "Brak napisów. Auto: próbuję Whisper (jeśli ON), potem Google STT."
-          : "Brak napisów na filmie. Przełączam na rozpoznawanie mowy z audio.",
-      });
-      job.options.transcriptSource = useWhisperNext ? "auto" : "stt";
-      if (useWhisperNext && engPref !== "google") {
-        job.options.sttEngine = "whisper";
-      }
-      job.options.fromYoutubeCaptions = false;
     }
-  } else if (
-    !wantCaptions &&
-    platUrl &&
-    isPlatformUrl(platUrl)
-  ) {
-    await reportProgress(job.id, {
-      progress: 8,
-      stage: "STT z dźwięku…",
-      log:
-        "Opcja «Z dźwięku (STT)» — pomijam napisy YouTube, rozpoznaję mowę z audio po pobraniu wideo.",
-    });
+    await downloadInput(job, inputPath);
+    let inputSize = 0;
+    try {
+      inputSize = fs.statSync(inputPath).size;
+    } catch {
+      inputSize = 0;
+    }
+    log("Input saved", inputPath, inputSize, "bytes");
+    if (inputSize < 64) {
+      throw new Error(
+        "Pobrany plik jest pusty/uszkodzony (" +
+          inputSize +
+          " B). Sprawdź upload na chmurze."
+      );
+    }
   }
 
-  // Resolve ffmpeg and preflight probe BEFORE full pipeline
+  // Resolve ffmpeg and preflight probe BEFORE full pipeline / STT
+  // Captions-only extract: no video file — skip ffmpeg probe
   let ff;
   try {
     ff = require("ffmpeg-static");
   } catch {
     ff = null;
   }
-  if (!ff || !fs.existsSync(ff)) {
-    throw new Error(
-      "Brak ffmpeg-static w agentcie. Usuń %LOCALAPPDATA%\\ClipForge-Agent i pobierz agenta ponownie."
-    );
-  }
   const { spawnSync } = require("child_process");
-  const chk = spawnSync(ff, ["-hide_banner", "-i", inputPath], {
-    encoding: "utf8",
-    windowsHide: true,
-    maxBuffer: 20 * 1024 * 1024,
-  });
-  const probeOut = String((chk.stderr || "") + (chk.stdout || ""));
-  if (!/Video:/i.test(probeOut) || !/(\d{2,5})x(\d{2,5})/.test(probeOut)) {
-    if (chk.error) {
+  const captionsOnlyNoVideo =
+    preOnly && captionsOnly && !!job.options.fromYoutubeCaptions;
+  if (!captionsOnlyNoVideo) {
+    if (!ff || !fs.existsSync(ff)) {
       throw new Error(
-        "FFmpeg nie startuje: " +
-          (chk.error.code || chk.error.message || chk.error) +
-          " [" +
-          ff +
-          "]"
+        "Brak ffmpeg-static w agentcie. Usuń %LOCALAPPDATA%\\ClipForge-Agent i pobierz agenta ponownie."
       );
     }
-    throw new Error(
-      "FFmpeg nie widzi wideo w pobranym pliku (" +
-        inputSize +
-        " B). " +
-        probeOut.replace(/\s+/g, " ").slice(-280)
-    );
+    let inputSize = 0;
+    try {
+      inputSize = fs.statSync(inputPath).size;
+    } catch {
+      inputSize = 0;
+    }
+    const chk = spawnSync(ff, ["-hide_banner", "-i", inputPath], {
+      encoding: "utf8",
+      windowsHide: true,
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    const probeOut = String((chk.stderr || "") + (chk.stdout || ""));
+    if (!/Video:/i.test(probeOut) || !/(\d{2,5})x(\d{2,5})/.test(probeOut)) {
+      if (chk.error) {
+        throw new Error(
+          "FFmpeg nie startuje: " +
+            (chk.error.code || chk.error.message || chk.error) +
+            " [" +
+            ff +
+            "]"
+        );
+      }
+      throw new Error(
+        "FFmpeg nie widzi wideo w pobranym pliku (" +
+          inputSize +
+          " B). " +
+          probeOut.replace(/\s+/g, " ").slice(-280)
+      );
+    }
+    log("Preflight OK", probeOut.match(/(\d{2,5})x(\d{2,5})/)?.[0] || "?");
+  } else {
+    log("Captions-only: pomijam probe wideo (brak pliku)");
   }
-  log("Preflight OK", probeOut.match(/(\d{2,5})x(\d{2,5})/)?.[0] || "?");
 
   // Sanity: Python for STT/TTS (Windows Store stub causes spawn EFTYPE)
   try {
@@ -1772,14 +1860,26 @@ async function runJob(job) {
         : [];
       engine = "youtube-captions";
       timedOriginal = formatTimedAll(segs);
+      // Duration from last cue (no video when captions-only extract)
+      if (segs.length) {
+        durationSec = Math.max(
+          6,
+          ...segs.map((s) => Number(s.end) || 0)
+        );
+      }
       await reportProgress(job.id, {
         progress: 55,
         stage: "Napisy z platformy",
         liveOriginal: originalText.slice(0, 1200),
         log: "Używam napisów z filmu (" + originalText.length + " znaków)",
       });
+    } else if (captionsOnly) {
+      // Should have been thrown earlier — belt & braces
+      throw new Error(
+        "Brak napisów YouTube. Wybierz «Z dźwięku» albo inny film."
+      );
     } else {
-      // Probe duration
+      // Probe duration (speech path — need video)
       try {
         const pr = spawnSync(ff, ["-hide_banner", "-i", inputPath], {
           encoding: "utf8",

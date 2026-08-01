@@ -2149,23 +2149,20 @@ app.post("/api/studio/transcribe", (req, res) => {
     )
       .trim()
       .toLowerCase() || "normal";
-    // stt/google | whisper | captions | auto (client cascade; agent may resolve)
+    // Exclusive: stt | whisper | captions (no auto mix)
     let transcriptSource = String(body?.transcriptSource || "stt")
       .trim()
       .toLowerCase();
+    if (transcriptSource === "auto") transcriptSource = "stt"; // legacy
     if (
       transcriptSource !== "captions" &&
-      transcriptSource !== "whisper" &&
-      transcriptSource !== "auto"
+      transcriptSource !== "whisper"
     ) {
       transcriptSource = "stt";
     }
-    // auto → prefer whisper when body says so, else google (client usually picks concrete src)
     const bodyEngine = String(body?.sttEngine || "").toLowerCase();
     const sttEngine =
-      transcriptSource === "whisper" ||
-      bodyEngine === "whisper" ||
-      (transcriptSource === "auto" && bodyEngine === "whisper")
+      transcriptSource === "whisper" || bodyEngine === "whisper"
         ? "whisper"
         : "google";
     const whisperModel = String(
@@ -2684,20 +2681,14 @@ function normalizeJobOptions(options, originalName) {
   if (opts.autoTranslate == null) opts.autoTranslate = true;
   // Default: text for translation as timed transcription (editor 6s grid); false = plain
   if (opts.timedTranscript == null) opts.timedTranscript = true;
-  // stt | whisper | captions | auto — sources for extract / empty-editor Start
-  const srcOk = new Set(["stt", "whisper", "captions", "auto"]);
-  if (opts.transcriptSource == null || !srcOk.has(String(opts.transcriptSource).toLowerCase())) {
-    opts.transcriptSource = "stt";
-  } else {
-    opts.transcriptSource = String(opts.transcriptSource).toLowerCase();
-  }
+  // stt | whisper | captions — exclusive sources (legacy "auto" → stt)
+  const srcOk = new Set(["stt", "whisper", "captions"]);
+  let ts = String(opts.transcriptSource || "stt").toLowerCase();
+  if (ts === "auto") ts = "stt";
+  opts.transcriptSource = srcOk.has(ts) ? ts : "stt";
   if (opts.sttEngine == null) {
     opts.sttEngine =
-      opts.transcriptSource === "whisper"
-        ? "whisper"
-        : opts.transcriptSource === "auto"
-          ? "auto"
-          : "google";
+      opts.transcriptSource === "whisper" ? "whisper" : "google";
   }
   // Tempo: auto | off | manual (+ textSpeed 0.5–2.0 step 0.1)
   if (opts.textSpeedMode == null && opts.speechPace == null) {

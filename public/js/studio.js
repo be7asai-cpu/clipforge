@@ -834,12 +834,12 @@
     }
   }
 
-  /** Extract → editor: auto | stt | whisper | captions */
+  /** Extract → editor: exclusive source — stt | whisper | captions (no auto mix) */
   function extractSource() {
     const v =
       document.querySelector('input[name="extract-source"]:checked')?.value ||
-      "auto";
-    if (v === "whisper" || v === "captions" || v === "auto") return v;
+      "stt";
+    if (v === "whisper" || v === "captions") return v;
     return "stt";
   }
 
@@ -847,7 +847,7 @@
     return $("#opt-whisper-model")?.value || "base";
   }
 
-  /** Cached Whisper probe for Auto cascade */
+  /** Cached Whisper probe */
   let _whisperOkCache = { t: 0, ok: false };
   async function isWhisperAvailable() {
     if (Date.now() - _whisperOkCache.t < 45000) return _whisperOkCache.ok;
@@ -864,37 +864,10 @@
     }
   }
 
-  /**
-   * Order of sources for Auto: YT captions (link) → Whisper → Google STT.
-   * Fixed single source when user picks one radio.
-   */
-  async function resolveExtractSourceOrder() {
-    const mode = extractSource();
-    if (mode === "stt" || mode === "whisper" || mode === "captions") {
-      return [mode];
-    }
-    // auto
-    const order = [];
-    const url = videoUrlInput();
-    if (
-      url &&
-      /youtube\.com|youtu\.be|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|vimeo\.com/i.test(
-        url
-      )
-    ) {
-      order.push("captions");
-    }
-    if (await isWhisperAvailable()) order.push("whisper");
-    order.push("stt");
-    // unique preserve order
-    return order.filter((s, i, a) => a.indexOf(s) === i);
-  }
-
   function syncExtractSourceUi() {
     const wrap = $("#whisper-model-wrap");
     const mode = extractSource();
-    // Show Whisper model for whisper OR auto (auto may use Whisper)
-    if (wrap) wrap.hidden = mode !== "whisper" && mode !== "auto";
+    if (wrap) wrap.hidden = mode !== "whisper";
   }
   document.querySelectorAll('input[name="extract-source"]').forEach((el) => {
     el.addEventListener("change", syncExtractSourceUi);
@@ -1521,8 +1494,8 @@
   }
 
   /**
-   * Pre-job extract → fill #opt-script from all available sources (Auto cascade)
-   * or a single forced source. Applies Pro lektor / 6s grid / rewrite via server.
+   * Pre-job extract → fill #opt-script from ONE exclusive source
+   * (dźwięk STT/Whisper XOR napisy YT). No cascade mix.
    */
   async function extractTranscriptToField() {
     const status = $("#extract-transcript-status");
@@ -1544,14 +1517,25 @@
       );
       return;
     }
-    // Always prefer timed editor fill when checkbox on (default)
+    const srcMode = extractSource(); // stt | whisper | captions — exclusive
+    if (srcMode === "captions") {
+      if (!url || !/youtube\.com|youtu\.be/i.test(url)) {
+        setSt(
+          tr(
+            "narrator.extractCapsNeedYt",
+            "«Z napisów» wymaga linku YouTube w kolumnie 1 (nie pliku lokalnego)."
+          ),
+          "err"
+        );
+        return;
+      }
+    }
     const wantTimed = wantEditorFill();
     const smartRewrite = wantSmartRewrite();
     const useOllama = wantUseOllama();
     const onlyOriginal = !!$("#opt-extract-no-tr")?.checked;
     const srcLang = $("#opt-source-lang")?.value || "auto";
     const tgtLang = targetLang() || "pl";
-    // Prefer exact-translate mode when doing full extract+translate
     if (!onlyOriginal) {
       const trRadio = document.querySelector(
         'input[name="narrator-mode"][value="translate"]'
@@ -1565,17 +1549,6 @@
     }
     if (btn) btn.disabled = true;
     const wModel = whisperModel();
-    const order = await resolveExtractSourceOrder();
-    const isAuto = extractSource() === "auto";
-    if (isAuto && order.length > 1) {
-      setSt(
-        tr(
-          "narrator.extractBusyAuto",
-          "Do edytora · Auto: {sources}…"
-        ).replace("{sources}", order.join(" → ")),
-        "busy"
-      );
-    }
     const ctx = {
       wantTimed,
       smartRewrite,
@@ -1587,63 +1560,41 @@
       url,
       setSt,
     };
-    const errors = [];
     try {
-      for (let i = 0; i < order.length; i++) {
-        const srcMode = order[i];
-        try {
-          if (isAuto && order.length > 1) {
-            setSt(
-              tr(
-                "narrator.extractBusyAutoStep",
-                "Do edytora · {src} ({i}/{n})…"
-              )
-                .replace("{src}", srcMode)
-                .replace("{i}", String(i + 1))
-                .replace("{n}", String(order.length)),
-              "busy"
-            );
-          }
-          const result = await runOneExtractSource(srcMode, ctx);
-          if (result.applied) {
-            // Tag which source won (append to status if already set by apply)
-            if (isAuto && status && status.textContent) {
-              status.textContent =
-                status.textContent +
-                " · " +
-                tr("narrator.extractViaSrc", "źródło: {src}").replace(
-                  "{src}",
-                  srcMode
-                );
-            }
-            return;
-          }
-          if (result.empty) {
-            errors.push(srcMode + ": pusto");
-            // cascade to next source
-            continue;
-          }
-        } catch (e) {
-          errors.push(srcMode + ": " + (e.message || e));
-          // cascade unless last / single forced source
-          if (i < order.length - 1) continue;
-          throw e;
-        }
+      const result = await runOneExtractSource(srcMode, ctx);
+      if (result.applied) return;
+      // Empty — message matches chosen source (never mix napisy ↔ mowa)
+      if (srcMode === "captions") {
+        setSt(
+          tr(
+            "narrator.extractEmptyCaps",
+            "Brak napisów YouTube na tym filmie (wyłączone / SSL / yt-dlp). Wybierz «Z dźwięku» albo wklej tekst ręcznie."
+          ),
+          "err"
+        );
+      } else {
+        setSt(
+          tr(
+            "narrator.extractEmpty",
+            "Brak mowy w audio (muzyka / cisza). Spróbuj napisów YouTube albo wklej tekst ręcznie."
+          ),
+          "err"
+        );
       }
-      setSt(
-        tr(
-          "narrator.extractEmpty",
-          "Brak mowy w audio (muzyka / cisza). Spróbuj napisów z filmu albo wklej tekst ręcznie."
-        ) + (errors.length ? " [" + errors.join("; ") + "]" : ""),
-        "err"
-      );
     } catch (e) {
-      setSt(
-        tr("narrator.extractFail", "Błąd transkrypcji: ") +
-          (e.message || e) +
-          (errors.length ? " · " + errors.join("; ") : ""),
-        "err"
-      );
+      const msg = String(e.message || e || "");
+      // Agent already returns clear captions errors
+      if (/napis/i.test(msg) || srcMode === "captions") {
+        setSt(
+          tr("narrator.extractFailCaps", "Napisy: ") + msg,
+          "err"
+        );
+      } else {
+        setSt(
+          tr("narrator.extractFail", "Błąd transkrypcji: ") + msg,
+          "err"
+        );
+      }
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -2070,18 +2021,13 @@
         // Editor is source — pipeline skips second STT when timed + script
         if (script.length >= 8 && wantEditorFill()) return "stt";
         const ex = extractSource();
-        if (ex === "whisper" || ex === "captions" || ex === "auto") return ex;
+        if (ex === "whisper" || ex === "captions") return ex;
         return (
           document.querySelector('input[name="transcript-source"]:checked')
             ?.value || "stt"
         );
       })(),
-      sttEngine: (() => {
-        const ex = extractSource();
-        if (ex === "whisper") return "whisper";
-        if (ex === "auto") return "auto";
-        return "google";
-      })(),
+      sttEngine: extractSource() === "whisper" ? "whisper" : "google",
       whisperModel: whisperModel(),
       sourceLang: $("#opt-source-lang")?.value || "auto",
       targetLang: targetLang(),
