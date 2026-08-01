@@ -715,6 +715,45 @@
   });
   $("#opt-title").addEventListener("input", refreshLangBadge);
   $("#opt-script").addEventListener("input", refreshLangBadge);
+
+  /** Tempo lektora: auto vs manual (0.5–2.0, step 0.1) */
+  function clampTextSpeedUi(v) {
+    let n = Number(v);
+    if (!Number.isFinite(n)) n = 1;
+    n = Math.min(2, Math.max(0.5, n));
+    return Math.round(n * 10) / 10;
+  }
+  function syncTextSpeedUi(from) {
+    const range = $("#opt-text-speed");
+    const num = $("#opt-text-speed-num");
+    const lab = $("#opt-text-speed-val");
+    const mode =
+      document.querySelector('input[name="text-speed-mode"]:checked')?.value ||
+      "auto";
+    const manual = mode === "manual";
+    if (range) range.disabled = !manual;
+    if (num) num.disabled = !manual;
+    let val = 1;
+    if (from === "num" && num) val = clampTextSpeedUi(num.value);
+    else if (range) val = clampTextSpeedUi(range.value);
+    else if (num) val = clampTextSpeedUi(num.value);
+    if (range) range.value = String(val);
+    if (num) num.value = String(val);
+    if (lab) {
+      lab.textContent =
+        val.toFixed(1) +
+        "×" +
+        (manual ? "" : " · " + tr("narrator.speedAutoShort", "auto"));
+    }
+  }
+  document.querySelectorAll('input[name="text-speed-mode"]').forEach((el) => {
+    el.addEventListener("change", () => syncTextSpeedUi("mode"));
+  });
+  $("#opt-text-speed")?.addEventListener("input", () => syncTextSpeedUi("range"));
+  $("#opt-text-speed-num")?.addEventListener("change", () => syncTextSpeedUi("num"));
+  $("#opt-text-speed-num")?.addEventListener("input", () => syncTextSpeedUi("num"));
+  syncTextSpeedUi("mode");
+
   refreshModeHint();
   refreshTranscriptHint();
   refreshLangBadge();
@@ -1286,6 +1325,14 @@
       autoTranslate: $("#opt-auto-translate").checked,
       /** true = script as timed transcription [mm:ss–mm:ss]; false = plain continuous text */
       timedTranscript: wantTimedTranscript(),
+      textSpeedMode:
+        document.querySelector('input[name="text-speed-mode"]:checked')
+          ?.value || "auto",
+      textSpeed: (() => {
+        const n = Number($("#opt-text-speed")?.value);
+        if (!Number.isFinite(n)) return 1;
+        return Math.round(Math.min(2, Math.max(0.5, n)) * 10) / 10;
+      })(),
       narratorVoice: $("#opt-voice").value,
       title: $("#opt-title").value.trim(),
       narratorScript: $("#opt-script").value.trim(),

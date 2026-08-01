@@ -2303,6 +2303,14 @@ function normalizeJobOptions(options, originalName) {
   if (opts.autoTranslate == null) opts.autoTranslate = true;
   // Default: text for translation as timed transcription; false = plain paragraph
   if (opts.timedTranscript == null) opts.timedTranscript = true;
+  if (opts.textSpeedMode == null) opts.textSpeedMode = "auto";
+  if (opts.textSpeed != null) {
+    let r = Number(opts.textSpeed);
+    if (!Number.isFinite(r)) r = 1;
+    opts.textSpeed = Math.round(Math.min(2, Math.max(0.5, r)) * 10) / 10;
+  } else {
+    opts.textSpeed = 1;
+  }
   if (!opts.targetLang) opts.targetLang = "pl";
   return opts;
 }
