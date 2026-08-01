@@ -1838,7 +1838,7 @@ async function runPreTranscribeOnFile(videoPath, {
   // Full-film STT: long recognition windows (15s) + hop 8s — 3s was too short (incomplete text)
   // After STT, text is packed onto 3s timeline for display/lektor separately
   // whisper | google — separate engines (Whisper ≠ Ollama)
-  const engine =
+  let engine =
     String(sttEngine || transcriptSource || "google").toLowerCase() ===
       "whisper" ||
     String(transcriptSource || "").toLowerCase() === "whisper"
