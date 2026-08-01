@@ -1908,7 +1908,7 @@ async function runPreTranscribeOnFile(videoPath, {
         })) ||
       [];
     exactCueCount = nSegs.length || timedText.split(/\n/).filter((l) => l.trim()).length;
-    transcriptMode = "edit-field-8parts";
+    transcriptMode = "edit-field-hop6s";
   } else if (typeof buildTimedScriptFromText === "function") {
     const exactOrig = buildTimedScriptFromText({
       text: originalText,

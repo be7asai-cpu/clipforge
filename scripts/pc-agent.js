@@ -1918,9 +1918,9 @@ async function runJob(job) {
       exactCueCount =
         nSegs.length ||
         timedText.split(/\n/).filter((l) => l.trim()).length;
-      transcriptMode = "edit-field-8parts";
+      transcriptMode = "edit-field-hop6s";
       log(
-        "Pole edycji: 8 segmentów ≤ " +
+        "Pole edycji: segmenty co 6s ≤ " +
           Math.round(filmDur) +
           "s filmu (" +
           exactCueCount +
