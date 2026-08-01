@@ -1821,10 +1821,8 @@ async function runPreTranscribeOnFile(videoPath, {
     }
   }
 
-  // Exact STT cues → same string format as script field & lektor
+  // EDIT FIELD ONLY: 8s hop transcription (like STT scan). Does not drive lektor/TTS.
   const paceKey = textSpeechPace || speechPace || "manual";
-  // Prefer hop-aligned timeline (non-overlapping) for extract cues;
-  // fall back to fine segments (then normalizeSpeechCues cleans overlaps).
   const sttSlots =
     (Array.isArray(stt.timelineSegments) && stt.timelineSegments.length
       ? stt.timelineSegments
@@ -1835,8 +1833,24 @@ async function runPreTranscribeOnFile(videoPath, {
     [];
   let exactCueCount = 0;
   let transcriptMode = "plain";
-  if (typeof buildTimedScriptFromText === "function") {
-    // Segment-based 1:1 with source STT/caption cues (real times, not fixed 8s grid)
+  const {
+    formatEditField8sTranscript,
+    buildEditField8sSegments,
+  } = require("./lib/lang-utils");
+  if (typeof formatEditField8sTranscript === "function") {
+    timedOriginal = formatEditField8sTranscript(originalText, sttSlots, {
+      durationSec: filmDur,
+    });
+    timedText = formatEditField8sTranscript(text, sttSlots, {
+      durationSec: filmDur,
+    });
+    const nSegs =
+      (typeof buildEditField8sSegments === "function" &&
+        buildEditField8sSegments(sttSlots, text, { durationSec: filmDur })) ||
+      [];
+    exactCueCount = nSegs.length || timedText.split(/\n/).filter((l) => l.trim()).length;
+    transcriptMode = "edit-field-8s";
+  } else if (typeof buildTimedScriptFromText === "function") {
     const exactOrig = buildTimedScriptFromText({
       text: originalText,
       sttSegments: sttSlots,
@@ -1853,38 +1867,9 @@ async function runPreTranscribeOnFile(videoPath, {
       speechPace: paceKey,
     });
     timedText = formatTimed(exactTr.segments || []);
-    if (exactTr.mode) transcriptMode = exactTr.mode;
-    if (exactOrig.plainText && exactOrig.plainText.length > originalText.length) {
-      originalText = exactOrig.plainText;
-      if (!translated) text = originalText;
-    }
-  } else if (typeof buildExactTranscriptSegments === "function") {
-    const exact = buildExactTranscriptSegments(sttSlots);
-    timedOriginal = formatTimed(exact);
-    timedText = translated
-      ? formatTimed(
-          (require("./lib/lang-utils").mapTextOntoExactStt || (() => exact))(
-            text,
-            exact
-          ) || exact
-        )
-      : timedOriginal;
-    exactCueCount = exact.length;
-    transcriptMode = "exact-stt";
-  } else if (typeof distributeTextOnTimeline === "function") {
-    const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3, {
-      speechPace: paceKey,
-    });
-    timedOriginal = formatTimed(srcSpread);
-    const tgtSpread = distributeTextOnTimeline(text, filmDur, 3, {
-      speechPace: paceKey,
-    });
-    timedText = formatTimed(tgtSpread);
-    transcriptMode = "even-timeline";
   }
 
-  // When timedTranscript ON → field gets exact [mm:ss → mm:ss] same clocks as STT/video.
-  // When OFF → continuous plain paragraph.
+  // Field: timed 8s lines when option on; plain continuous when off. Lektor unchanged.
   const useTimed = timedTranscript !== false;
   const primaryText =
     useTimed && timedText

@@ -1845,8 +1845,39 @@ async function runJob(job) {
     const sttSlots = Array.isArray(segs) && segs.length ? segs : [];
     let exactCueCount = 0;
     let transcriptMode = "plain";
-    if (typeof buildTimedScriptFromText === "function") {
-      // Segment-based 1:1 — same N and clocks as source STT/caption cues
+    // EDIT FIELD ONLY: 8s segments for «Tekst do tłumaczenia» — not lektor/TTS
+    let formatEditField8sTranscript = null;
+    let buildEditField8sSegments = null;
+    try {
+      const lu = require(path.join(ROOT, "lib", "lang-utils.js"));
+      formatEditField8sTranscript = lu.formatEditField8sTranscript;
+      buildEditField8sSegments = lu.buildEditField8sSegments;
+    } catch {
+      /* ignore */
+    }
+    if (typeof formatEditField8sTranscript === "function") {
+      timedOriginal = formatEditField8sTranscript(originalText, sttSlots, {
+        durationSec: filmDur,
+      });
+      timedText = formatEditField8sTranscript(text, sttSlots, {
+        durationSec: filmDur,
+      });
+      const nSegs =
+        (buildEditField8sSegments &&
+          buildEditField8sSegments(sttSlots, text, {
+            durationSec: filmDur,
+          })) ||
+        [];
+      exactCueCount =
+        nSegs.length ||
+        timedText.split(/\n/).filter((l) => l.trim()).length;
+      transcriptMode = "edit-field-8s";
+      log(
+        "Pole edycji 8s:",
+        exactCueCount,
+        "segmentów (tylko tekst do tłumaczenia)"
+      );
+    } else if (typeof buildTimedScriptFromText === "function") {
       const exactOrig = buildTimedScriptFromText({
         text: originalText,
         sttSegments: sttSlots,
@@ -1869,13 +1900,6 @@ async function runJob(job) {
       exactCueCount = Math.max(
         exactCueCount,
         (exactTr.segments || []).filter((s) => s && s.text).length
-      );
-      log(
-        "Transkrypcja dokładna:",
-        exactTr.mode || "?",
-        "·",
-        (exactTr.segments || []).length,
-        "cue STT"
       );
     } else if (typeof distributeTextOnTimeline === "function") {
       const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3, {
