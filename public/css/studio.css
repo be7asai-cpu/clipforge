@@ -2287,6 +2287,28 @@ input[type="range"] {
   margin-bottom: 14px !important;
 }
 
+/* Narrator: nested editor options only when «Tekst do edytora» is ON */
+.editor-advanced {
+  margin-top: 10px !important;
+  padding: 12px 12px 8px !important;
+  border: 1px solid rgba(0, 229, 192, 0.22) !important;
+  border-radius: 8px !important;
+  background: rgba(0, 20, 30, 0.35) !important;
+}
+.editor-advanced.hidden {
+  display: none !important;
+}
+.editor-master {
+  margin-top: 10px !important;
+  font-weight: 600 !important;
+}
+.hint.compact {
+  margin: 4px 0 10px !important;
+  font-size: 0.72rem !important;
+  line-height: 1.35 !important;
+  opacity: 0.85;
+}
+
 /* Live STT boxes */
 .live-translate {
   margin: 12px 0 16px !important;
