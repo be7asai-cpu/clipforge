@@ -75,7 +75,7 @@ function ensureLocalMediaServer() {
         res.end("Forbidden — zły token local media");
         return;
       }
-      const m = /^\/media\/([a-zA-Z0-9_-]+)\/(result|original|preview|srt|audio)(?:\.[\w]+)?$/i.exec(
+      const m = /^\/media\/([a-zA-Z0-9_-]+)\/(result|original|preview|srt|audio|export)(?:\.[\w]+)?$/i.exec(
         u.pathname
       );
       if (!m) {
@@ -90,6 +90,57 @@ function ensureLocalMediaServer() {
         res.writeHead(404);
         res.end("job media expired or unknown");
         return;
+      }
+      // Codec re-export (H.264 High / HQ / HEVC / AAC) on THIS PC — avoids Render 502
+      if (kind === "export") {
+        try {
+          const videoPath = entry.result;
+          if (!videoPath || !fs.existsSync(videoPath)) {
+            res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+            res.end(JSON.stringify({ error: "Brak wyniku wideo na PC" }));
+            return;
+          }
+          const profile = String(u.searchParams.get("profile") || "app").toLowerCase();
+          const { exportWithProfile, PROFILES } = require(path.join(
+            ROOT,
+            "lib",
+            "export-codecs.js"
+          ));
+          const result = exportWithProfile(videoPath, profile);
+          const p = PROFILES[profile] || PROFILES.app || result.profile;
+          const stE = fs.statSync(result.path);
+          const ext = p.ext || path.extname(result.path) || ".mp4";
+          const mime =
+            p.mime ||
+            (ext === ".m4a" ? "audio/mp4" : "video/mp4");
+          const fname =
+            "clipforge_" +
+            (p.id || profile) +
+            ext;
+          res.writeHead(200, {
+            "Content-Length": stE.size,
+            "Content-Type": mime,
+            "Cache-Control": "no-store",
+            "X-ClipForge-Export-Profile": p.id || profile,
+            "X-ClipForge-Export-Reused": result.reused ? "1" : "0",
+            "Content-Disposition":
+              'attachment; filename="' + fname.replace(/"/g, "") + '"',
+          });
+          if (req.method === "HEAD") {
+            res.end();
+            return;
+          }
+          fs.createReadStream(result.path).pipe(res);
+          return;
+        } catch (e) {
+          res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(
+            JSON.stringify({
+              error: "Eksport na PC: " + (e.message || String(e)),
+            })
+          );
+          return;
+        }
       }
       // On-demand: extract audio-only mp3 from result video
       if (kind === "audio") {
@@ -338,7 +389,18 @@ function publishToUserVideos(jobId, videoPath, originalName, extraFiles) {
   }
 }
 
-function request(method, urlPath, { body, token, formData, raw, maxRedirects = 5 } = {}) {
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * HTTP to cloud. timeoutMs default 90s — Render free cold start is slow.
+ */
+function request(
+  method,
+  urlPath,
+  { body, token, formData, raw, maxRedirects = 5, timeoutMs = 90000 } = {}
+) {
   return new Promise((resolve, reject) => {
     const u = new URL(urlPath.startsWith("http") ? urlPath : CLOUD + urlPath);
     const lib = u.protocol === "https:" ? https : http;
@@ -361,6 +423,7 @@ function request(method, urlPath, { body, token, formData, raw, maxRedirects = 5
         port: u.port || (u.protocol === "https:" ? 443 : 80),
         path: u.pathname + u.search,
         headers,
+        timeout: Math.max(15000, Number(timeoutMs) || 90000),
       },
       (res) => {
         // Follow redirects (Render / CDN)
@@ -379,6 +442,7 @@ function request(method, urlPath, { body, token, formData, raw, maxRedirects = 5
               formData,
               raw,
               maxRedirects: maxRedirects - 1,
+              timeoutMs,
             })
           );
         }
@@ -403,10 +467,88 @@ function request(method, urlPath, { body, token, formData, raw, maxRedirects = 5
         });
       }
     );
+    req.on("timeout", () => {
+      try {
+        req.destroy(new Error("timeout " + timeoutMs + "ms"));
+      } catch {
+        /* ignore */
+      }
+    });
     req.on("error", reject);
     if (payload) req.write(payload);
     req.end();
   });
+}
+
+/** Render free sleeps → 502. Ping health until cloud is up. */
+async function wakeCloud(maxTries = 8) {
+  for (let i = 0; i < maxTries; i++) {
+    try {
+      const res = await request("GET", "/api/studio/health", {
+        timeoutMs: 90000,
+      });
+      if (res && res.status && res.status < 500) {
+        if (i > 0) log("Chmura obudzona (health HTTP " + res.status + ").");
+        return true;
+      }
+      log(
+        "Health HTTP " +
+          (res && res.status) +
+          " — Render free budzi się (" +
+          (i + 1) +
+          "/" +
+          maxTries +
+          ")…"
+      );
+    } catch (e) {
+      log(
+        "Budzę chmurę (" +
+          (i + 1) +
+          "/" +
+          maxTries +
+          "): " +
+          (e.message || e)
+      );
+    }
+    await sleep(6000 + i * 2000);
+  }
+  return false;
+}
+
+/**
+ * Retry on 502/503/504 (Render cold start / gateway).
+ */
+async function requestRetry(
+  method,
+  urlPath,
+  opts = {},
+  { retries = 5, label = "" } = {}
+) {
+  let last = null;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      last = await request(method, urlPath, opts);
+    } catch (e) {
+      last = { status: 0, data: { error: e.message || String(e) } };
+    }
+    const st = last && last.status;
+    if (st && st < 500 && st !== 0) return last;
+    if (st === 401 || st === 403) return last;
+    const tag = label || method + " " + urlPath;
+    log(
+      tag +
+        " → HTTP " +
+        (st || "net") +
+        " (Render free?) retry " +
+        (attempt + 1) +
+        "/" +
+        retries +
+        "…"
+    );
+    await wakeCloud(2);
+    await sleep(4000 + attempt * 3000);
+  }
+  return last;
 }
 
 async function ensureToken() {
@@ -423,12 +565,19 @@ async function ensureToken() {
     );
   }
   log("Logowanie do chmury…", CLOUD);
-  const res = await request("POST", "/api/studio/agent/login", {
-    body: { email, password, label: LABEL },
-  });
-  if (res.status >= 400 || !res.data?.token) {
+  await wakeCloud(6);
+  const res = await requestRetry(
+    "POST",
+    "/api/studio/agent/login",
+    { body: { email, password, label: LABEL }, timeoutMs: 90000 },
+    { retries: 5, label: "Login" }
+  );
+  if (!res || res.status >= 400 || !res.data?.token) {
     throw new Error(
-      res.data?.error || "Login agenta nieudany (HTTP " + res.status + ")"
+      (res && res.data && res.data.error) ||
+        "Login agenta nieudany (HTTP " +
+          (res && res.status) +
+          ") — chmura mogła spać; uruchom agenta ponownie za 1 min."
     );
   }
   agentToken = res.data.token;
@@ -442,10 +591,16 @@ async function ensureToken() {
 async function heartbeat(opts = {}) {
   const body = { label: LABEL };
   if (opts.busyJobId) body.busyJobId = String(opts.busyJobId);
-  const res = await request("POST", "/api/studio/agent/heartbeat", {
-    token: agentToken,
-    body,
-  });
+  const res = await requestRetry(
+    "POST",
+    "/api/studio/agent/heartbeat",
+    { token: agentToken, body, timeoutMs: 90000 },
+    { retries: 4, label: "Heartbeat" }
+  );
+  if (!res || !res.status || res.status >= 500) {
+    // Soft fail — main loop keeps trying; do not throw spam
+    return { ok: false, asleep: true, status: res && res.status };
+  }
   if (res.status === 401) {
     agentToken = "";
     try {
@@ -456,7 +611,7 @@ async function heartbeat(opts = {}) {
     await ensureToken();
     return heartbeat(opts);
   }
-  return res.data;
+  return res.data || { ok: true };
 }
 
 /**
@@ -540,11 +695,13 @@ function startJobKeepAlive(jobId) {
 }
 
 async function claim() {
-  const res = await request("POST", "/api/studio/agent/claim", {
-    token: agentToken,
-    body: {},
-  });
-  if (res.status >= 400) return null;
+  const res = await requestRetry(
+    "POST",
+    "/api/studio/agent/claim",
+    { token: agentToken, body: {}, timeoutMs: 90000 },
+    { retries: 3, label: "Claim" }
+  );
+  if (!res || res.status >= 400) return null;
   return res.data?.job || null;
 }
 
@@ -2186,9 +2343,10 @@ async function runJob(job) {
     const targetLang = job.options.targetLang || "pl";
     const autoTranslate =
       job.options.autoTranslate == null || job.options.autoTranslate !== false;
-    // Pre-transcribe → editor: always hop-segmented (6s) BEFORE Start.
+    // Pre-transcribe → editor: Pro Lektor natural segments BEFORE Start (not 6s hop).
     const useTimedForm = true;
     const srcForTr = langCode || job.options.sourceLang || "auto";
+    const proOn = job.options.proNarrator !== false;
 
     const filmDur = Math.max(
       1,
@@ -2199,15 +2357,17 @@ async function runJob(job) {
           : 30
     );
 
-    // EDIT FIELD: text must not "speak longer" than the film (~13 chars/s)
+    // EDIT FIELD: pro STT clocks + lang profile (text ≤ film length)
     let formatEditField8sTranscript = null;
     let buildEditField8sSegments = null;
     let fitTextToFilmDuration = null;
     let fitTextToFilmDurationAsync = null;
     try {
       const lu = require(path.join(ROOT, "lib", "lang-utils.js"));
-      formatEditField8sTranscript = lu.formatEditField8sTranscript;
-      buildEditField8sSegments = lu.buildEditField8sSegments;
+      formatEditField8sTranscript =
+        lu.formatProNarratorTranscript || lu.formatEditField8sTranscript;
+      buildEditField8sSegments =
+        lu.buildProNarratorSegments || lu.buildEditField8sSegments;
       fitTextToFilmDuration = lu.fitTextToFilmDuration;
       fitTextToFilmDurationAsync = lu.fitTextToFilmDurationAsync;
     } catch {
@@ -2287,86 +2447,31 @@ async function runJob(job) {
       }
     }
 
-    // Exact STT clocks — same format as cloud extract / script field / lektor
-    const paceKey =
-      job.options.speechPace ||
-      job.options.textSpeechPace ||
-      job.options.textSpeedMode ||
-      "manual";
-    // Prefer non-overlapping hop slots when present; fine segs normalized later
-    const sttSlots = Array.isArray(segs) && segs.length ? segs : [];
-    let exactCueCount = 0;
-    let transcriptMode = "plain";
-    if (typeof formatEditField8sTranscript === "function") {
-      timedOriginal = formatEditField8sTranscript(originalText, sttSlots, {
-        durationSec: filmDur,
-        maxDurationSec: filmDur,
-      });
-      timedText = formatEditField8sTranscript(text, sttSlots, {
-        durationSec: filmDur,
-        maxDurationSec: filmDur,
-      });
-      const nSegs =
-        (buildEditField8sSegments &&
-          buildEditField8sSegments(sttSlots, text, {
-            durationSec: filmDur,
-            maxDurationSec: filmDur,
-          })) ||
-        [];
-      exactCueCount =
-        nSegs.length ||
-        timedText.split(/\n/).filter((l) => l.trim()).length;
-      transcriptMode = "edit-field-hop6s";
-      log(
-        "Pole edycji: segmenty co 6s ≤ " +
-          Math.round(filmDur) +
-          "s filmu (" +
-          exactCueCount +
-          " cue, tekst dopasowany do długości)"
-      );
-    } else if (typeof buildTimedScriptFromText === "function") {
-      const exactOrig = buildTimedScriptFromText({
-        text: originalText,
-        sttSegments: sttSlots,
-        durationSec: filmDur,
-        speechPace: paceKey,
-      });
-      timedOriginal = formatTimedAll(exactOrig.segments || []);
-      exactCueCount = (exactOrig.segments || []).filter(
-        (s) => s && s.text
-      ).length;
-      transcriptMode = exactOrig.mode || transcriptMode;
-      const exactTr = buildTimedScriptFromText({
-        text: text,
-        sttSegments: sttSlots,
-        durationSec: filmDur,
-        speechPace: paceKey,
-      });
-      timedText = formatTimedAll(exactTr.segments || []);
-      if (exactTr.mode) transcriptMode = exactTr.mode;
-      exactCueCount = Math.max(
-        exactCueCount,
-        (exactTr.segments || []).filter((s) => s && s.text).length
-      );
-    } else if (typeof distributeTextOnTimeline === "function") {
-      const srcSpread = distributeTextOnTimeline(originalText, filmDur, 3, {
-        speechPace: paceKey,
-      });
-      timedOriginal = formatTimedAll(srcSpread);
-      const tgtSpread = distributeTextOnTimeline(text, filmDur, 3, {
-        speechPace: paceKey,
-      });
-      timedText = formatTimedAll(tgtSpread);
-      transcriptMode = "even-timeline";
+    // EXTRACT = raw continuous text only. Pro segmentation runs on Start.
+    if (typeof stripTimedMarkers === "function") {
+      originalText = stripTimedMarkers(originalText)
+        .replace(/\s+/g, " ")
+        .trim();
+      text = stripTimedMarkers(text).replace(/\s+/g, " ").trim();
+    } else {
+      originalText = String(originalText || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      text = String(text || "")
+        .replace(/\s+/g, " ")
+        .trim();
     }
-
-    // Segmented hop lines into editor (before Start)
-    const outText =
-      (timedText && String(timedText).trim()) ||
-      (timedOriginal && String(timedOriginal).trim()) ||
-      text;
-    const outOriginal =
-      (timedOriginal && String(timedOriginal).trim()) || originalText;
+    timedText = "";
+    timedOriginal = "";
+    const exactCueCount = 0;
+    const transcriptMode = "plain-raw";
+    const outText = text;
+    const outOriginal = originalText;
+    log(
+      "Pole edycji: goły tekst (bez segmentacji) · " +
+        outText.length +
+        " znaków · pro segs przy Start"
+    );
 
     await reportProgress(job.id, {
       progress: 95,
@@ -2375,12 +2480,11 @@ async function runJob(job) {
       liveScript: outText.slice(0, 2000),
       liveOriginal: outOriginal.slice(0, 2000),
       log:
-        "Tekst OK · segmenty przed Start · " +
+        "Tekst OK (goły, bez segmentacji) · " +
         outText.length +
-        " znaków · " +
-        (exactCueCount || "?") +
-        " cue" +
-        (translated ? " · przetłumaczono" : ""),
+        " znaków" +
+        (translated ? " · przetłumaczono" : "") +
+        " · segmentacja Pro przy Start",
     });
 
     const up = await request(
@@ -2393,17 +2497,17 @@ async function runJob(job) {
           originalText: outOriginal,
           plainText: text,
           plainOriginal: originalText,
-          timedText: useTimedForm ? timedText : "",
-          timedOriginal: useTimedForm ? timedOriginal : "",
+          timedText: "",
+          timedOriginal: "",
           translated,
           engine,
           langCode,
           targetLang,
           durationSec: durationSec || null,
-          timedTranscript: useTimedForm,
-          exactCueCount,
+          timedTranscript: false,
+          exactCueCount: 0,
           transcriptMode,
-          segments: exactCueCount,
+          segments: 0,
           smartRewrite,
           useOllama,
           rewriteEngine,
@@ -2623,6 +2727,11 @@ async function main() {
   log("Cloud:", CLOUD);
   log("Label:", LABEL);
   log("UI zostaje w przeglądarce na adresie chmury — tu liczy Twój PC.");
+  log(
+    "Render free może „spać” 30–90s (HTTP 502) — agent sam budzi chmurę i robi retry."
+  );
+  // Wake cloud BEFORE login (cold start)
+  await wakeCloud(10);
   await ensureToken();
   // One agent only: avoid two processes claiming then abandoning jobs
   try {
@@ -2642,11 +2751,36 @@ async function main() {
     /* best-effort */
   }
   ensureLocalMediaServer();
+  // Confirm online after token
+  await wakeCloud(3);
+  const hb0 = await heartbeat();
+  if (hb0 && hb0.asleep) {
+    log(
+      "Ostrzeżenie: chmura jeszcze 502 — zostawiam agenta w pętli (obudzi Render)."
+    );
+  } else {
+    log("Heartbeat start OK — chip w Studio powinien być PC · ON.");
+  }
   log("Agent gotowy — czekam na joby (YouTube wymaga tego okna otwartego).");
   log("Duże wyniki (>~90 MB) zostają na dysku PC → podgląd z 127.0.0.1 (nie chmura 500 MB).");
+  let asleepLogged = 0;
   for (;;) {
     try {
       const hb = await heartbeat();
+      if (hb && hb.asleep) {
+        asleepLogged += 1;
+        if (asleepLogged === 1 || asleepLogged % 8 === 0) {
+          log(
+            "Chmura śpi / 502 (Render free) — budzę i czekam… (" +
+              asleepLogged +
+              ")"
+          );
+        }
+        await wakeCloud(3);
+        await sleep(Math.min(20000, 5000 + asleepLogged * 500));
+        continue;
+      }
+      asleepLogged = 0;
       if (hb && hb.reclaimed > 0) {
         log("Odzyskano stuck jobów:", hb.reclaimed);
       }
@@ -2657,8 +2791,10 @@ async function main() {
       }
     } catch (err) {
       log("Błąd pętli:", err.message || err);
+      await wakeCloud(2);
+      await sleep(5000);
     }
-    await new Promise((r) => setTimeout(r, POLL_MS));
+    await sleep(POLL_MS);
   }
 }
 

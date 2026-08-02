@@ -1126,12 +1126,36 @@ i.on("error",e=>{console.error(e); process.exit(1);});
   )
   Set-Content -Path $help -Value ($helpLines -join ([char]13+[char]10)) -Encoding ascii
 
-  try {
-    $hbUri = $cloud.TrimEnd('/') + '/api/studio/agent/heartbeat'
-    $hb = Invoke-RestMethod -Uri $hbUri -Method POST -Headers @{ Authorization = ("Bearer " + $token); 'Content-Type' = 'application/json' } -Body '{"label":"setup"}' -TimeoutSec 45
-    L ("Heartbeat OK userId=" + $hb.userId + " email=" + $hb.email)
-  } catch {
-    L ('[OSTRZEZENIE] Heartbeat: ' + $_ + ' (Render free moze spic 30-60s)')
+  # Render free "spic" → 502 Bad Gateway. Najpierw obudz health, potem heartbeat z retry.
+  $healthUri = $cloud.TrimEnd('/') + '/api/studio/health'
+  $hbUri = $cloud.TrimEnd('/') + '/api/studio/agent/heartbeat'
+  $woke = $false
+  for ($wi = 1; $wi -le 8; $wi++) {
+    try {
+      L ("Budze chmure ($wi/8): $healthUri")
+      $null = Invoke-WebRequest -Uri $healthUri -UseBasicParsing -TimeoutSec 90
+      $woke = $true
+      L 'Chmura odpowiada (health OK).'
+      break
+    } catch {
+      L ("[OSTRZEZENIE] Health $wi/8: " + $_.Exception.Message + " — Render free budzi sie 30-90s…")
+      Start-Sleep -Seconds ([Math]::Min(12, 4 + $wi * 2))
+    }
+  }
+  $hbOk = $false
+  for ($hi = 1; $hi -le 6; $hi++) {
+    try {
+      $hb = Invoke-RestMethod -Uri $hbUri -Method POST -Headers @{ Authorization = ("Bearer " + $token); 'Content-Type' = 'application/json' } -Body '{"label":"setup"}' -TimeoutSec 90
+      L ("Heartbeat OK userId=" + $hb.userId + " email=" + $hb.email)
+      $hbOk = $true
+      break
+    } catch {
+      L ("[OSTRZEZENIE] Heartbeat $hi/6: " + $_.Exception.Message + " (502 = Render free budzi sie — retry)")
+      Start-Sleep -Seconds ([Math]::Min(15, 5 + $hi * 2))
+    }
+  }
+  if (-not $hbOk) {
+    L '[OSTRZEZENIE] Heartbeat nie OK po retry — startuje agent i bedzie budzil chmure w petli.'
   }
 
   L 'Start agenta. UI = chmura, liczenie = TEN PC. Nie zamykaj okna.'
@@ -1358,11 +1382,15 @@ app.post("/api/studio/agent/heartbeat", async (req, res) => {
         /* ignore */
       }
     }
-    // Unstick orphans claimed then abandoned — never the job this agent is running
+    // Unstick orphans claimed then abandoned — never the job this agent is running.
+    // agentOnline=true: longer silence required (spawnSync freezes progress posts).
     let reclaimed = 0;
     try {
       reclaimed =
-        studioJobs.reclaimStalePcJobs(row.userId, row.email, { busyJobId }) || 0;
+        studioJobs.reclaimStalePcJobs(row.userId, row.email, {
+          busyJobId,
+          agentOnline: true,
+        }) || 0;
     } catch {
       reclaimed = 0;
     }
@@ -1375,10 +1403,12 @@ app.post("/api/studio/agent/heartbeat", async (req, res) => {
 app.post("/api/studio/agent/claim", async (req, res) => {
   const row = await requireAgent(req, res);
   if (!row) return;
+  const agentOnline = pcAgent.isOnline(row.userId, row.email);
+  const claimOpts = { agentOnline: !!agentOnline };
   // Prefer live account userId + email (jobs survive re-login); also token's original userId
-  let job = studioJobs.claimPcJob(row.userId, row.email);
+  let job = studioJobs.claimPcJob(row.userId, row.email, claimOpts);
   if (!job && row.tokenUserId && row.tokenUserId !== row.userId) {
-    job = studioJobs.claimPcJob(row.tokenUserId, row.email);
+    job = studioJobs.claimPcJob(row.tokenUserId, row.email, claimOpts);
   }
   if (!job) return res.json({ ok: true, job: null });
   const opts = job.options || {};
@@ -1442,19 +1472,30 @@ app.get("/api/studio/agent/jobs/:id/input", async (req, res) => {
 app.post("/api/studio/agent/jobs/:id/progress", async (req, res) => {
   const row = await requireAgent(req, res);
   if (!row) return;
-  const job = studioJobs.getJob(req.params.id);
+  let job = studioJobs.getJob(req.params.id);
   if (!job || !agentOwnsJob(job, row)) {
     return res.status(404).json({ error: "Job not found" });
   }
   if (job.executor !== "pc") {
     return res.status(400).json({ error: "To nie jest job PC" });
   }
-  // Job was requeued under us — refuse so agent can stop / re-claim cleanly
+  // Job was requeued under us while agent still worked (STT/spawnSync freeze).
+  // Re-attach instead of 409 so progress / live text keep flowing.
+  let reattached = false;
   if (job.status !== "running") {
-    return res.status(409).json({
-      error: "Job nie jest running (status=" + job.status + ")",
-      status: job.status,
-    });
+    if (job.status === "queued") {
+      const re = studioJobs.reattachPcRunningJob(job.id);
+      if (re) {
+        job = re;
+        reattached = true;
+      }
+    }
+    if (!job || job.status !== "running") {
+      return res.status(409).json({
+        error: "Job nie jest running (status=" + (job && job.status) + ")",
+        status: job ? job.status : null,
+      });
+    }
   }
   const patch = req.body || {};
   const allowed = {};
@@ -1465,8 +1506,15 @@ app.post("/api/studio/agent/jobs/:id/progress", async (req, res) => {
   if (patch.liveScript) allowed.liveScript = patch.liveScript;
   if (patch.livePhase) allowed.livePhase = patch.livePhase;
   if (patch.touch) allowed.touch = true;
+  if (reattached && !allowed.log) {
+    allowed.log = "Reattach: agent kontynuuje job po omyłkowym reclaim.";
+  }
   studioJobs.updateJob(job.id, allowed);
-  res.json({ ok: true, progress: studioJobs.getJob(job.id)?.progress });
+  res.json({
+    ok: true,
+    progress: studioJobs.getJob(job.id)?.progress,
+    reattached,
+  });
 });
 
 app.post("/api/studio/agent/jobs/:id/fail", async (req, res) => {
@@ -1673,7 +1721,58 @@ app.get("/api/studio/ollama-status", async (_req, res) => {
 /** Whisper install status for Studio UI (local STT — separate from Ollama). */
 app.get("/api/studio/whisper-status", async (_req, res) => {
   try {
-    // Prefer Node transformers.js (works without pip / Python 3.14 issues)
+    const { spawnSync } = require("child_process");
+    // 1) Python faster-whisper (preferred for extract quality)
+    const pyTries =
+      process.platform === "win32"
+        ? [
+            ["py", ["-3"]],
+            ["python", []],
+          ]
+        : [["python3", []], ["python", []]];
+    for (const [cmd, prefix] of pyTries) {
+      try {
+        const code = `
+import json
+out={"ok":False,"engine":None,"error":None,"modelDefault":"base"}
+try:
+  from faster_whisper import WhisperModel
+  out["ok"]=True
+  out["engine"]="faster-whisper"
+  out["modelDefault"]="base"
+except Exception as e1:
+  try:
+    import whisper
+    out["ok"]=True
+    out["engine"]="openai-whisper"
+    out["modelDefault"]="base"
+  except Exception as e2:
+    out["error"]=str(e1)[:120]
+print(json.dumps(out))
+`;
+        const r = spawnSync(cmd, [...prefix, "-c", code], {
+          encoding: "utf8",
+          windowsHide: true,
+          timeout: 15000,
+          env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
+        });
+        const raw = String(r.stdout || "").trim();
+        const line = raw.split(/\r?\n/).filter(Boolean).pop();
+        const st = JSON.parse(line || "{}");
+        if (st && st.ok) {
+          return res.json({
+            ok: true,
+            engine: st.engine,
+            model: st.modelDefault || "base",
+            via: "python",
+            python: cmd,
+          });
+        }
+      } catch {
+        /* try next */
+      }
+    }
+    // 2) Node transformers.js
     try {
       const { probeWhisperNode } = require("./lib/stt-whisper-node");
       const nodeSt = await probeWhisperNode();
@@ -1686,53 +1785,14 @@ app.get("/api/studio/whisper-status", async (_req, res) => {
         });
       }
     } catch {
-      /* try python */
+      /* none */
     }
-    const { spawnSync } = require("child_process");
-    const py =
-      process.env.PYTHON ||
-      process.env.PYTHON_PATH ||
-      (process.platform === "win32" ? "python" : "python3");
-    const code = `
-import json
-out={"ok":False,"engine":None,"error":None,"modelDefault":"base"}
-try:
-  from faster_whisper import WhisperModel
-  out["ok"]=True
-  out["engine"]="faster-whisper"
-except Exception as e1:
-  try:
-    import whisper
-    out["ok"]=True
-    out["engine"]="openai-whisper"
-  except Exception as e2:
-    out["error"]="npm install @xenova/transformers  (lub pip install faster-whisper)"
-print(json.dumps(out))
-`;
-    const r = spawnSync(py, ["-c", code], {
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 20000,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
+    res.json({
+      ok: false,
+      engine: null,
+      error:
+        "Brak Whisper. Zainstaluj: pip install faster-whisper  LUB  npm install @xenova/transformers",
     });
-    const raw = String(r.stdout || "").trim();
-    let st = { ok: false, engine: null, error: null };
-    try {
-      const line = raw.split(/\r?\n/).filter(Boolean).pop();
-      st = JSON.parse(line || "{}");
-    } catch {
-      st = {
-        ok: false,
-        error:
-          (r.stderr || raw || "Whisper: zainstaluj @xenova/transformers").slice(
-            0,
-            240
-          ),
-      };
-    }
-    st.python = py;
-    st.via = st.ok ? "python" : null;
-    res.json(st);
   } catch (e) {
     res.json({ ok: false, error: (e && e.message) || String(e) });
   }
@@ -1756,6 +1816,7 @@ async function runPreTranscribeOnFile(videoPath, {
   sttEngine = "google",
   whisperModel = null,
   transcriptSource = "stt",
+  proNarrator = true,
 } = {}) {
   const {
     extractSpeechFromVideoSegmented,
@@ -1978,7 +2039,7 @@ async function runPreTranscribeOnFile(videoPath, {
     returnMeta: true,
     targetLang,
     langCode: targetLang,
-    proNarrator: true,
+    proNarrator: proNarrator !== false,
   };
   let rewriteEngine = null;
   let ollamaModel = null;
@@ -2026,7 +2087,8 @@ async function runPreTranscribeOnFile(videoPath, {
     }
   }
 
-  // EDIT FIELD ONLY: 8 equal parts over film duration. Does not drive lektor/TTS.
+  // EXTRACT = raw continuous text only. Pro segmentation runs on Start (pro script).
+  // Optional timed* fields kept for debug/compat — never primary into editor.
   const paceKey = textSpeechPace || speechPace || "manual";
   const sttSlots =
     (Array.isArray(stt.timelineSegments) && stt.timelineSegments.length
@@ -2037,72 +2099,48 @@ async function runPreTranscribeOnFile(videoPath, {
       : null) ||
     [];
   let exactCueCount = 0;
-  let transcriptMode = "plain";
-
-  if (typeof formatEditField8sTranscript === "function") {
-    timedOriginal = formatEditField8sTranscript(originalText, sttSlots, {
-      durationSec: filmDur,
-      maxDurationSec: filmDur,
-      targetLang: sourceLang || "auto",
-      proNarrator: true,
-    });
-    timedText = formatEditField8sTranscript(text, sttSlots, {
-      durationSec: filmDur,
-      maxDurationSec: filmDur,
-      targetLang,
-      proNarrator: true,
-    });
-    const nSegs =
-      (typeof buildEditField8sSegments === "function" &&
-        buildEditField8sSegments(sttSlots, text, {
-          targetLang,
-          proNarrator: true,
-          durationSec: filmDur,
-          maxDurationSec: filmDur,
-        })) ||
-      [];
-    exactCueCount = nSegs.length || timedText.split(/\n/).filter((l) => l.trim()).length;
-    transcriptMode = "edit-field-hop6s";
-  } else if (typeof buildTimedScriptFromText === "function") {
-    const exactOrig = buildTimedScriptFromText({
-      text: originalText,
-      sttSegments: sttSlots,
-      durationSec: filmDur,
-      speechPace: paceKey,
-    });
-    timedOriginal = formatTimed(exactOrig.segments || []);
-    exactCueCount = (exactOrig.segments || []).filter((s) => s && s.text).length;
-    transcriptMode = exactOrig.mode || transcriptMode;
-    const exactTr = buildTimedScriptFromText({
-      text: text,
-      sttSegments: sttSlots,
-      durationSec: filmDur,
-      speechPace: paceKey,
-    });
-    timedText = formatTimed(exactTr.segments || []);
+  let transcriptMode = "plain-raw";
+  // Ensure continuous plain (strip any accidental cue markers)
+  originalText =
+    typeof stripTimedMarkers === "function"
+      ? stripTimedMarkers(originalText).replace(/\s+/g, " ").trim()
+      : String(originalText || "").replace(/\s+/g, " ").trim();
+  text =
+    typeof stripTimedMarkers === "function"
+      ? stripTimedMarkers(text).replace(/\s+/g, " ").trim()
+      : String(text || "").replace(/\s+/g, " ").trim();
+  // Light timed metadata only if caller asked (not for editor primary)
+  if (timedTranscript === true && typeof formatExactTranscript === "function") {
+    try {
+      const segs = Array.isArray(sttSlots) ? sttSlots : [];
+      if (segs.length) {
+        timedOriginal = formatExactTranscript(
+          segs.map((s) => ({
+            start: s.start,
+            end: s.end,
+            text: String(s.text || "").trim(),
+          }))
+        );
+        exactCueCount = segs.filter((s) => s && String(s.text || "").trim()).length;
+      }
+    } catch {
+      /* ignore */
+    }
   }
+  timedText = "";
+  // PRIMARY = always raw continuous text (extract is NOT pro segmentation)
+  const primaryText = text;
+  const primaryOriginal = originalText;
 
-  // Always segment BEFORE Start: hop grid (6s) into editor / extract field.
-  // plainText still available for callers that want continuous.
-  const useTimed = timedTranscript !== false;
-  const primaryText =
-    (useTimed && timedText) ||
-    (useTimed && timedOriginal) ||
-    text;
-  const primaryOriginal =
-    (useTimed && timedOriginal) || originalText;
-
-  const trLineCount = timedText
-    ? timedText.split(/\r?\n/).filter((l) => l.trim()).length
-    : 0;
   const charCount = String(text || "").replace(/\s+/g, " ").trim().length;
 
   return {
     ok: true,
+    // Extract = RAW continuous text only (pro segs on Start)
     text: primaryText,
     originalText: primaryOriginal,
-    timedText: useTimed ? timedText : "",
-    timedOriginal: useTimed ? timedOriginal : "",
+    timedText: "",
+    timedOriginal: timedOriginal || "",
     plainText: text,
     plainOriginal: originalText,
     title: titleGuess,
@@ -2110,19 +2148,17 @@ async function runPreTranscribeOnFile(videoPath, {
     translateEngine,
     translateError,
     autoTranslate: !!autoTranslate,
-    timedTranscript: useTimed,
+    timedTranscript: false,
     speechPace: paceKey,
     engine: stt.engine || null,
     langCode: stt.langCode || sourceLang || null,
     targetLang,
     durationSec: filmDur,
-    segments: exactCueCount || trLineCount || 0,
-    exactCueCount,
-    transcriptMode,
-    charsPerSegment:
-      trLineCount > 0
-        ? Math.round((charCount / trLineCount) * 10) / 10
-        : null,
+    segments: 0,
+    exactCueCount: 0,
+    transcriptMode: "plain-raw",
+    charsPerSegment: null,
+    charCount,
     error: null,
     musicLikely: !!stt.musicLikely,
     smartRewrite: fitOpts.smartRewrite,
@@ -2183,6 +2219,12 @@ app.post("/api/studio/transcribe", (req, res) => {
     )
       .trim()
       .toLowerCase() || "normal";
+    const proNarrator =
+      body?.proNarrator == null ||
+      body?.proNarrator === "" ||
+      body?.proNarrator === "1" ||
+      body?.proNarrator === "true" ||
+      body?.proNarrator === true;
     // Exclusive: stt | whisper | captions (no auto mix)
     let transcriptSource = String(body?.transcriptSource || "stt")
       .trim()
@@ -2202,14 +2244,22 @@ app.post("/api/studio/transcribe", (req, res) => {
     const whisperModel = String(
       body?.whisperModel || process.env.WHISPER_MODEL || "base"
     ).trim() || "base";
-    const url = String(body?.url || "").trim();
+    let url = String(body?.url || body?.sourceUrl || "").trim();
+    // If multipart file is present, never fail on a junk URL field
+    if (file && file.path) {
+      url = "";
+    }
 
     // ── URL path (no uploaded file) ──
     if ((!file || !file.path) && url) {
       const urlVideo = require("./lib/url-video");
       const classified = urlVideo.classifyVideoUrl(url);
       if (!classified.ok) {
-        return res.status(400).json({ error: classified.error });
+        return res.status(400).json({
+          error:
+            classified.error ||
+            "Nieprawidłowy adres URL — wklej https://… albo wrzuć plik",
+        });
       }
 
       // Platform (YouTube/…) → PC agent only
@@ -2254,6 +2304,7 @@ app.post("/api/studio/transcribe", (req, res) => {
             textSpeechPace: speechPace,
             textSpeedMode: speechPace,
             maxSeconds,
+            proNarrator: !!proNarrator,
           },
           titleGuess
         );
@@ -2311,6 +2362,7 @@ app.post("/api/studio/transcribe", (req, res) => {
           textSpeechPace: speechPace,
           maxSeconds,
           originalName: finalName,
+          proNarrator,
         });
         workDir = result.workDir;
         delete result.workDir;
@@ -2344,12 +2396,88 @@ app.post("/api/studio/transcribe", (req, res) => {
     const videoPath = file.path;
     const originalName = file.originalname || "video.mp4";
     let workDir = null;
+    // Keep upload on disk when handed to PC agent (job downloads via /input)
+    let keepUploadForAgent = false;
     try {
+      /**
+       * CRITICAL: long STT on the cloud often dies as HTTP 502 (proxy timeout /
+       * OOM). When PC agent is online → always offload pre-transcribe to the PC
+       * (same path as YouTube). Returns 202 immediately; UI polls job.
+       */
+      const agentOnline = pcAgent.isOnline(uid, email);
+      if (agentOnline) {
+        const options = normalizeJobOptions(
+          {
+            preTranscribeOnly: true,
+            narrator: false,
+            subtitles: false,
+            delogo: false,
+            upscale: "off",
+            polish: false,
+            sourceLang,
+            targetLang,
+            autoTranslate: !!autoTranslate,
+            timedTranscript: !!timedTranscript,
+            smartRewrite: !!smartRewrite,
+            useOllama: !!useOllama,
+            transcriptSource,
+            sttEngine,
+            whisperModel,
+            speechPace,
+            textSpeechPace: speechPace,
+            textSpeedMode: speechPace,
+            maxSeconds,
+            proNarrator: !!proNarrator,
+          },
+          originalName
+        );
+        const job = studioJobs.createJob({
+          originalName,
+          inputPath: videoPath,
+          options,
+          userId: uid || "local",
+          email,
+          executor: "pc",
+        });
+        keepUploadForAgent = true;
+        return res.status(202).json({
+          ok: true,
+          pending: true,
+          jobId: job.id,
+          job: studioJobs.publicJob(job),
+          transcriptSource,
+          via: "pc-agent",
+          hint:
+            "Agent PC czyta plik lokalnie (STT/Whisper) — tekst wpadnie do edytora. Bez 502 na chmurze.",
+        });
+      }
+
+      // No PC agent: cloud/proxy kills long STT → browser "Failed to fetch" / 502.
+      // Do NOT hang the HTTP request — force agent for reliable extract.
+      const host = String(req.headers.host || "");
+      const isLocalDev = /localhost|127\.0\.0\.1/i.test(host);
+      if (!isLocalDev) {
+        try {
+          if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+        } catch {
+          /* ignore */
+        }
+        return res.status(503).json({
+          ok: false,
+          needPcAgent: true,
+          error:
+            "PC · OFF — odpal agenta (przycisk ⬇ PC → RUN-AGENT.bat). " +
+            "Wyodrębnianie STT na chmurze urywa połączenie (Failed to fetch / 502). " +
+            "Z agentem plik czyta Twój PC i wraca goły tekst do edytora.",
+        });
+      }
+      // Localhost only: allow short sync STT (dev)
+      res.setTimeout(180000);
       const result = await runPreTranscribeOnFile(videoPath, {
         sourceLang,
         targetLang,
         autoTranslate,
-        timedTranscript,
+        timedTranscript: false,
         smartRewrite,
         useOllama,
         sttEngine,
@@ -2357,20 +2485,31 @@ app.post("/api/studio/transcribe", (req, res) => {
         transcriptSource,
         speechPace,
         textSpeechPace: speechPace,
-        maxSeconds,
+        maxSeconds: Math.min(maxSeconds, 180),
         originalName,
+        proNarrator,
       });
       workDir = result.workDir;
       delete result.workDir;
       return res.json(result);
     } catch (e) {
       console.error("[transcribe]", e);
-      return res.status(500).json({
-        error: (e && e.message) || "Transkrypcja nieudana",
+      const msg = (e && e.message) || "Transkrypcja nieudana";
+      return res.status(503).json({
+        error:
+          msg +
+          " · Włącz PC · ON (agent) i spróbuj ponownie — odczyt na Twoim komputerze unika błędu 502 chmury.",
+        needPcAgent: true,
       });
     } finally {
       try {
-        if (videoPath && fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+        if (
+          !keepUploadForAgent &&
+          videoPath &&
+          fs.existsSync(videoPath)
+        ) {
+          fs.unlinkSync(videoPath);
+        }
       } catch {
         /* ignore */
       }
@@ -2416,35 +2555,38 @@ app.post("/api/studio/agent/jobs/:id/complete-transcript", async (req, res) => {
       return res.status(404).json({ error: "Job not found" });
     }
     const body = req.body || {};
-    const text = String(body.text || body.script || "").trim();
-    const originalText = String(body.originalText || text).trim();
-    const timedText = String(body.timedText || "").trim();
-    const timedOriginal = String(body.timedOriginal || "").trim();
+    // Prefer plain continuous — extract must not ship pro segments into editor
+    const stripT = (s) =>
+      String(s || "")
+        .replace(/^\s*\[\s*\d{1,2}:\d{2}[^\]]*\]\s*/gm, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const plainBody = stripT(body.plainText || body.scriptPlain || "");
+    const text = stripT(body.text || body.script || plainBody);
+    const originalText = stripT(body.originalText || body.plainOriginal || text);
+    const plainOut = plainBody || text || originalText;
     studioJobs.updateJob(job.id, {
       status: "done",
       progress: 100,
-      stage: "Transkrypcja gotowa",
+      stage: "Transkrypcja gotowa (goły tekst)",
       finishedAt: new Date().toISOString(),
       outputPath: null,
       previewPath: null,
-      liveScript: text || originalText,
-      liveOriginal: originalText,
+      liveScript: plainOut,
+      liveOriginal: originalText || plainOut,
       livePhase: "done",
       result: {
         ...(job.result || {}),
-        // Always continuous plain for UI field (strip any accidental time lines)
-        script: text || originalText,
-        scriptPlain:
-          body.plainText ||
-          text ||
-          originalText,
-        plainText: body.plainText || text || originalText,
-        originalText,
-        timedScript: timedText || null,
-        timedOriginal: timedOriginal || null,
-        exactCueCount: body.exactCueCount || body.segments || null,
-        transcriptMode: body.transcriptMode || null,
-        segments: body.exactCueCount || body.segments || null,
+        // Continuous plain for UI field — Pro segmentation only on Start
+        script: plainOut,
+        scriptPlain: plainOut,
+        plainText: plainOut,
+        originalText: originalText || plainOut,
+        timedScript: null,
+        timedOriginal: null,
+        exactCueCount: 0,
+        transcriptMode: "plain-raw",
+        segments: 0,
         preTranscribe: true,
         language: {
           original: originalText,
@@ -2455,8 +2597,8 @@ app.post("/api/studio/agent/jobs/:id/complete-transcript", async (req, res) => {
           targetLang: body.targetLang
             ? { code: body.targetLang, label: body.targetLang }
             : null,
-          timedScript: timedText || null,
-          timedOriginal: timedOriginal || null,
+          timedScript: null,
+          timedOriginal: null,
         },
         engine: body.engine || null,
         duration: body.durationSec || null,
@@ -2466,9 +2608,9 @@ app.post("/api/studio/agent/jobs/:id/complete-transcript", async (req, res) => {
         ollamaModel: body.ollamaModel || null,
       },
       log:
-        "Pre-STT z linku OK · " +
-        (text || originalText).slice(0, 80) +
-        ((text || originalText).length > 80 ? "…" : ""),
+        "Pre-STT OK (goły tekst) · " +
+        plainOut.slice(0, 80) +
+        (plainOut.length > 80 ? "…" : ""),
     });
     res.json({ ok: true, job: studioJobs.publicJob(studioJobs.getJob(job.id)) });
   } catch (err) {
@@ -2529,6 +2671,7 @@ app.get("/api/studio/jobs/:id/download", (req, res) => {
 
 /**
  * Available codec export profiles for result panel (H.264 High / HEVC / AAC).
+ * Fast + never blocks (encoder list is cached in export-codecs).
  */
 app.get("/api/studio/export-profiles", (_req, res) => {
   try {
@@ -2540,8 +2683,20 @@ app.get("/api/studio/export-profiles", (_req, res) => {
 });
 
 /**
+ * In-memory async export jobs — Render free kills long sync ffmpeg (HTTP 502).
+ * key: `${jobId}:${profile}` → { status, path, error, name, mime, profileId, reused }
+ */
+const exportAsyncJobs = new Map();
+
+function exportAsyncKey(jobId, profile) {
+  return String(jobId) + ":" + String(profile || "app").toLowerCase();
+}
+
+/**
  * Re-encode finished job with best codecs for apps (FacePub / Reels / TikTok).
  * Query: ?profile=app|hq|hevc|audio
+ *        &async=1  → never block: 202 while encoding, 200 file when ready (avoids 502)
+ * Local-disk agent results redirect to PC agent /media/.../export (encode on PC).
  */
 app.get("/api/studio/jobs/:id/export", (req, res) => {
   const job = getOwnedJob(req, res);
@@ -2549,32 +2704,158 @@ app.get("/api/studio/jobs/:id/export", (req, res) => {
   if (job.status !== "done") {
     return res.status(404).json({ error: "Job nie jest gotowy" });
   }
-  if (!job.outputPath || !fs.existsSync(job.outputPath)) {
-    // Local-disk agent result: no server file to re-encode
-    if (job.localMedia) {
-      return res.status(400).json({
-        error:
-          "Wynik jest na dysku PC (agent). Otwórz folder / użyj «Pobierz MP4», albo przenieś job na serwer, żeby przeenkodować kodeki.",
-        localDisk: true,
-      });
+  const profile = String(req.query.profile || "app").toLowerCase();
+  const wantAsync =
+    req.query.async === "1" ||
+    req.query.async === "true" ||
+    String(req.headers.accept || "").includes("application/json");
+
+  // Result lives on PC — encode there (no cloud file, no Render timeout)
+  if ((!job.outputPath || !fs.existsSync(job.outputPath)) && job.localMedia) {
+    const lm = job.localMedia;
+    if (lm.host && lm.port && lm.token) {
+      const jid = encodeURIComponent(String(job.id));
+      const t = encodeURIComponent(String(lm.token));
+      const p = encodeURIComponent(profile);
+      const agentUrl = `http://${lm.host}:${lm.port}/media/${jid}/export?t=${t}&profile=${p}`;
+      // Browser fetch to cloud can't follow redirect to 127.0.0.1 from Render origin
+      // for download in all cases — return JSON so UI hits agent directly.
+      if (wantAsync || req.query.redirect === "0") {
+        return res.status(200).json({
+          localDisk: true,
+          exportUrl: agentUrl,
+          profile,
+          message:
+            "Wynik na dysku PC — kodowanie kodeków na agencie (bez chmury / bez 502).",
+        });
+      }
+      return res.redirect(302, agentUrl);
     }
+    return res.status(400).json({
+      error:
+        "Wynik jest na dysku PC (agent), ale brak połączenia localMedia. Upewnij się, że PC Agent działa, potem odśwież stronę.",
+      localDisk: true,
+    });
+  }
+  if (!job.outputPath || !fs.existsSync(job.outputPath)) {
     return res.status(404).json({ error: "Brak gotowego pliku wideo" });
   }
-  const profile = String(req.query.profile || "app").toLowerCase();
-  try {
-    const { exportWithProfile, PROFILES } = require("./lib/export-codecs");
-    const result = exportWithProfile(job.outputPath, profile);
-    const base = (job.originalName || "clip").replace(/\.[^.]+$/, "");
-    const p = PROFILES[profile] || PROFILES.app || result.profile;
+
+  const key = exportAsyncKey(job.id, profile);
+  const base = (job.originalName || "clip").replace(/\.[^.]+$/, "");
+
+  const sendReady = (filePath, p, reused) => {
     const name =
       base +
       "_clipforge_" +
       (p.id || profile) +
-      (p.ext || path.extname(result.path) || ".mp4");
+      (p.ext || path.extname(filePath) || ".mp4");
     if (p.mime) res.setHeader("Content-Type", p.mime);
     res.setHeader("X-ClipForge-Export-Profile", p.id || profile);
-    res.setHeader("X-ClipForge-Export-Reused", result.reused ? "1" : "0");
-    return sendOwnedFile(req, res, result.path, name);
+    res.setHeader("X-ClipForge-Export-Reused", reused ? "1" : "0");
+    return sendOwnedFile(req, res, filePath, name);
+  };
+
+  // Fast path: already-cached export on disk (no re-encode)
+  try {
+    const { cachePathFor, PROFILES } = require("./lib/export-codecs");
+    const pMeta = PROFILES[profile] || PROFILES.app;
+    const cached = cachePathFor(
+      job.outputPath,
+      pMeta.id || profile,
+      pMeta.ext || ".mp4"
+    );
+    if (
+      fs.existsSync(cached) &&
+      fs.statSync(cached).size > 1000 &&
+      fs.statSync(cached).mtimeMs >= fs.statSync(job.outputPath).mtimeMs
+    ) {
+      exportAsyncJobs.delete(key);
+      return sendReady(cached, pMeta, true);
+    }
+  } catch {
+    /* fall through to encode */
+  }
+
+  // Async mode (default for long encodes via UI): start background, poll with async=1
+  const existing = exportAsyncJobs.get(key);
+  if (existing && existing.status === "done" && existing.path && fs.existsSync(existing.path)) {
+    const { PROFILES } = require("./lib/export-codecs");
+    const p = PROFILES[existing.profileId || profile] || PROFILES.app;
+    if (wantAsync && req.query.poll === "1") {
+      return res.json({
+        status: "done",
+        profile,
+        downloadUrl:
+          `/api/studio/jobs/${encodeURIComponent(job.id)}/export?profile=` +
+          encodeURIComponent(profile) +
+          "&async=0",
+      });
+    }
+    return sendReady(existing.path, p, !!existing.reused);
+  }
+  if (existing && existing.status === "error") {
+    const err = existing.error || "Eksport nieudany";
+    exportAsyncJobs.delete(key);
+    return res.status(500).json({ error: err });
+  }
+  if (existing && existing.status === "running") {
+    return res.status(202).json({
+      status: "encoding",
+      profile,
+      message: "Kodowanie w toku — odpytaj ponownie za chwilę (async).",
+      startedAt: existing.startedAt,
+    });
+  }
+
+  // Start encode in background (avoids Render proxy 502 on long ffmpeg)
+  if (wantAsync || req.query.async !== "0") {
+    exportAsyncJobs.set(key, {
+      status: "running",
+      startedAt: new Date().toISOString(),
+      path: null,
+      error: null,
+      profileId: profile,
+    });
+    setImmediate(() => {
+      try {
+        const { exportWithProfile, PROFILES } = require("./lib/export-codecs");
+        const result = exportWithProfile(job.outputPath, profile);
+        const p = PROFILES[profile] || PROFILES.app || result.profile;
+        exportAsyncJobs.set(key, {
+          status: "done",
+          startedAt: exportAsyncJobs.get(key)?.startedAt,
+          path: result.path,
+          error: null,
+          profileId: p.id || profile,
+          reused: result.reused,
+          mime: p.mime,
+        });
+      } catch (e) {
+        console.error("[export codecs async]", e.message || e);
+        exportAsyncJobs.set(key, {
+          status: "error",
+          startedAt: exportAsyncJobs.get(key)?.startedAt,
+          path: null,
+          error: e.message || String(e),
+          profileId: profile,
+        });
+      }
+    });
+    return res.status(202).json({
+      status: "encoding",
+      profile,
+      message:
+        "Start kodowania na serwerze. UI odpytuje aż plik będzie gotowy (omija HTTP 502 przy długim ffmpeg).",
+    });
+  }
+
+  // Sync fallback (short clips / local server without proxy timeout)
+  try {
+    const { exportWithProfile, PROFILES } = require("./lib/export-codecs");
+    const result = exportWithProfile(job.outputPath, profile);
+    const p = PROFILES[profile] || PROFILES.app || result.profile;
+    return sendReady(result.path, p, result.reused);
   } catch (e) {
     console.error("[export codecs]", e.message || e);
     return res.status(500).json({
@@ -2713,7 +2994,7 @@ function normalizeJobOptions(options, originalName) {
   opts.filename = originalName;
   if (opts.narrator == null) opts.narrator = true;
   if (opts.autoTranslate == null) opts.autoTranslate = true;
-  // Default: text for translation as timed transcription (editor 6s grid); false = plain
+  // Default: text for translation as timed transcription (pro STT clocks); false = plain
   if (opts.timedTranscript == null) opts.timedTranscript = true;
   // stt | whisper | captions — exclusive sources (legacy "auto" → stt)
   const srcOk = new Set(["stt", "whisper", "captions"]);

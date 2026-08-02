@@ -18,8 +18,8 @@
     />
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
-    <link rel="stylesheet" href="/css/studio.css?v=20260801audioAi" />
-    <link rel="stylesheet" href="/css/auth.css?v=20260728narronly" />
+    <link rel="stylesheet" href="/css/studio.css?v=20260802export502" />
+    <link rel="stylesheet" href="/css/auth.css?v=20260802export502" />
     <link rel="icon" href="/assets/clipforge-192.png" />
     <link rel="apple-touch-icon" href="/assets/clipforge-192.png" />
   </head>
@@ -592,13 +592,13 @@
                 </p>
               </div>
 
-              <!-- 1) Skąd tekst (zawsze) → wyciągnięcie daje już SEGMENTY przed Start -->
+              <!-- 1) Skąd tekst -->
               <div class="opt-block extract-source-block" id="extract-source-block">
                 <div class="opt-block-title" data-i18n="narrator.extractSrcTitle">
                   1. Skąd wziąć tekst
                 </div>
                 <div class="seg" role="radiogroup" id="extract-source-group">
-                  <label title="Napisy YT → Whisper → Google STT">
+                  <label title="Google STT, potem ewentualnie Whisper / napisy">
                     <input type="radio" name="extract-source" value="auto" checked />
                     <span data-i18n="narrator.extractSrcAuto">⚡ Auto</span>
                   </label>
@@ -606,7 +606,7 @@
                     <input type="radio" name="extract-source" value="stt" />
                     <span data-i18n="narrator.extractSrcStt">🎤 Google STT</span>
                   </label>
-                  <label title="Whisper — muzyka / memy">
+                  <label title="Lokalny Whisper (PC)">
                     <input type="radio" name="extract-source" value="whisper" />
                     <span data-i18n="narrator.extractSrcWhisper">🎧 Whisper</span>
                   </label>
@@ -619,23 +619,32 @@
                   <input type="radio" name="transcript-source" value="stt" checked />
                   <input type="radio" name="transcript-source" value="captions" />
                 </div>
-                <label class="stack mt-sm" id="whisper-model-wrap" hidden>
-                  <span data-i18n="narrator.whisperModelLab">Model Whisper</span>
-                  <select id="opt-whisper-model" title="Większy = lepsza jakość, wolniej">
-                    <option value="tiny">tiny (szybki)</option>
-                    <option value="base" selected>base (zalecany)</option>
-                    <option value="small">small (lepszy)</option>
-                    <option value="medium">medium (wolny, dokładny)</option>
-                  </select>
-                </label>
                 <p class="hint compact" data-i18n="narrator.extractSrcHint">
-                  Auto / STT / Whisper / napisy. Tekst ma być w segmentach zanim klikniesz Start
-                  (Wyodrębnij albo automat przy Start).
-                </p>
-                <p class="hint compact" id="whisper-status" data-i18n="narrator.whisperStatusWait">
-                  Sprawdzam Whisper…
+                  Wybierz jedno źródło. Wyodrębnij = goły tekst. Start = segmenty co 4 s (źródło + tłumaczenie).
                 </p>
                 <p class="hint compact" id="transcript-source-hint" hidden></p>
+
+                <!-- Whisper: własny panel — widoczny TYLKO przy «Whisper» -->
+                <div class="whisper-only-panel" id="whisper-only-panel" hidden>
+                  <div class="opt-block-title whisper-panel-title" data-i18n="narrator.whisperPanelTitle">
+                    🎧 Ustawienia Whisper
+                  </div>
+                  <p class="hint compact" data-i18n="narrator.whisperPanelHint">
+                    Te opcje dotyczą wyłącznie silnika Whisper — nie Google STT, nie napisów, nie przeredagowania.
+                  </p>
+                  <label class="stack mt-sm" id="whisper-model-wrap">
+                    <span data-i18n="narrator.whisperModelLab">Model Whisper</span>
+                    <select id="opt-whisper-model" title="Dotyczy wyłącznie źródła Whisper">
+                      <option value="tiny">tiny (szybki)</option>
+                      <option value="base" selected>base (zalecany)</option>
+                      <option value="small">small (lepszy)</option>
+                      <option value="medium">medium (wolny, dokładny)</option>
+                    </select>
+                  </label>
+                  <p class="hint compact" id="whisper-status" data-i18n="narrator.whisperStatusWait">
+                    Sprawdzam Whisper…
+                  </p>
+                </div>
               </div>
 
               <!-- 2) Tłumacz / język (po źródle tekstu) -->
@@ -778,28 +787,27 @@
               <!-- Opcjonalnie: popraw goły tekst w polu (narzędzia odczytu są WYŻEJ) -->
               <label
                 class="inline editor-master"
-                title="Pokaż pole: Wyodrębnij tekst w segmentach, popraw, potem Start"
+                title="Pokaż pole: Wyodrębnij goły tekst, popraw, Start (Pro segmentuje)"
               >
                 <input type="checkbox" id="opt-timed-transcript" checked />
                 <span data-i18n="narrator.timedTrLab">📥 Tekst do edytora</span>
               </label>
               <p class="hint compact" data-i18n="narrator.timedTrHintOff" id="timed-tr-hint-off" hidden>
-                Wyłączone: Start sam bierze i segmentuje tekst ze źródła. Zaznacz, by poprawić segmenty w polu przed Start.
+                Wyłączone: Start sam wyciąga goły tekst ze źródła. Zaznacz, by najpierw poprawić w polu.
               </p>
 
               <div class="editor-advanced" id="editor-advanced">
-                <p class="hint compact" data-i18n="narrator.timedTrHint">
-                  Wyodrębnij → tekst już w segmentach (6s) → popraw → Start. Bez ręcznego Wyodrębnij
-                  Start i tak segmentuje automatycznie ze źródła wyżej.
+                <p class="hint compact" id="timed-tr-hint" data-i18n="narrator.timedTrHint">
+                  Wyodrębnij → goły tekst w polu → Start (segmenty co 4 s: źródło + tłumaczenie).
                 </p>
 
                 <div class="pre-stt-bar" id="pre-stt-bar">
                   <button type="button" class="btn ghost sm" id="btn-extract-transcript">
-                    <span data-i18n="narrator.extractBtn">📥 Wyodrębnij (segmenty)</span>
+                    <span id="extract-btn-label" data-i18n="narrator.extractBtn">📥 Wyodrębnij (goły tekst)</span>
                   </button>
                   <label class="inline pre-stt-timed" title="Bez tłumaczenia przy wyciąganiu">
                     <input type="checkbox" id="opt-extract-no-tr" />
-                    <span data-i18n="narrator.extractNoTr">tylko oryginał</span>
+                    <span id="extract-no-tr-label" data-i18n="narrator.extractNoTr">tylko oryginał (goły)</span>
                   </label>
                   <span class="hint" id="extract-transcript-status" aria-live="polite"></span>
                 </div>
@@ -808,10 +816,13 @@
                   <div class="opt-block-title" data-i18n="narrator.smartRewriteTitle">
                     Przeredagowanie do długości filmu
                   </div>
-                  <label class="inline" title="Skróć tekst do długości filmu (przed segmentami)">
+                  <label
+                    class="inline"
+                    title="Skróć tekst do długości filmu (niezależne od Whisper — to nie model STT)"
+                  >
                     <input type="checkbox" id="opt-smart-rewrite" checked />
                     <span data-i18n="narrator.smartRewriteLab"
-                      >🧠 Przeredagowanie (≤ długość filmu)</span
+                      >🧠 Inteligentne przeredagowanie (≤ długość filmu)</span
                     >
                   </label>
                   <label class="inline" id="opt-use-ollama-wrap" title="Wymaga Ollamy na PC">
@@ -838,7 +849,7 @@
                     id="opt-script"
                     rows="8"
                     data-i18n-placeholder="narrator.scriptPh"
-                    placeholder="[00:00 → 00:06] segment… Wyodrębnij ze źródła wyżej."
+                    placeholder="Goły tekst po Wyodrębnij… Pro segmentuje przy Start."
                   ></textarea>
                 </label>
                 <p class="hint compact" data-i18n="narrator.scriptHint">
@@ -1171,9 +1182,9 @@
       <span data-i18n="footer">ClipForge · FacePub · LOKALNIE NA TWOIM PC · :3847</span>
     </footer>
 
-    <script src="/js/i18n.js?v=20260801ed8src"></script>
-    <script src="/js/auth-ui.js?v=20260731compare"></script>
-    <script src="/js/studio.js?v=20260801fieldOnly"></script>
+    <script src="/js/i18n.js?v=20260802export502"></script>
+    <script src="/js/auth-ui.js?v=20260802export502"></script>
+    <script src="/js/studio.js?v=20260802export502"></script>
     <script>
       (function () {
         const I = window.ClipForgeI18n;

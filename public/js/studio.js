@@ -59,26 +59,72 @@
         })
         .join("\n");
     }
-    // Continuous blob → 6s hop segments (~14 words ≈ one hop of speech)
+    // Continuous blob → natural sentence/density chunks (not fixed 6s hop)
     const plain = raw
       .replace(/^\s*\[\s*\d{1,2}:\d{2}[^\]]*\]\s*/gm, "")
       .replace(/\s+/g, " ")
       .trim();
     const words = plain.split(/\s+/).filter(Boolean);
     if (words.length <= 16) return plain;
-    const hop = 6;
-    const wordsPerSeg = 14;
     const fmt = (t) => {
       const m = Math.floor(t / 60);
       const s = (t - m * 60).toFixed(2).padStart(5, "0");
       return String(m).padStart(2, "0") + ":" + s;
     };
+    // Pack by sentences ~14–18 words, soft max ~200 chars
+    const sentences = plain
+      .split(/(?<=[.!?…])\s+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const chunks = [];
+    let buf = "";
+    const units = sentences.length ? sentences : words;
+    const isWordMode = !sentences.length;
+    const pushWordUnits = () => {
+      for (let i = 0; i < words.length; ) {
+        let n = 0;
+        let c = "";
+        while (i + n < words.length && n < 16) {
+          const next = c ? c + " " + words[i + n] : words[i + n];
+          if (n > 0 && next.length > 200) break;
+          c = next;
+          n++;
+        }
+        if (!n) {
+          c = words[i];
+          n = 1;
+        }
+        chunks.push(c);
+        i += n;
+      }
+    };
+    if (isWordMode) {
+      pushWordUnits();
+    } else {
+      for (const u of units) {
+        if (!buf) {
+          buf = u;
+          continue;
+        }
+        if ((buf + " " + u).length <= 200) buf = buf + " " + u;
+        else {
+          chunks.push(buf);
+          buf = u;
+        }
+      }
+      if (buf) chunks.push(buf);
+    }
+    if (chunks.length < 2) return plain;
+    const total = chunks.reduce((a, c) => a + Math.max(1, c.length), 0) || 1;
+    let t = 0;
     const lines = [];
-    for (let i = 0, s = 0; i < words.length; i += wordsPerSeg, s++) {
-      const chunk = words.slice(i, i + wordsPerSeg).join(" ");
-      const t0 = s * hop;
-      const t1 = t0 + hop;
-      lines.push("[" + fmt(t0) + " → " + fmt(t1) + "] " + chunk);
+    for (let i = 0; i < chunks.length; i++) {
+      const portion = Math.max(1, chunks[i].length) / total;
+      const span = Math.max(1.2, portion * Math.max(chunks.length * 4, 12));
+      const t0 = t;
+      const t1 = t + span;
+      lines.push("[" + fmt(t0) + " → " + fmt(t1) + "] " + chunks[i]);
+      t = t1;
     }
     return lines.join("\n");
   }
@@ -917,7 +963,12 @@
   }
 
   function whisperModel() {
-    return $("#opt-whisper-model")?.value || "base";
+    const v = String($("#opt-whisper-model")?.value || "base")
+      .trim()
+      .toLowerCase();
+    // Allowed models; default base (already installed / fast)
+    if (v === "tiny" || v === "base" || v === "small" || v === "medium") return v;
+    return "base";
   }
 
   /** Cached Whisper probe */
@@ -925,9 +976,22 @@
   async function isWhisperAvailable() {
     if (Date.now() - _whisperOkCache.t < 45000) return _whisperOkCache.ok;
     try {
+      const ac =
+        typeof AbortController !== "undefined" ? new AbortController() : null;
+      const to = ac
+        ? setTimeout(() => {
+            try {
+              ac.abort();
+            } catch {
+              /* ignore */
+            }
+          }, 8000)
+        : null;
       const res = await fetch("/api/studio/whisper-status", {
         credentials: "same-origin",
+        signal: ac ? ac.signal : undefined,
       });
+      if (to) clearTimeout(to);
       const st = await res.json().catch(() => ({}));
       _whisperOkCache = { t: Date.now(), ok: !!(st && st.ok) };
       return _whisperOkCache.ok;
@@ -937,25 +1001,42 @@
     }
   }
 
-  /** Auto cascade order for extract when source = auto */
+  /** Auto cascade: STT first; Whisper only if explicitly selected or STT empty */
   async function resolveExtractSourceOrder() {
     const mode = extractSource();
     if (mode === "stt" || mode === "whisper" || mode === "captions") {
       return [mode];
     }
-    const order = [];
-    const url = typeof videoUrlInput === "function" ? videoUrlInput() : "";
-    if (url && /youtube\.com|youtu\.be/i.test(url)) order.push("captions");
+    // Auto: Google STT first (not Whisper options). Whisper as fallback, captions last.
+    const order = ["stt"];
     if (await isWhisperAvailable()) order.push("whisper");
-    order.push("stt");
+    const url = typeof videoUrlInput === "function" ? videoUrlInput() : "";
+    if (
+      url &&
+      /youtube\.com|youtu\.be/i.test(url) &&
+      (typeof pcAgentOnline === "undefined" || pcAgentOnline)
+    ) {
+      order.push("captions");
+    }
     return order.filter((s, i, a) => a.indexOf(s) === i);
   }
 
   function syncExtractSourceUi() {
-    const wrap = $("#whisper-model-wrap");
+    const panel = $("#whisper-only-panel");
     const mode = extractSource();
-    // Whisper model for whisper OR auto (may use Whisper)
-    if (wrap) wrap.hidden = mode !== "whisper" && mode !== "auto";
+    // Cały panel Whisper TYLKO przy radio «Whisper»
+    const whisperOn = mode === "whisper";
+    if (panel) {
+      panel.hidden = !whisperOn;
+      panel.setAttribute("aria-hidden", whisperOn ? "false" : "true");
+    }
+    if (whisperOn) {
+      try {
+        refreshWhisperStatus();
+      } catch {
+        /* ignore */
+      }
+    }
     // Keep legacy transcript-source radios in sync for Start path
     const caps = mode === "captions";
     const rStt = document.querySelector(
@@ -1023,8 +1104,10 @@
       el.classList.add("is-err");
     }
   }
-  refreshWhisperStatus();
-  setInterval(refreshWhisperStatus, 60000);
+  // Status Whisper tylko gdy panel widoczny (nie spamuj przy Auto/STT)
+  setInterval(() => {
+    if (extractSource() === "whisper") refreshWhisperStatus();
+  }, 60000);
 
   /** Drop [Music], [muzyka], (Applause), ♪ — non-speech caption tags */
   function stripNonSpeechLabelsClient(text) {
@@ -1177,18 +1260,24 @@
   }
 
   function extractPayloadHasText(data) {
-    if (!data || data.ok === false) return false;
+    if (!data) return false;
+    // ok:false with no text = empty; but if any text exists, accept it
     const chunks = [
-      data.text,
-      data.script,
       data.plainText,
       data.plainOriginal,
+      data.text,
+      data.script,
+      data.scriptPlain,
+      data.originalText,
       data.timedText,
       data.timedScript,
-      data.originalText,
     ];
     for (const c of chunks) {
-      if (String(c || "").replace(/\s+/g, " ").trim().length >= 8) return true;
+      const t = String(c || "")
+        .replace(/^\s*\[\s*\d{1,2}:\d{2}[^\]]*\]\s*/gm, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (t.length >= 3) return true;
     }
     return false;
   }
@@ -1286,33 +1375,30 @@
 
   /**
    * Apply extract → #opt-script.
-   * ALWAYS prefer hop-segmented lines (before Start). Plain only as fallback.
+   * ALWAYS continuous plain text. Never timed 6s/1:1 segments in the editor.
+   * 5-block segmentation happens only on Start (pipeline).
    */
   function applyExtractPayload(data, wantTimed, onlyOriginal, tgtLang, setSt) {
-    const plainPrefer = String(
-      data.plainText || data.plainOriginal || ""
-    ).trim();
-    const raw = String(data.text || data.script || "").trim();
-    const timed = String(data.timedText || data.timedScript || "").trim();
-    const timedRaw =
-      timed ||
-      (countExactCues(raw) >= 1 ? raw : "") ||
-      (countExactCues(plainPrefer) >= 1 ? plainPrefer : "");
-    const timedClean = cleanTimedScriptText(timedRaw);
-    const plainClean = toPlainScriptText(
-      plainPrefer || (countExactCues(raw) ? "" : raw) || timed
-    );
-    let useText = "";
-    let isTimed = false;
-    // Segmented first — required before Start
-    if (timedClean && countExactCues(timedClean) >= 1) {
-      useText = timedClean;
-      isTimed = true;
-    } else if (plainClean) {
-      useText = plainClean;
-      isTimed = false;
+    // Prefer plain* fields; strip any [mm:ss→mm:ss] cue lines if server/agent sent timed
+    const candidates = [
+      data.plainText,
+      data.plainOriginal,
+      data.scriptPlain,
+      data.text,
+      data.script,
+      data.originalText,
+      data.timedText,
+      data.timedScript,
+    ];
+    let plainClean = "";
+    for (const c of candidates) {
+      const p = toPlainScriptText(c);
+      if (p && p.length >= 3) {
+        plainClean = p;
+        break;
+      }
     }
-    if (!useText) {
+    if (!plainClean) {
       setSt(
         data.error ||
           tr(
@@ -1323,7 +1409,7 @@
       );
       return false;
     }
-    // Touch ONLY the translation/script field (+ empty title if missing)
+    const useText = plainClean.replace(/\s+/g, " ").trim();
     const ta = $("#opt-script");
     if (ta) {
       ta.value = useText;
@@ -1335,23 +1421,15 @@
       titleEl.dispatchEvent(new Event("input", { bubbles: true }));
     }
     refreshLangBadge();
-    const nCues = isTimed ? countExactCues(useText) : 0;
+    // Status: never "segmenty / 1:1 / 6s" — extract = raw only
     const meta = [
-      isTimed
-        ? tr(
-            "narrator.extractMetaExact",
-            "pole · {n} cue (surowe) · segmentacja przy Start"
-          ).replace("{n}", String(nCues || data.exactCueCount || "?"))
-        : tr(
-            "narrator.extractMetaPlain",
-            "pole · ciągły tekst · segmenty przy Start"
-          ),
+      tr("narrator.extractMetaPlain", "pole · goły tekst · co 4 s przy Start"),
       data.translated && !onlyOriginal
         ? tr("narrator.extractMetaTr", "przetłumaczono") +
           " → " +
           (data.targetLang || tgtLang)
         : tr("narrator.extractMetaOrig", "oryginał"),
-      data.engine ? String(data.engine) : null,
+      data.engine ? String(data.engine).replace(/\+partial/g, "") : null,
       data.durationSec
         ? "~" + Math.round(Number(data.durationSec)) + "s"
         : null,
@@ -1364,47 +1442,116 @@
             ? tr("narrator.rewriteMetaSimple", "proste skrócenie")
             : null,
       data.fromUrl ? "URL" : null,
+      useText.length + " znaków",
     ]
       .filter(Boolean)
       .join(" · ");
-    const okMsg = isTimed
-      ? tr(
-          "narrator.extractOkExact",
-          "W edytorze: tekst w segmentach (gotowe przed Start)."
-        )
-      : tr(
-          "narrator.extractOk",
-          "W edytorze: tekst (segmentacja przy następnym kroku)."
-        );
+    const okMsg = tr(
+      "narrator.extractOk",
+      "W edytorze: goły tekst. Segmenty co 4 s przy Start."
+    );
     setSt(okMsg + (meta ? " (" + meta + ")" : ""), "ok");
     return true;
   }
 
-  /** Poll pre-transcribe job from platform URL until script ready */
+  /** Poll pre-transcribe job until plain text ready (or fail fast). */
   async function pollPreTranscribeJob(jobId, wantTimed, onlyOriginal, tgtLang, setSt) {
     const t0 = Date.now();
-    // Whisper + long Google STT on agent can take 20–40+ min — was 12 min and aborted
+    // Whisper + long Google STT on agent can take a while
     const maxMs = 50 * 60 * 1000;
+    let miss = 0;
+    let lastProg = -1;
+    let stuckSince = Date.now();
     while (Date.now() - t0 < maxMs) {
       await new Promise((r) => setTimeout(r, 2000));
-      const res = await fetch("/api/studio/jobs/" + jobId + "?_=" + Date.now(), {
-        credentials: "same-origin",
-        cache: "no-store",
-      });
+      let res;
+      try {
+        res = await fetch("/api/studio/jobs/" + jobId + "?_=" + Date.now(), {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+      } catch (netErr) {
+        miss += 1;
+        setSt(
+          tr("narrator.extractBusyUrl", "Z linku: {stage}")
+            .replace("{stage}", "sieć…") +
+            " · " +
+            (netErr.message || "offline"),
+          "busy"
+        );
+        if (miss >= 15) {
+          throw new Error(
+            "Brak odpowiedzi o statusie joba (sieć). Sprawdź PC · ON i spróbuj ponownie."
+          );
+        }
+        continue;
+      }
+      if (!res.ok) {
+        miss += 1;
+        setSt(
+          "Status joba HTTP " + res.status + " · czekam… (" + miss + ")",
+          "busy"
+        );
+        if (miss >= 20) {
+          throw new Error(
+            "HTTP " +
+              res.status +
+              " przy statusie joba — odśwież stronę, sprawdź PC · ON."
+          );
+        }
+        continue;
+      }
+      miss = 0;
       const data = await res.json().catch(() => ({}));
       const job = data.job;
-      if (!job) continue;
-      const stage = job.stage || "";
+      if (!job) {
+        miss += 1;
+        setSt("Czekam na job " + String(jobId).slice(0, 8) + "…", "busy");
+        if (miss >= 20) throw new Error("Job zniknął z kolejki — spróbuj Wyodrębnij ponownie.");
+        continue;
+      }
+      const stage = job.stage || job.status || "…";
       const live = job.liveScript || job.liveOriginal || "";
+      const prog = Number(job.progress) || 0;
       const elapsedMin = Math.round((Date.now() - t0) / 60000);
+      const elapsedSec = Math.round((Date.now() - t0) / 1000);
+      if (prog !== lastProg) {
+        lastProg = prog;
+        stuckSince = Date.now();
+      }
+      // Queued forever with agent offline / reclaim loop
+      if (
+        job.status === "queued" &&
+        elapsedSec > 90 &&
+        (typeof pcAgentOnline === "undefined" || !pcAgentOnline)
+      ) {
+        throw new Error(
+          "Job w kolejce, a PC · OFF — włącz agenta (RUN-AGENT.bat) i wyodrębnij ponownie."
+        );
+      }
       if (job.status === "running" || job.status === "queued") {
         setSt(
           tr("narrator.extractBusyUrl", "Z linku: {stage}")
             .replace("{stage}", stage || "…") +
-            (live ? " · " + String(live).slice(0, 40) + "…" : "") +
-            (elapsedMin >= 2 ? " · " + elapsedMin + " min" : ""),
+            (prog > 0 ? " · " + prog + "%" : "") +
+            (live ? " · " + String(live).slice(0, 36) + "…" : "") +
+            (elapsedMin >= 1 ? " · " + elapsedMin + " min" : " · " + elapsedSec + "s"),
           "busy"
         );
+        // No progress for 12 min while "running" at ≤2% → fail so Auto can try next source
+        if (
+          job.status === "running" &&
+          prog <= 2 &&
+          Date.now() - stuckSince > 12 * 60 * 1000
+        ) {
+          throw new Error(
+            "Agent stoi na " +
+              prog +
+              "% (" +
+              stage +
+              "). Sprawdź okno PC-Agent albo wybierz inny silnik (Whisper/STT)."
+          );
+        }
         continue;
       }
       if (job.status === "failed") {
@@ -1412,41 +1559,50 @@
       }
       if (job.status === "done") {
         const r = job.result || {};
+        // Prefer plain continuous — never inject timed segs into extract field
+        const plain =
+          r.plainText ||
+          r.scriptPlain ||
+          r.script ||
+          job.liveScript ||
+          "";
         return applyExtractPayload(
           {
-            text: r.scriptPlain || r.script || job.liveScript || "",
-            plainText:
-              r.scriptPlain ||
-              r.plainText ||
-              r.script ||
-              job.liveScript ||
+            text: plain,
+            plainText: plain,
+            timedText: "",
+            originalText:
+              r.originalText ||
+              r.plainOriginal ||
+              r.language?.original ||
+              job.liveOriginal ||
               "",
-            timedText: r.timedScript || r.language?.timedScript || "",
-            originalText: r.originalText || r.language?.original || job.liveOriginal,
             translated: !!(r.language && r.language.translated),
             engine: r.engine || null,
             langCode: r.language?.sourceLang?.code || null,
             targetLang: tgtLang,
             durationSec: r.duration || null,
-            exactCueCount: r.exactCueCount || r.segments || null,
-            transcriptMode: r.transcriptMode || null,
-            segments: r.exactCueCount || r.segments || null,
+            exactCueCount: 0,
+            transcriptMode: "plain-raw",
+            segments: 0,
             rewriteEngine: r.rewriteEngine || null,
             ollamaModel: r.ollamaModel || null,
             fromUrl: true,
             title: job.originalName,
           },
-          wantTimed,
+          false,
           onlyOriginal,
           tgtLang,
           setSt
         );
       }
+      // Unknown status
+      throw new Error("Nieznany status joba: " + (job.status || "?"));
     }
     throw new Error(
       tr(
         "narrator.extractUrlTimeout",
-        "Timeout STT z linku (~50 min) — agent PC nadal może pracować; sprawdź okno agenta albo skróć film / użyj napisów."
+        "Timeout STT (~50 min) — sprawdź okno agenta PC, skróć film lub użyj Whisper/napisów."
       )
     );
   }
@@ -1515,59 +1671,100 @@
     setSt(busyMsgForSource(srcMode, wModel, onlyOriginal), "busy");
     let res;
     let data;
-    if (selectedFile) {
-      const fd = new FormData();
-      fd.append("video", selectedFile, selectedFile.name || "video.mp4");
-      fd.append("sourceLang", srcLang);
-      fd.append("targetLang", tgtLang);
-      fd.append("autoTranslate", onlyOriginal ? "0" : "1");
-      fd.append("timedTranscript", wantTimed ? "1" : "0");
-      fd.append("smartRewrite", smartRewrite ? "1" : "0");
-      fd.append("useOllama", useOllama ? "1" : "0");
-      fd.append("transcriptSource", srcMode);
-      fd.append("sttEngine", srcMode === "whisper" ? "whisper" : "google");
-      fd.append("whisperModel", wModel);
-      const speedMode = getTextSpeedMode();
-      fd.append("speechPace", speedMode);
-      fd.append("textSpeedMode", speedMode);
-      fd.append("textSpeed", String(getTextSpeedValue()));
-      res = await fetch("/api/studio/transcribe", {
-        method: "POST",
-        body: fd,
-        credentials: "same-origin",
-      });
+    try {
+      if (selectedFile) {
+        // Local file always wins — never send broken URL from the link field
+        const fd = new FormData();
+        fd.append("video", selectedFile, selectedFile.name || "video.mp4");
+        fd.append("sourceLang", srcLang);
+        fd.append("targetLang", tgtLang);
+        fd.append("autoTranslate", onlyOriginal ? "0" : "1");
+        fd.append("timedTranscript", "0");
+        fd.append("smartRewrite", smartRewrite ? "1" : "0");
+        fd.append("useOllama", useOllama ? "1" : "0");
+        fd.append("transcriptSource", srcMode);
+        fd.append("sttEngine", srcMode === "whisper" ? "whisper" : "google");
+        if (srcMode === "whisper") fd.append("whisperModel", wModel);
+        const speedMode = getTextSpeedMode();
+        fd.append("speechPace", speedMode);
+        fd.append("textSpeedMode", speedMode);
+        fd.append("textSpeed", String(getTextSpeedValue()));
+        fd.append(
+          "proNarrator",
+          $("#opt-pro-narrator")?.checked !== false ? "1" : "0"
+        );
+        res = await fetch("/api/studio/transcribe", {
+          method: "POST",
+          body: fd,
+          credentials: "same-origin",
+        });
+      } else {
+        if (!url || !isLikelyVideoUrl(url)) {
+          throw new Error(
+            tr(
+              "narrator.extractBadUrl",
+              "Nieprawidłowy adres URL — wklej pełny link https://… albo wrzuć plik wideo."
+            )
+          );
+        }
+        const speedMode = getTextSpeedMode();
+        res = await fetch("/api/studio/transcribe", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url,
+            sourceLang: srcLang,
+            targetLang: tgtLang,
+            autoTranslate: !onlyOriginal,
+            timedTranscript: false,
+            smartRewrite,
+            useOllama,
+            transcriptSource: srcMode,
+            sttEngine: srcMode === "whisper" ? "whisper" : "google",
+            ...(srcMode === "whisper" ? { whisperModel: wModel } : {}),
+            speechPace: speedMode,
+            textSpeechPace: speedMode,
+            textSpeedMode: speedMode,
+            textSpeed: getTextSpeedValue(),
+            proNarrator: $("#opt-pro-narrator")?.checked !== false,
+          }),
+        });
+      }
       data = await res.json().catch(() => ({}));
-    } else {
-      const speedMode = getTextSpeedMode();
-      res = await fetch("/api/studio/transcribe", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          sourceLang: srcLang,
-          targetLang: tgtLang,
-          autoTranslate: !onlyOriginal,
-          timedTranscript: wantTimed,
-          smartRewrite,
-          useOllama,
-          transcriptSource: srcMode,
-          sttEngine: srcMode === "whisper" ? "whisper" : "google",
-          whisperModel: wModel,
-          speechPace: speedMode,
-          textSpeechPace: speedMode,
-          textSpeedMode: speedMode,
-          textSpeed: getTextSpeedValue(),
-        }),
-      });
-      data = await res.json().catch(() => ({}));
+    } catch (netErr) {
+      const raw = String((netErr && netErr.message) || netErr || "");
+      if (/failed to fetch|networkerror|load failed|network request failed/i.test(raw)) {
+        throw new Error(
+          "Failed to fetch — serwer nie odpowiedział. " +
+            "Najczęściej: PC · OFF (odpal RUN-AGENT.bat) albo chmura urwała długie STT. " +
+            "1) Zielony chip «PC · ON»  2) Ctrl+F5  3) Wyodrębnij znowu."
+        );
+      }
+      throw netErr;
     }
     if (!res.ok) {
-      const err = new Error(data.error || "HTTP " + res.status);
+      let msg = data.error || "";
+      if (!msg) {
+        if (res.status === 502 || res.status === 504) {
+          msg =
+            "HTTP " +
+            res.status +
+            " — chmura urwała STT. Włącz PC · ON i wyodrębnij ponownie (odczyt na PC).";
+        } else if (res.status === 503) {
+          msg =
+            "HTTP 503 — włącz PC · ON (⬇ PC → RUN-AGENT.bat) i spróbuj znowu.";
+        } else {
+          msg = "HTTP " + res.status;
+        }
+      }
+      const err = new Error(msg);
       err._extractData = data;
+      err._status = res.status;
+      err.needPcAgent = !!(data && data.needPcAgent);
       throw err;
     }
-    // Platform URL → agent job — poll until script ready
+    // Platform URL or uploaded file → agent job — poll until plain text ready
     if (data.pending && data.jobId) {
       setSt(
         srcMode === "captions"
@@ -1575,10 +1772,15 @@
               "narrator.extractBusyAgentCaps",
               "Agent PC: napisy YouTube z linku…"
             )
-          : tr(
-              "narrator.extractBusyAgent",
-              "Agent PC: pobieranie + STT z dźwięku…"
-            ),
+          : data.via === "pc-agent"
+            ? tr(
+                "narrator.extractBusyAgentFile",
+                "Agent PC: czytam plik (goły tekst)…"
+              )
+            : tr(
+                "narrator.extractBusyAgent",
+                "Agent PC: pobieranie + STT z dźwięku…"
+              ),
         "busy"
       );
       const applied = await pollPreTranscribeJob(
@@ -1618,9 +1820,13 @@
     return { ok: !!applied, data, applied: !!applied };
   }
 
+  /** Prevent double extract / stuck disabled button */
+  let extractInFlight = false;
+
   /**
    * Extract → #opt-script. Requires «Tekst do edytora» ON.
    * Source: auto (cascade) or forced stt|whisper|captions.
+   * Extract = RAW text only; Pro segments on Start.
    */
   async function extractTranscriptToField() {
     const status = $("#extract-transcript-status");
@@ -1631,6 +1837,13 @@
       status.classList.remove("is-busy", "is-ok", "is-err");
       if (kind) status.classList.add("is-" + kind);
     };
+    if (extractInFlight) {
+      setSt(
+        tr("narrator.extractBusy", "Już trwa wyodrębnianie…"),
+        "busy"
+      );
+      return;
+    }
     // Auto-open editor panel if user triggered extract somehow without checkbox
     if (!wantEditorFill()) {
       const ed = $("#opt-timed-transcript");
@@ -1640,6 +1853,7 @@
       }
     }
     const url = videoUrlInput();
+    // Prefer local file over URL field junk
     if (!selectedFile && !url) {
       setSt(
         tr(
@@ -1650,8 +1864,37 @@
       );
       return;
     }
+    if (!selectedFile && url && !isLikelyVideoUrl(url)) {
+      setSt(
+        tr(
+          "narrator.extractBadUrl",
+          "Nieprawidłowy adres URL — wklej pełny link https://… albo wrzuć plik wideo."
+        ),
+        "err"
+      );
+      return;
+    }
+    // URL needs agent (YouTube / platform) — file upload can use agent or local
+    if (
+      !selectedFile &&
+      url &&
+      typeof pcAgentOnline !== "undefined" &&
+      !pcAgentOnline
+    ) {
+      setSt(
+        tr(
+          "narrator.extractNeedAgent",
+          "Z linku potrzebny PC · ON. Odpal RUN-AGENT.bat, potem Wyodrębnij."
+        ),
+        "err"
+      );
+      return;
+    }
     const mode = extractSource();
-    if (mode === "captions" && (!url || !/youtube\.com|youtu\.be/i.test(url))) {
+    if (
+      mode === "captions" &&
+      (!url || !/youtube\.com|youtu\.be/i.test(url))
+    ) {
       setSt(
         tr(
           "narrator.extractCapsNeedYt",
@@ -1661,8 +1904,8 @@
       );
       return;
     }
-    // Segmenty 6s już przy Wyodrębnij — przed Start
-    const wantTimed = true;
+    // Wyodrębnij = goły tekst; segmentacja Pro dopiero przy Start
+    const wantTimed = false;
     const smartRewrite = wantSmartRewrite();
     const useOllama = wantUseOllama();
     const onlyOriginal = !!$("#opt-extract-no-tr")?.checked;
@@ -1679,9 +1922,21 @@
       const autoTr = $("#opt-auto-translate");
       if (autoTr) autoTr.checked = true;
     }
+    extractInFlight = true;
     if (btn) btn.disabled = true;
     const wModel = whisperModel();
-    const order = await resolveExtractSourceOrder();
+    let order;
+    try {
+      order = await resolveExtractSourceOrder();
+    } catch (e) {
+      extractInFlight = false;
+      if (btn) btn.disabled = false;
+      setSt(
+        tr("narrator.extractFail", "Błąd: ") + (e.message || e),
+        "err"
+      );
+      return;
+    }
     const ctx = {
       wantTimed,
       smartRewrite,
@@ -1695,45 +1950,55 @@
     };
     const errors = [];
     try {
-      if (mode === "auto" && order.length > 1) {
-        setSt(
-          tr(
-            "narrator.extractBusyAuto",
-            "Do edytora · Auto: {sources}…"
-          ).replace("{sources}", order.join(" → ")),
-          "busy"
-        );
-      }
+      setSt(
+        mode === "auto"
+          ? tr(
+              "narrator.extractBusyAuto",
+              "Do edytora · Auto (goły tekst): {sources}…"
+            ).replace("{sources}", order.join(" → "))
+          : busyMsgForSource(order[0] || mode, wModel, onlyOriginal),
+        "busy"
+      );
       for (let i = 0; i < order.length; i++) {
         const srcMode = order[i];
         try {
-          if (mode === "auto" && order.length > 1) {
-            setSt(
-              tr(
-                "narrator.extractBusyAutoStep",
-                "Do edytora · {src} ({i}/{n})…"
-              )
-                .replace("{src}", srcMode)
-                .replace("{i}", String(i + 1))
-                .replace("{n}", String(order.length)),
-              "busy"
-            );
-          }
+          setSt(
+            tr(
+              "narrator.extractBusyAutoStep",
+              "Do edytora · {src} ({i}/{n}) — goły tekst…"
+            )
+              .replace("{src}", srcMode)
+              .replace("{i}", String(i + 1))
+              .replace("{n}", String(order.length)),
+            "busy"
+          );
           const result = await runOneExtractSource(srcMode, ctx);
           if (result.applied) {
-            if (mode === "auto" && status && status.textContent) {
-              status.textContent +=
-                " · " +
+            setSt(
+              (status && status.textContent
+                ? status.textContent.replace(/\s*·\s*$/, "") + " · "
+                : "") +
                 tr("narrator.extractViaSrc", "źródło: {src}").replace(
                   "{src}",
                   srcMode
-                );
-            }
+                ),
+              "ok"
+            );
+            // applyExtractPayload already set ok status — keep it
             return;
           }
           if (result.empty) errors.push(srcMode + ": pusto");
         } catch (e) {
           errors.push(srcMode + ": " + (e.message || e));
+          setSt(
+            tr("narrator.extractBusyAutoStep", "Do edytora · {src}…")
+              .replace("{src}", srcMode + " ✗")
+              .replace("{i}", String(i + 1))
+              .replace("{n}", String(order.length)) +
+              " → " +
+              (e.message || e).toString().slice(0, 80),
+            "busy"
+          );
           if (i < order.length - 1) continue;
           throw e;
         }
@@ -1746,8 +2011,14 @@
         "err"
       );
     } catch (e) {
-      setSt(tr("narrator.extractFail", "Błąd: ") + (e.message || e), "err");
+      setSt(
+        tr("narrator.extractFail", "Błąd transkrypcji: ") +
+          (e.message || e) +
+          (errors.length > 1 ? " [" + errors.join("; ") + "]" : ""),
+        "err"
+      );
     } finally {
+      extractInFlight = false;
       if (btn) btn.disabled = false;
     }
   }
@@ -2577,7 +2848,27 @@
   setTimeout(() => isStudioBusy().catch(() => {}), 400);
 
   function videoUrlInput() {
-    return ($("#opt-video-url")?.value || "").trim();
+    let u = ($("#opt-video-url")?.value || "").trim();
+    // Normalize paste without scheme (youtube.com/…)
+    if (u && !/^https?:\/\//i.test(u) && /^[\w.-]+\.[a-z]{2,}/i.test(u)) {
+      u = "https://" + u;
+    }
+    return u;
+  }
+
+  function isLikelyVideoUrl(u) {
+    const s = String(u || "").trim();
+    if (!s) return false;
+    try {
+      const x = new URL(
+        !/^https?:\/\//i.test(s) && /^[\w.-]+\.[a-z]/i.test(s)
+          ? "https://" + s
+          : s
+      );
+      return x.protocol === "http:" || x.protocol === "https:";
+    } catch {
+      return false;
+    }
   }
 
   function hasVideoSource() {
@@ -3084,6 +3375,7 @@
       if (!btn || btn.disabled) return;
       const profile = btn.getAttribute("data-export") || "app";
       const jid = box.dataset.jobId || (lastDoneJob && lastDoneJob.id);
+      const liveJob = lastDoneJob && lastDoneJob.id === jid ? lastDoneJob : job;
       if (!jid) {
         setEx(
           tr("result.exportNoJob", "Brak gotowego joba do eksportu."),
@@ -3106,26 +3398,216 @@
       allBtns.forEach((b) => {
         b.disabled = true;
       });
-      try {
-        const url =
-          "/api/studio/jobs/" +
-          encodeURIComponent(jid) +
-          "/export?profile=" +
-          encodeURIComponent(profile) +
-          "&_=" +
-          Date.now();
-        const res = await fetch(url, { credentials: "same-origin" });
-        if (!res.ok) {
-          let errMsg = "HTTP " + res.status;
+
+      /** Wake Render free cold-start (502) before heavy requests */
+      async function wakeStudioCloud(tries) {
+        const n = tries || 6;
+        for (let i = 0; i < n; i++) {
           try {
-            const j = await res.json();
-            if (j && j.error) errMsg = j.error;
+            const r = await fetch(
+              "/api/studio/health?_=" + Date.now(),
+              { credentials: "same-origin", cache: "no-store" }
+            );
+            if (r.ok || r.status < 500) return true;
           } catch (_) {
-            /* ignore */
+            /* retry */
           }
-          throw new Error(errMsg);
+          setEx(
+            tr(
+              "result.exportWake",
+              "Chmura śpi (Render free) — budzę… {n}/{max}"
+            )
+              .replace("{n}", String(i + 1))
+              .replace("{max}", String(n)),
+            "busy"
+          );
+          await new Promise((r) => setTimeout(r, 2500 + i * 500));
         }
-        const blob = await res.blob();
+        return false;
+      }
+
+      async function fetchExportBlob(url, opts) {
+        const o = opts || {};
+        const max502 = o.max502 != null ? o.max502 : 5;
+        let lastErr = null;
+        for (let attempt = 0; attempt <= max502; attempt++) {
+          try {
+            const res = await fetch(url, {
+              credentials: o.credentials != null ? o.credentials : "same-origin",
+              cache: "no-store",
+            });
+            // PC agent / cloud may return JSON redirect for localDisk
+            const ct = (res.headers.get("Content-Type") || "").toLowerCase();
+            if (res.status === 202 || (res.ok && ct.includes("application/json"))) {
+              let j = null;
+              try {
+                j = await res.json();
+              } catch (_) {
+                j = null;
+              }
+              if (j && j.exportUrl) {
+                // Encode on PC agent (localhost) — no cloud 502
+                setEx(
+                  tr(
+                    "result.exportOnPc",
+                    "Koduję na Twoim PC (agent)… bez chmury"
+                  ),
+                  "busy"
+                );
+                return fetchExportBlob(j.exportUrl + (j.exportUrl.includes("?") ? "&" : "?") + "profile=" + encodeURIComponent(profile) + "&_=" + Date.now(), {
+                  credentials: "omit",
+                  max502: 2,
+                });
+              }
+              if (j && (j.status === "encoding" || res.status === 202)) {
+                setEx(
+                  tr(
+                    "result.exportEncoding",
+                    "Kodowanie na serwerze… czekam (omijam 502)"
+                  ),
+                  "busy"
+                );
+                await new Promise((r) => setTimeout(r, 2500));
+                // poll same async endpoint
+                const pollUrl =
+                  url.replace(/([?&])async=0/, "$1async=1") +
+                  (url.includes("async=") ? "" : (url.includes("?") ? "&" : "?") + "async=1") +
+                  "&poll=1&_=" +
+                  Date.now();
+                return fetchExportBlob(pollUrl, o);
+              }
+              if (j && j.error) throw new Error(j.error);
+              if (j && j.downloadUrl) {
+                return fetchExportBlob(
+                  j.downloadUrl +
+                    (j.downloadUrl.includes("?") ? "&" : "?") +
+                    "_=" +
+                    Date.now(),
+                  o
+                );
+              }
+            }
+            if (res.status === 502 || res.status === 503 || res.status === 504) {
+              lastErr = new Error("HTTP " + res.status);
+              if (attempt < max502) {
+                setEx(
+                  tr(
+                    "result.export502",
+                    "HTTP {code} (Render) — budzę i próbuję ponownie… {n}"
+                  )
+                    .replace("{code}", String(res.status))
+                    .replace("{n}", String(attempt + 1)),
+                  "busy"
+                );
+                await wakeStudioCloud(4);
+                await new Promise((r) => setTimeout(r, 2000));
+                continue;
+              }
+              throw new Error(
+                "HTTP " +
+                  res.status +
+                  " — chmura Render free śpi lub timeout. Włącz PC Agent i odśwież wynik, albo spróbuj za minutę."
+              );
+            }
+            if (!res.ok) {
+              let errMsg = "HTTP " + res.status;
+              try {
+                const j = await res.json();
+                if (j && j.error) errMsg = j.error;
+                if (j && j.exportUrl) {
+                  return fetchExportBlob(
+                    j.exportUrl +
+                      (j.exportUrl.includes("profile=")
+                        ? ""
+                        : (j.exportUrl.includes("?") ? "&" : "?") +
+                          "profile=" +
+                          encodeURIComponent(profile)),
+                    { credentials: "omit", max502: 2 }
+                  );
+                }
+              } catch (_) {
+                /* ignore */
+              }
+              throw new Error(errMsg);
+            }
+            // Ready binary
+            if (ct.includes("application/json")) {
+              const j = await res.json();
+              if (j && j.exportUrl) {
+                return fetchExportBlob(
+                  j.exportUrl +
+                    (j.exportUrl.includes("profile=")
+                      ? ""
+                      : (j.exportUrl.includes("?") ? "&" : "?") +
+                        "profile=" +
+                        encodeURIComponent(profile)),
+                  { credentials: "omit", max502: 2 }
+                );
+              }
+              throw new Error((j && j.error) || "Nieoczekiwana odpowiedź JSON");
+            }
+            const blob = await res.blob();
+            return { blob, res };
+          } catch (e) {
+            lastErr = e;
+            const msg = String((e && e.message) || e || "");
+            if (
+              attempt < max502 &&
+              (/Failed to fetch|NetworkError|Load failed|502|503|504/i.test(msg) ||
+                msg === "HTTP 502")
+            ) {
+              setEx(
+                tr(
+                  "result.exportRetry",
+                  "Sieć/502 — ponawiam… {n}"
+                ).replace("{n}", String(attempt + 1)),
+                "busy"
+              );
+              await wakeStudioCloud(3);
+              await new Promise((r) => setTimeout(r, 2000));
+              continue;
+            }
+            throw e;
+          }
+        }
+        throw lastErr || new Error("Eksport nieudany");
+      }
+
+      try {
+        // Prefer direct PC agent export for local-disk results (no Render at all)
+        let url = null;
+        const exportBase =
+          (liveJob && liveJob.exportUrl) ||
+          (job && job.exportUrl) ||
+          null;
+        if (exportBase && (liveJob?.localDisk || job?.localDisk)) {
+          url =
+            exportBase +
+            (exportBase.includes("?") ? "&" : "?") +
+            "profile=" +
+            encodeURIComponent(profile) +
+            "&_=" +
+            Date.now();
+          setEx(
+            tr("result.exportOnPc", "Koduję na Twoim PC (agent)… bez chmury"),
+            "busy"
+          );
+        } else {
+          await wakeStudioCloud(4);
+          url =
+            "/api/studio/jobs/" +
+            encodeURIComponent(jid) +
+            "/export?profile=" +
+            encodeURIComponent(profile) +
+            "&async=1&_=" +
+            Date.now();
+        }
+        const { blob, res } = await fetchExportBlob(url, {
+          credentials: exportBase && (liveJob?.localDisk || job?.localDisk)
+            ? "omit"
+            : "same-origin",
+          max502: 6,
+        });
         if (!blob || blob.size < 200) {
           throw new Error(
             tr("result.exportEmpty", "Pusty plik eksportu — spróbuj ponownie.")
@@ -3136,7 +3618,7 @@
             .replace(/\.[^.]+$/, "") +
           "_clipforge_" +
           profile;
-        const cd = res.headers.get("Content-Disposition") || "";
+        const cd = (res && res.headers.get("Content-Disposition")) || "";
         const m = cd.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
         if (m && m[1]) {
           try {
@@ -3170,10 +3652,12 @@
           "ok"
         );
       } catch (e) {
-        setEx(
-          tr("result.exportFail", "Eksport: ") + (e.message || e),
-          "err"
-        );
+        let msg = String((e && e.message) || e || "błąd");
+        if (/502|503|504|Failed to fetch/i.test(msg)) {
+          msg +=
+            " · Włącz PC · ON (agent), odśwież job i eksportuj ponownie — kodowanie na PC omija Render 502.";
+        }
+        setEx(tr("result.exportFail", "Eksport: ") + msg, "err");
       } finally {
         allBtns.forEach((b) => {
           // re-enable; HEVC may be re-disabled by probe on next wire
@@ -3516,10 +4000,55 @@
     );
   }
 
+  /** Force correct extract labels (kills stale cache of "segmenty 6s") */
+  function forceExtractUiLabels() {
+    const btnLab = $("#extract-btn-label") || $("#btn-extract-transcript span[data-i18n='narrator.extractBtn']");
+    if (btnLab) {
+      btnLab.textContent = tr(
+        "narrator.extractBtn",
+        "📥 Wyodrębnij (goły tekst)"
+      );
+    }
+    const noTr = $("#extract-no-tr-label");
+    if (noTr) {
+      noTr.textContent = tr(
+        "narrator.extractNoTr",
+        "tylko oryginał (goły)"
+      );
+    }
+    const hint = $("#timed-tr-hint");
+    if (hint) {
+      hint.textContent = tr(
+        "narrator.timedTrHint",
+        "Wyodrębnij → goły tekst w polu → Start (segmenty co 4 s: źródło + tłumaczenie)."
+      );
+    }
+    // Nuke any leftover "6s" / wrong labels if old i18n slipped in
+    document.querySelectorAll("#editor-advanced .hint, #extract-btn-label, #btn-extract-transcript").forEach((el) => {
+      const t = el.textContent || "";
+      if (/6s|segmenty \(6|5 bloków/i.test(t) || /Wyodrębnij \(segmenty\)/i.test(t)) {
+        if (el.id === "extract-btn-label" || el.closest("#btn-extract-transcript")) {
+          el.textContent = "📥 Wyodrębnij (goły tekst)";
+        } else if (el.id === "timed-tr-hint" || (el.hasAttribute("data-i18n") && el.getAttribute("data-i18n") === "narrator.timedTrHint")) {
+          el.textContent =
+            "Wyodrębnij → goły tekst w polu → Start (segmenty co 4 s: źródło + tłumaczenie).";
+        }
+      }
+    });
+  }
+  try {
+    forceExtractUiLabels();
+    setTimeout(forceExtractUiLabels, 200);
+    setTimeout(forceExtractUiLabels, 1200);
+  } catch {
+    /* ignore */
+  }
+
   // Re-apply i18n after lang switch (labels + live boxes + stages)
   window.addEventListener("clipforge:lang", () => {
     try {
       if (window.ClipForgeI18n) window.ClipForgeI18n.apply();
+      forceExtractUiLabels();
       // PC agent hint + chip labels follow UI language
       updateUrlImportHint();
       ensurePcAgentUi(lastPcAgentState || { online: pcAgentOnline });
