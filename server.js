@@ -220,6 +220,10 @@ app.get("/ads.txt", (_req, res) => sendPlainPublic(res, "ads.txt"));
 app.get(["/about", "/about.html"], (_req, res) => {
   return sendPublic(res, "about.html");
 });
+// Minimal AdSense test page (exact Google snippet only)
+app.get(["/ads-test", "/ads-test.html"], (_req, res) => {
+  return sendPublic(res, "ads-test.html");
+});
 
 // ── Entry: always the same login page (no flip-flop) ───────────────────
 // Public (no login) so Google AdSense crawler can read the site + script.
