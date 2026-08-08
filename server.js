@@ -201,20 +201,37 @@ app.get(/^\/google[a-f0-9]+\.html$/i, (req, res) => {
  * AdSense / SEO crawler files — MUST be plain text, never login HTML.
  * Catch-all used to serve login.html for /robots.txt and /ads.txt → bot fail.
  */
-function sendPlainPublic(res, fileName, contentType) {
+function sendPlainPublic(res, fileName, contentType, cacheSec) {
   const full = path.join(PUBLIC_DIR, fileName);
   if (!fs.existsSync(full)) {
     return res.status(404).type("text/plain").send("not found");
   }
-  const body = fs.readFileSync(full, "utf8");
+  let body = fs.readFileSync(full, "utf8");
+  // strip UTF-8 BOM if present (breaks some ads.txt crawlers)
+  if (body.charCodeAt(0) === 0xfeff) body = body.slice(1);
+  if (!body.endsWith("\n")) body += "\n";
+  const buf = Buffer.from(body, "utf8");
   res.status(200);
   res.setHeader("Content-Type", contentType || "text/plain; charset=utf-8");
-  res.setHeader("Cache-Control", "public, max-age=300");
-  return res.send(body.endsWith("\n") ? body : body + "\n");
+  res.setHeader(
+    "Cache-Control",
+    "public, max-age=" + String(cacheSec != null ? cacheSec : 3600)
+  );
+  res.setHeader("Content-Length", String(buf.length));
+  // GET and HEAD (Express may call with method HEAD)
+  if (res.req && res.req.method === "HEAD") return res.end();
+  return res.end(buf);
 }
 
 app.get("/robots.txt", (_req, res) => sendPlainPublic(res, "robots.txt"));
-app.get("/ads.txt", (_req, res) => sendPlainPublic(res, "ads.txt"));
+// ads.txt: long cache + plain text — AdSense crawler must see publisher line
+app.get("/ads.txt", (_req, res) =>
+  sendPlainPublic(res, "ads.txt", "text/plain; charset=utf-8", 86400)
+);
+// also allow /ads.txt/ edge cases
+app.get("/ads.txt/", (_req, res) =>
+  sendPlainPublic(res, "ads.txt", "text/plain; charset=utf-8", 86400)
+);
 
 // Public landing for AdSense crawler (no login, real HTML content + script)
 app.get(["/about", "/about.html"], (_req, res) => {
