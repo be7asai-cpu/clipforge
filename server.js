@@ -53,6 +53,22 @@ app.use((req, res, next) => {
   next();
 });
 
+// Basic security headers (no helmet dependency)
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=()"
+  );
+  // Do not set CSP that blocks AdSense/OAuth; keep minimal
+  if (behindProxy || isProd) {
+    res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
+  }
+  next();
+});
+
 app.use(
   cors({
     origin: true,
@@ -133,6 +149,7 @@ function isLoggedIn(req) {
 
 // ── Health first (Render probes this) ──────────────────────────────────
 app.get("/api/health", async (_req, res) => {
+  // include smtp readiness (no secrets) for ops
   noStore(res);
   let users = 0;
   let dbError = null;
@@ -154,22 +171,33 @@ app.get("/api/health", async (_req, res) => {
       dbHost = "(unparseable)";
     }
   }
+  let smtpConfigured = false;
+  try {
+    smtpConfigured = require("./lib/mail").smtpConfigured();
+  } catch {
+    /* ignore */
+  }
   res.json({
     ok: true,
     service: "clipforge",
     studio: true,
-    v: "2026-07-29agent7",
+    v: "2026-08-03auth",
     users,
     authStore: db.usingPostgres() ? "postgres" : "file",
     // Help debug Render env without leaking secrets
     databaseUrlConfigured: urlSet,
     dbHost,
     dbError,
+    smtpConfigured,
+    emailVerificationRequired: true,
+    passwords: "bcrypt-only",
     hint: !urlSet
       ? "Render NIE przekazuje DATABASE_URL do kontenera. Wejdź w tę samą usługę co clipforge-45ti → Environment → dodaj dokładnie DATABASE_URL → Save → Manual Deploy."
       : dbError
         ? "DATABASE_URL jest, ale połączenie pada: " + dbError
-        : "Postgres OK — konta trwałe.",
+        : !smtpConfigured
+          ? "Postgres OK. SMTP nie ustawione — rejestracja e-mail wymaga SMTP_HOST/USER/PASS na Render (albo loguj Google)."
+          : "Postgres + SMTP OK — konta trwałe, potwierdzanie e-mail włączone.",
   });
 });
 

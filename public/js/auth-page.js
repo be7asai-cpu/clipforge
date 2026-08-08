@@ -91,8 +91,14 @@
         ? tr("login.registerTitle", "Utwórz konto")
         : tr("login.title", "Zaloguj się do ClipForge");
       subEl.textContent = isReg
-        ? tr("login.subReg", "Zarejestruj się e-mailem albo użyj Google / Facebook.")
-        : tr("login.sub", "Wejście do Studio: e-mail + hasło.");
+        ? tr(
+            "login.subReg",
+            "Zarejestruj e-mailem (potwierdź link w skrzynce) albo Google. Hasła nie trzymamy jawnie — tylko bezpieczny skrót."
+          )
+        : tr(
+            "login.sub",
+            "Wejście do Studio: e-mail + hasło (po aktywacji) albo Google."
+          );
       btnSubmit.textContent = isReg
         ? tr("login.register", "Zarejestruj")
         : tr("login.submit", "Zaloguj");
@@ -168,15 +174,18 @@
       }
 
       const hints = [];
-      if (!data.smtpConfigured && !p.smtp) {
+      if (data.requireEmailVerification !== false) {
         hints.push(
-          "⚠ Wysyłka e-mail WYŁĄCZONA — w .env uzupełnij SMTP (Gmail: App Password). Bez tego link aktywacyjny pokaże się na stronie, ale nie dotrze na skrzynkę."
+          "Rejestracja e-mail wymaga potwierdzenia linkiem z wiadomości (hasła tylko jako bezpieczny hash bcrypt)."
         );
       }
-      if (!p.google || !p.facebook) {
+      if (!data.smtpConfigured) {
         hints.push(
-          "Google/Facebook: dodaj klucze w .env → instrukcja: /oauth-setup.html"
+          "⚠ SMTP wyłączone na serwerze — rejestracja e-mail nie wyśle listu. Użyj Google albo dodaj SMTP_HOST/USER/PASS na Render."
         );
+      }
+      if (!p.google) {
+        hints.push("Google: /oauth-setup.html");
       }
       if (oauthHint) oauthHint.textContent = hints.join(" · ");
     } catch {
@@ -317,24 +326,23 @@
       }
 
       if (data.needsActivation) {
-        showOk(data.message || "Konto wymaga aktywacji.");
+        showOk(
+          data.message ||
+            "Konto utworzone — kliknij link w e-mailu, potem zaloguj się."
+        );
         if (data.devActivateUrl) {
           showDevLink(data.devActivateUrl);
         }
-        if (data.hint) {
-          oauthHint.textContent = data.hint;
-        }
+        showResend(email);
         setMode("login");
         emailEl.value = email;
+        passwordEl.value = "";
         return;
       }
 
-      // Auto-activated (no SMTP) or normal login success
-      showOk(
-        data.autoActivated
-          ? data.message || "Konto gotowe — wchodzę do Studio…"
-          : "Zalogowano…"
-      );
+      showOk("Zalogowano…");
+      // Clear password from DOM after success
+      passwordEl.value = "";
       setTimeout(() => {
         location.href = next.startsWith("/") ? next : "/studio.html";
       }, 350);
