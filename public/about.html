@@ -6,11 +6,11 @@
     <meta name="google-adsense-account" content="ca-pub-4395681148586201" />
     <meta
       name="description"
-      content="ClipForge — studio wideo w przeglądarce: usuwanie znaków wodnych, poprawa jakości HD, lektor i napisy."
+      content="ClipForge — studio wideo: usuwanie znaków wodnych, HD, lektor i napisy."
     />
     <title>ClipForge — o aplikacji</title>
     <link rel="icon" href="/assets/clipforge-192.png" />
-    <link rel="stylesheet" href="/css/studio.css?v=20260803slot" />
+    <link rel="stylesheet" href="/css/studio.css?v=20260803fluid" />
     <script
       async
       src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4395681148586201"
@@ -18,78 +18,71 @@
     ></script>
     <style>
       body.about-page {
-        margin: 0;
+        margin: 0 auto;
         font-family: system-ui, sans-serif;
         background: #02060f;
         color: #e0f7ff;
         line-height: 1.55;
         padding: 2rem 1.25rem 3rem;
         max-width: 42rem;
-        margin-inline: auto;
       }
-      body.about-page a {
-        color: #00f0ff;
-      }
-      body.about-page h1 {
-        font-size: 1.6rem;
-        margin-bottom: 0.5rem;
-      }
-      body.about-page .muted {
-        color: #8ab;
-        font-size: 0.95rem;
-      }
+      body.about-page a { color: #00f0ff; }
+      body.about-page h1 { font-size: 1.6rem; margin-bottom: 0.5rem; }
+      body.about-page .muted { color: #8ab; font-size: 0.95rem; }
+      body.about-page article p { margin: 0.85rem 0; }
     </style>
   </head>
   <body class="about-page">
-    <h1>ClipForge</h1>
-    <p class="muted">
-      Publiczna strona informacyjna (Google AdSense / roboty).
-    </p>
-    <p>
-      ClipForge to studio do obróbki krótkich filmów: usuwanie logo i znaków
-      wodnych, poprawa ostrości HD, lektor w wielu językach oraz napisy. Możesz
-      pracować lokalnie na swoim PC (PC Agent).
-    </p>
+    <article>
+      <h1>ClipForge</h1>
+      <p class="muted">Studio wideo w przeglądarce — publiczna treść (AdSense).</p>
 
-    <!-- AdSense unit from panel -->
-    <div class="cf-ad cf-ad-mid" data-cf-ad="banner" data-min-h="140px" aria-label="Reklama">
-      <div class="cf-ad-label">Reklama</div>
-      <div class="cf-ad-hint">Ładowanie AdSense…</div>
-      <ins
-        class="adsbygoogle"
-        style="display: block"
-        data-ad-format="fluid"
-        data-ad-layout-key="-fb+5w+4e-db+86"
-        data-ad-client="ca-pub-4395681148586201"
-        data-ad-slot="4962479768"
-      ></ins>
-    </div>
+      <p>
+        ClipForge to studio do obróbki krótkich filmów: usuwanie logo i znaków
+        wodnych, poprawa ostrości HD, lektor w wielu językach oraz napisy.
+        Możesz pracować lokalnie na swoim PC (PC Agent), żeby duże pliki nie
+        leciały na chmurę.
+      </p>
 
-    <p>
-      ClipForge pomaga tworzyć content pod FacePub, Reels i TikTok — czysty
-      obraz, lektor i napisy w jednym flow.
-    </p>
+      <!-- Reklama W ŹRÓDLE TREŚCI — fluid, zmienna wysokość (wymóg Google) -->
+      <div class="cf-ad cf-ad-in-content" data-cf-ad="mid1" aria-label="Reklama">
+        <ins
+          class="adsbygoogle"
+          style="display:block"
+          data-ad-format="fluid"
+          data-ad-layout-key="-fb+5w+4e-db+86"
+          data-ad-client="ca-pub-4395681148586201"
+          data-ad-slot="4962479768"
+        ></ins>
+      </div>
 
-    <div class="cf-ad cf-ad-mid" data-cf-ad="banner2" data-min-h="140px" aria-label="Reklama">
-      <div class="cf-ad-label">Reklama</div>
-      <div class="cf-ad-hint">Ładowanie AdSense…</div>
-      <ins
-        class="adsbygoogle"
-        style="display: block"
-        data-ad-format="fluid"
-        data-ad-layout-key="-fb+5w+4e-db+86"
-        data-ad-client="ca-pub-4395681148586201"
-        data-ad-slot="4962479768"
-      ></ins>
-    </div>
+      <p>
+        ClipForge pomaga tworzyć content pod FacePub, Reels i TikTok — czysty
+        obraz, lektor i napisy w jednym flow. Działa z Twoim komputerem: szybko,
+        prywatnie, bez kolejki w chmurze.
+      </p>
 
-    <p>
-      <a href="/login.html">Zaloguj się do ClipForge Studio</a>
-    </p>
-    <p class="muted">
-      Publisher <code>ca-pub-4395681148586201</code> · slot
-      <code>4962479768</code>
-    </p>
-    <script src="/js/adsense-init.js?v=20260803slot"></script>
+      <p>
+        Funkcje: delogo, Super HD / Real-ESRGAN, STT i Whisper, tłumaczenie,
+        TTS lektor, eksport H.264 / HEVC pod aplikacje społecznościowe.
+      </p>
+
+      <!-- Druga reklama w treści (ten sam kod — dozwolone) -->
+      <div class="cf-ad cf-ad-in-content" data-cf-ad="mid2" aria-label="Reklama">
+        <ins
+          class="adsbygoogle"
+          style="display:block"
+          data-ad-format="fluid"
+          data-ad-layout-key="-fb+5w+4e-db+86"
+          data-ad-client="ca-pub-4395681148586201"
+          data-ad-slot="4962479768"
+        ></ins>
+      </div>
+
+      <p>
+        <a href="/login.html">Zaloguj się do ClipForge Studio</a>
+      </p>
+    </article>
+    <script src="/js/adsense-init.js?v=20260803fluid"></script>
   </body>
 </html>

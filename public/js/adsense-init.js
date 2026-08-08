@@ -63,10 +63,13 @@
       return;
     }
 
+    // Fluid unit: Google requires variable-height container (no fixed height)
     ins.className = "adsbygoogle";
     ins.style.display = "block";
-    ins.style.minHeight = box.getAttribute("data-min-h") || "120px";
     ins.style.width = "100%";
+    ins.style.height = "auto";
+    ins.style.minHeight = "";
+    ins.removeAttribute("data-min-h");
     ins.setAttribute("data-ad-format", FORMAT);
     ins.setAttribute("data-ad-layout-key", LAYOUT_KEY);
     ins.setAttribute("data-ad-client", CLIENT);
