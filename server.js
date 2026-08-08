@@ -197,7 +197,32 @@ app.get(/^\/google[a-f0-9]+\.html$/i, (req, res) => {
   return res.send(body.endsWith("\n") ? body : body + "\n");
 });
 
+/**
+ * AdSense / SEO crawler files — MUST be plain text, never login HTML.
+ * Catch-all used to serve login.html for /robots.txt and /ads.txt → bot fail.
+ */
+function sendPlainPublic(res, fileName, contentType) {
+  const full = path.join(PUBLIC_DIR, fileName);
+  if (!fs.existsSync(full)) {
+    return res.status(404).type("text/plain").send("not found");
+  }
+  const body = fs.readFileSync(full, "utf8");
+  res.status(200);
+  res.setHeader("Content-Type", contentType || "text/plain; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=300");
+  return res.send(body.endsWith("\n") ? body : body + "\n");
+}
+
+app.get("/robots.txt", (_req, res) => sendPlainPublic(res, "robots.txt"));
+app.get("/ads.txt", (_req, res) => sendPlainPublic(res, "ads.txt"));
+
+// Public landing for AdSense crawler (no login, real HTML content + script)
+app.get(["/about", "/about.html"], (_req, res) => {
+  return sendPublic(res, "about.html");
+});
+
 // ── Entry: always the same login page (no flip-flop) ───────────────────
+// Public (no login) so Google AdSense crawler can read the site + script.
 app.get(["/", "/index.html", "/login.html"], (req, res) => {
   if (isLoggedIn(req)) return res.redirect(302, "/studio.html");
   return sendPublic(res, "login.html");
@@ -3358,10 +3383,20 @@ app.get("/api/studio/jobs/:id/share", (req, res) => {
 });
 
 // Unknown pages → login (not portal)
+// Never rewrite crawler files or verification — bots need real 404 / plain text.
 app.get("*", (req, res) => {
   noStore(res);
   if (req.path.startsWith("/api/") || req.path.startsWith("/local/")) {
     return res.status(404).json({ error: "Not found" });
+  }
+  const base = path.basename(req.path || "").toLowerCase();
+  if (
+    base === "robots.txt" ||
+    base === "ads.txt" ||
+    base === "favicon.ico" ||
+    /^google[a-f0-9]+\.html$/i.test(base)
+  ) {
+    return res.status(404).type("text/plain").send("not found");
   }
   // Always same destination — never bare platform 404 for unknown HTML paths
   return sendPublic(res, "login.html");

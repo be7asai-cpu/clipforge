@@ -1,0 +1,22 @@
+# ClipForge — allow Google AdSense / Search bots
+User-agent: *
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Mediapartners-Google
+Allow: /
+
+User-agent: AdsBot-Google
+Allow: /
+
+User-agent: AdsBot-Google-Mobile
+Allow: /
+
+Allow: /about
+Allow: /about.html
+Allow: /login.html
+Allow: /ads.txt
+
+Sitemap: https://clipforge-45ti.onrender.com/about.html
