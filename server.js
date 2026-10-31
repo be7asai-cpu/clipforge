@@ -113,6 +113,19 @@ function createSessionStore() {
   });
 }
 
+// Switchable store: lets boot fall back to file sessions if Postgres is unreachable
+class SwitchableSessionStore extends session.Store {
+  constructor(inner) { super(); this.inner = inner; }
+  get(sid, cb) { return this.inner.get(sid, cb); }
+  set(sid, s, cb) { return this.inner.set(sid, s, cb); }
+  destroy(sid, cb) { return this.inner.destroy(sid, cb); }
+  touch(sid, s, cb) {
+    if (typeof this.inner.touch === "function") return this.inner.touch(sid, s, cb);
+    return cb && cb();
+  }
+}
+const sessionStore = new SwitchableSessionStore(createSessionStore());
+
 app.use(
   session({
     name: "clipforge.sid",
@@ -120,7 +133,7 @@ app.use(
     resave: false,
     saveUninitialized: false,
     rolling: true, // refresh cookie on each request while active
-    store: createSessionStore(),
+    store: sessionStore,
     proxy: behindProxy, // honor X-Forwarded-Proto for secure cookies on Render
     cookie: {
       httpOnly: true,
@@ -3464,9 +3477,15 @@ async function start() {
     console.error("[boot] auth store init failed:", err.message || err);
     if (db.usingPostgres()) {
       console.error(
-        "[boot] Sprawdź DATABASE_URL (Neon/Supabase). Konta nie będą działać."
+        "[boot] Sprawdź DATABASE_URL (Neon/Supabase). Fallback: plik users.json + file sessions (soft-fail)."
       );
-      process.exit(1);
+      try {
+        db.disablePostgres();
+        sessionStore.inner = createSessionStore();
+        await require("./lib/user-repo").initUserRepo();
+      } catch (e2) {
+        console.error("[boot] file fallback init failed (continuing):", e2.message || e2);
+      }
     }
   }
 
