@@ -215,6 +215,8 @@
             </p>
           </div>
 
+
+
           <div class="video-opts-block">
             <div class="opt-block-title" data-i18n="quality.title">Opcje wideo</div>
             <div class="opts">
@@ -265,6 +267,37 @@
                   </div>
                 </div>
               </div>
+
+          <fieldset class="remaster-prepass" id="remaster-prepass" style="margin:10px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.15);border-radius:8px">
+            <legend>Remaster (przed upscale) — opcjonalne, domyślnie wyłączone</legend>
+            <label class="stack"><span>Preset</span>
+              <select id="opt-remaster-preset">
+                <option value="" selected>Brak</option>
+                <option value="lastCentury">Last Century (czyszczenie → stabilizacja → grading → DeOldify → ESRGAN ×2)</option>
+              </select></label>
+            <label class="stack"><span>Czyszczenie</span>
+              <select id="opt-remaster-clean">
+                <option value="off" selected>Nie</option>
+                <option value="hqdn3d">Tak — hqdn3d (szybkie)</option>
+                <option value="nlmeans">Tak — nlmeans (najlepsze, wolne)</option>
+                <option value="atadenoise">Tak — atadenoise (temporalne)</option>
+              </select></label>
+            <label class="check"><input type="checkbox" id="opt-remaster-deflicker" /> Deflicker</label>
+            <label class="stack"><span>Stabilizacja (remaster)</span>
+              <select id="opt-remaster-stabilize">
+                <option value="off" selected>Nie</option>
+                <option value="light">Tak — lekka</option>
+                <option value="strong">Tak — mocna</option>
+              </select></label>
+            <label class="stack"><span>Grading</span>
+              <select id="opt-remaster-grade">
+                <option value="off" selected>Nie</option>
+                <option value="archival">Tak — archiwalny</option>
+                <option value="warm">Tak — ciepły</option>
+                <option value="neutral">Tak — neutralny</option>
+              </select></label>
+            <label class="check"><input type="checkbox" id="opt-deoldify" /> DeOldify koloryzacja (tylko PC Agent)</label>
+          </fieldset>
 
               <div class="opt-block">
                 <div class="opt-block-title" data-i18n="quality.title">Jakość i rozdzielczość</div>

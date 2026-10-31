@@ -2425,6 +2425,14 @@
       stabilize: narratorOnly
         ? "off"
         : $("#opt-stabilize")?.value || "off",
+      // Last Century remaster (lib/remaster.js)
+      remasterPreset: narratorOnly ? "" : $("#opt-remaster-preset")?.value || "",
+      remasterPresetForce: !!$("#opt-remaster-preset")?.value,
+      remasterClean: narratorOnly ? "off" : $("#opt-remaster-clean")?.value || "off",
+      remasterStabilize: narratorOnly ? "off" : $("#opt-remaster-stabilize")?.value || "off",
+      remasterGrade: narratorOnly ? "off" : $("#opt-remaster-grade")?.value || "off",
+      remasterDeflicker: !narratorOnly && !!$("#opt-remaster-deflicker")?.checked,
+      deoldify: !narratorOnly && !!$("#opt-deoldify")?.checked,
       playbackSpeed: narratorOnly
         ? 1
         : Number($("#opt-playback-speed")?.value) || 1,
