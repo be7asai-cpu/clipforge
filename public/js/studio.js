@@ -382,6 +382,11 @@
       setNarratorOnlyBadgeText();
       badge.classList.toggle("hidden", !on);
     }
+    if (!on) {
+      // Re-enabling everything above clobbers polish/audio "auto" locks — resync.
+      try { syncPolishModeUi(); } catch (_) {}
+      try { syncAudioModeUi(); } catch (_) {}
+    }
     if (on) {
       if (optNarrator && !optNarrator.checked) {
         optNarrator.checked = true;
@@ -2457,7 +2462,8 @@
       })(),
       sttEngine: (() => {
         const script = String($("#opt-script")?.value || "").trim();
-        if (script.length >= 8 && wantEditorFill()) return "google";
+        // Script in field: STT only supplies clocks — keep Auto (Whisper→Google fallback)
+        if (script.length >= 8 && wantEditorFill()) return "auto";
         if (!wantEditorFill()) return "auto";
         const ex = extractSource();
         if (ex === "whisper") return "whisper";
