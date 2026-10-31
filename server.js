@@ -2758,6 +2758,38 @@ app.get("/api/studio/jobs/:id/download", (req, res) => {
 
 /* ---------- Social publish (user-pasted API keys/tokens) ---------- */
 const socialPublish = require("./lib/social-publish");
+const userDisk = require("./lib/user-disk");
+const socialQueue = require("./lib/social-queue");
+/** Resolve publish source → { videoPath, thumbPath }. Throws Error with .status. */
+function resolveSocialVideo(uid, { jobId, diskId, profile }) {
+  const fail = (status, msg) => {
+    const e = new Error(msg);
+    e.status = status;
+    throw e;
+  };
+  if (diskId) {
+    const it = userDisk.get(uid, diskId);
+    if (!it || !fs.existsSync(it.path)) fail(404, "Brak klipu na dysku (mógł zniknąć po restarcie serwera)");
+    return { videoPath: it.path, thumbPath: it.thumbPath && fs.existsSync(it.thumbPath) ? it.thumbPath : null };
+  }
+  const job = studioJobs.getJob(String(jobId || ""));
+  if (!job) fail(404, "Job not found");
+  if (!studioJobs.ownsJob(job, uid)) fail(403, "Brak dostępu do tego joba");
+  if (job.status !== "done" || !job.outputPath || !fs.existsSync(job.outputPath))
+    fail(404, "Brak gotowego pliku na serwerze (wynik z PC agenta jest tylko lokalnie — dodaj plik ręcznie)");
+  let videoPath = job.outputPath;
+  if (profile && profile !== "app") {
+    try {
+      const { cachePathFor, PROFILES } = require("./lib/export-codecs");
+      const pm = PROFILES[profile];
+      const cached = pm && cachePathFor(job.outputPath, pm.id || profile, pm.ext || ".mp4");
+      if (cached && fs.existsSync(cached) && /\.mp4$/i.test(cached)) videoPath = cached;
+    } catch {
+      /* base output */
+    }
+  }
+  return { videoPath, thumbPath: null, job };
+}
 const os = require("os");
 const socialUpload = multer({
   dest: path.join(os.tmpdir(), "clipforge-social"),
@@ -2828,30 +2860,22 @@ app.post(
       if (!platforms.length) return res.status(400).json({ error: "Wybierz co najmniej jedno konto" });
 
       let videoPath = null;
+      let diskThumb = null;
       if (files.video?.[0]) {
         const v = files.video[0];
         videoPath = v.path + ".mp4";
         fs.renameSync(v.path, videoPath);
         temps.push(videoPath);
-      } else if (b.jobId) {
-        const job = studioJobs.getJob(String(b.jobId));
-        if (!job) return res.status(404).json({ error: "Job not found" });
-        if (!studioJobs.ownsJob(job, uid)) return res.status(403).json({ error: "Brak dostępu do tego joba" });
-        if (job.status !== "done" || !job.outputPath || !fs.existsSync(job.outputPath))
-          return res.status(404).json({ error: "Brak gotowego pliku na serwerze (wynik z PC agenta jest tylko lokalnie — dodaj plik ręcznie)" });
-        videoPath = job.outputPath;
-        if (b.profile && b.profile !== "app") {
-          try {
-            const { cachePathFor, PROFILES } = require("./lib/export-codecs");
-            const pm = PROFILES[b.profile];
-            const cached = pm && cachePathFor(job.outputPath, pm.id || b.profile, pm.ext || ".mp4");
-            if (cached && fs.existsSync(cached) && /\.mp4$/i.test(cached)) videoPath = cached;
-          } catch {
-            /* use base output */
-          }
+      } else if (b.jobId || b.diskId) {
+        try {
+          const r = resolveSocialVideo(uid, { jobId: b.jobId, diskId: b.diskId, profile: b.profile });
+          videoPath = r.videoPath;
+          diskThumb = r.thumbPath;
+        } catch (e) {
+          return res.status(e.status || 404).json({ error: e.message });
         }
       } else {
-        return res.status(400).json({ error: "Podaj jobId albo plik wideo" });
+        return res.status(400).json({ error: "Podaj jobId, diskId albo plik wideo" });
       }
 
       let thumbPath = null;
@@ -2876,6 +2900,7 @@ app.post(
           /* thumb optional */
         }
       }
+      if (!thumbPath && diskThumb) thumbPath = diskThumb;
       const out = await socialPublish.publish({
         userId: uid,
         platforms,
@@ -2893,6 +2918,184 @@ app.post(
     }
   }
 );
+
+/* ---------- Mój dysk: per-user clip library (500 MB quota) ---------- */
+app.get("/api/studio/disk", auth.requireAuthIfEnabled, (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  try {
+    res.json(userDisk.list(uid));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post(
+  "/api/studio/disk",
+  auth.requireAuthIfEnabled,
+  (req, res, next) => {
+    // early reject when Content-Length obviously exceeds free space
+    const uid = studioUserId(req);
+    const len = Number(req.headers["content-length"] || 0);
+    if (uid && len && len > userDisk.usage(uid).free + 64 * 1024)
+      return res.status(413).json({ error: "Brak miejsca na dysku (limit 500 MB)" });
+    next();
+  },
+  socialUpload.fields([{ name: "video", maxCount: 1 }, { name: "thumb", maxCount: 1 }]),
+  (req, res) => {
+    const files = req.files || {};
+    const v = files.video?.[0];
+    const t = files.thumb?.[0];
+    try {
+      const uid = socialUid(req, res);
+      if (!uid) return;
+      if (!v) return res.status(400).json({ error: "Brak pliku wideo" });
+      const item = userDisk.add(uid, {
+        srcPath: v.path,
+        name: v.originalname,
+        mime: v.mimetype,
+        title: req.body?.title,
+        description: req.body?.description,
+        thumbSrc: t?.path,
+        thumbMime: t?.mimetype,
+      });
+      res.json({ item, ...userDisk.usage(uid) });
+    } catch (e) {
+      res.status(e.status || 500).json({ error: e.message });
+    } finally {
+      for (const f of [v, t]) if (f) fs.promises.unlink(f.path).catch(() => {});
+    }
+  }
+);
+app.post("/api/studio/disk/from-job", auth.requireAuthIfEnabled, express.json(), (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  try {
+    const r = resolveSocialVideo(uid, { jobId: req.body?.jobId, profile: req.body?.profile });
+    const name = (r.job.originalName || "clip").replace(/\.[^.]+$/, "") + "_clipforge.mp4";
+    const item = userDisk.add(uid, {
+      srcPath: r.videoPath,
+      mode: "copy",
+      name,
+      title: req.body?.title,
+      description: req.body?.description,
+    });
+    res.json({ item, ...userDisk.usage(uid) });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+app.get("/api/studio/disk/:id/file", auth.requireAuthIfEnabled, (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  const it = userDisk.get(uid, req.params.id);
+  if (!it || !fs.existsSync(it.path)) return res.status(404).json({ error: "Nie znaleziono" });
+  if (req.query.dl) res.attachment(it.name);
+  res.type(it.mime || "video/mp4");
+  res.sendFile(it.path);
+});
+app.get("/api/studio/disk/:id/thumb", auth.requireAuthIfEnabled, (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  const it = userDisk.get(uid, req.params.id);
+  if (!it || !it.thumbPath || !fs.existsSync(it.thumbPath)) return res.status(404).end();
+  res.sendFile(it.thumbPath);
+});
+app.delete("/api/studio/disk/:id", auth.requireAuthIfEnabled, (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  res.json({ ok: userDisk.remove(uid, req.params.id), ...userDisk.usage(uid) });
+});
+
+/* ---------- Social queue / schedule ---------- */
+app.get("/api/studio/social/queue", auth.requireAuthIfEnabled, (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  res.json({ items: socialQueue.list(uid) });
+});
+app.post(
+  "/api/studio/social/queue",
+  auth.requireAuthIfEnabled,
+  socialUpload.fields([{ name: "video", maxCount: 1 }, { name: "thumb", maxCount: 1 }]),
+  async (req, res) => {
+    const files = req.files || {};
+    const v = files.video?.[0];
+    const t = files.thumb?.[0];
+    try {
+      const uid = socialUid(req, res);
+      if (!uid) return;
+      const b = req.body || {};
+      let platforms = b.platforms;
+      if (typeof platforms === "string") {
+        try {
+          platforms = JSON.parse(platforms);
+        } catch {
+          platforms = platforms.split(",");
+        }
+      }
+      platforms = (Array.isArray(platforms) ? platforms : []).map((x) => String(x).trim()).filter(Boolean);
+      if (b.all === "1" || b.all === true) {
+        platforms = socialPublish.listAccounts(uid).filter((a) => a.connected).map((a) => a.platform);
+      }
+      if (!platforms.length) return res.status(400).json({ error: "Brak wybranych / połączonych kont" });
+      let videoSource;
+      if (v || (t && b.jobId)) {
+        // uploads (or job + custom thumb) are stored on the user's disk so the file survives until runAt
+        const src = v ? { srcPath: v.path, name: v.originalname, mime: v.mimetype } : (() => {
+          const r = resolveSocialVideo(uid, { jobId: b.jobId, profile: b.profile });
+          return { srcPath: r.videoPath, mode: "copy", name: (r.job.originalName || "clip") + "_clipforge.mp4" };
+        })();
+        const item = userDisk.add(uid, { ...src, title: b.title, description: b.description, thumbSrc: t?.path, thumbMime: t?.mimetype });
+        videoSource = { diskId: item.id };
+      } else if (b.diskId) {
+        resolveSocialVideo(uid, { diskId: b.diskId });
+        videoSource = { diskId: String(b.diskId) };
+      } else if (b.jobId) {
+        resolveSocialVideo(uid, { jobId: b.jobId, profile: b.profile });
+        videoSource = { jobId: String(b.jobId), profile: b.profile || null };
+      } else return res.status(400).json({ error: "Podaj jobId, diskId albo plik wideo" });
+      const item = socialQueue.create(uid, {
+        videoSource,
+        platforms,
+        title: b.title,
+        description: b.description,
+        thumbUrl: /^https?:\/\//i.test(b.thumbUrl || "") ? b.thumbUrl : null,
+        runAt: b.runAt || null,
+      });
+      res.json({ item });
+      if (Date.parse(item.runAt) <= Date.now()) runSocialQueue();
+    } catch (e) {
+      if (!res.headersSent) res.status(e.status || 400).json({ error: e.message });
+    } finally {
+      for (const f of [v, t]) if (f) fs.promises.unlink(f.path).catch(() => {});
+    }
+  }
+);
+app.patch("/api/studio/social/queue/:id", auth.requireAuthIfEnabled, express.json(), (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  try {
+    const it = socialQueue.update(uid, req.params.id, req.body || {});
+    if (!it) return res.status(404).json({ error: "Nie znaleziono" });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+app.delete("/api/studio/social/queue/:id", auth.requireAuthIfEnabled, (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  res.json({ ok: socialQueue.remove(uid, req.params.id) });
+});
+function runSocialQueue() {
+  socialQueue
+    .tick({
+      publish: (o) => socialPublish.publish(o),
+      resolveVideo: (uid, src) => resolveSocialVideo(uid, src),
+    })
+    .catch((e) => console.error("social queue:", e.message));
+}
+setInterval(runSocialQueue, 30 * 1000).unref();
+setTimeout(runSocialQueue, 10 * 1000).unref();
 
 /**
  * Available codec export profiles for result panel (H.264 High / HEVC / AAC).

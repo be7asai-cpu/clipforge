@@ -1230,15 +1230,37 @@
             </div>
             <div class="share-status" id="share-status" aria-live="polite"></div>
 
+            <div class="disk-pub" id="disk-pub">
+              <div class="share-title">
+                <span class="dot" aria-hidden="true"></span>
+                <span data-i18n="disk.title">Mój dysk (500 MB)</span>
+              </div>
+              <p class="share-hint" data-i18n="disk.hint">Zapisz swoje klipy na serwerze — także zanim połączysz social media — i publikuj z nich później.</p>
+              <div class="disk-bar"><div class="disk-bar-fill" id="disk-bar-fill"></div></div>
+              <div class="share-hint" id="disk-usage">—</div>
+              <div class="row-actions">
+                <button type="button" class="btn primary sm" id="disk-save-job" data-i18n="disk.saveJob">💾 Zapisz gotowy klip na dysk</button>
+                <label class="btn ghost sm disk-upload-btn"><span data-i18n="disk.upload">⬆ Wgraj plik</span>
+                  <input type="file" id="disk-upload" accept="video/*" hidden /></label>
+              </div>
+              <ul class="disk-list" id="disk-list"></ul>
+              <p class="share-hint warn" data-i18n="disk.ephemeral">⚠ Na darmowym Render dysk jest tymczasowy — pliki mogą zniknąć po redeployu (chyba że podłączono Persistent Disk).</p>
+            </div>
+
             <div class="social-pub" id="social-pub">
               <div class="share-title">
                 <span class="dot" aria-hidden="true"></span>
                 <span data-i18n="social.title">Social media — publikuj jednym kliknięciem</span>
               </div>
               <p class="share-hint" data-i18n="social.hint">Wideo + tytuł + opis + okładka na wszystkie połączone konta naraz.</p>
+              <details class="social-help" id="social-help">
+                <summary data-i18n="social.helpTitle">📖 Instrukcja: jak zdobyć klucze (krok po kroku)</summary>
+                <div id="social-help-body"></div>
+              </details>
               <div class="social-chips" id="social-chips"></div>
               <button type="button" class="btn ghost sm" id="social-open-keys" data-i18n="social.keys">🔑 Połącz konta / Klucze API</button>
               <div class="social-form">
+                <div class="social-source" id="social-source"></div>
                 <label><span data-i18n="social.fTitle">Tytuł</span>
                   <input type="text" id="social-title" maxlength="100" /></label>
                 <label><span data-i18n="social.fDesc">Opis</span>
@@ -1248,9 +1270,19 @@
                   <input type="url" id="social-thumb-url" placeholder="https://…/cover.jpg" /></label>
                 <label><span data-i18n="social.fVideo">Inny plik wideo (opcjonalnie — domyślnie gotowy klip)</span>
                   <input type="file" id="social-video" accept="video/mp4,video/*" /></label>
-                <button type="button" class="btn primary" id="social-publish" data-i18n="social.publish">Opublikuj</button>
+                <div class="row-actions">
+                  <button type="button" class="btn primary" id="social-publish" data-i18n="social.publish">Opublikuj</button>
+                  <button type="button" class="btn primary" id="social-publish-all" data-i18n="social.publishAll">🚀 Wyślij teraz na wszystkie</button>
+                </div>
+                <div class="row-actions">
+                  <label class="inline"><span data-i18n="social.when">Zaplanuj na</span>
+                    <input type="datetime-local" id="social-when" /></label>
+                  <button type="button" class="btn ghost sm" id="social-schedule" data-i18n="social.schedule">⏰ Dodaj do kolejki</button>
+                </div>
               </div>
               <div class="social-results" id="social-results" aria-live="polite"></div>
+              <div class="share-title queue-title"><span data-i18n="social.queue">Kolejka publikacji</span></div>
+              <ul class="social-queue" id="social-queue"></ul>
             </div>
           </div>
 

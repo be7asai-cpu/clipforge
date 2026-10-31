@@ -31,3 +31,5 @@ data/auth/sessions/
 data/auth/outbox/
 *.log
 data/auth/social-accounts.json
+data/user-disk/
+data/auth/social-queue.json
