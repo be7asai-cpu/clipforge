@@ -524,6 +524,33 @@
                     </select>
                   </label>
                   <label class="stack">
+                    <span>Remaster preset</span>
+                    <select id="opt-remaster-preset">
+                      <option value="" selected>Brak</option>
+                      <option value="lastCentury">Last Century (clean → stab → grade → DeOldify → ESRGAN ×2, bez lektora)</option>
+                    </select>
+                  </label>
+                  <label class="stack">
+                    <span>Czyszczenie (remaster)</span>
+                    <select id="opt-remaster-clean">
+                      <option value="off" selected>Wyłączone</option>
+                      <option value="hqdn3d">hqdn3d (szybkie)</option>
+                      <option value="nlmeans">nlmeans (najlepsze, wolne)</option>
+                      <option value="atadenoise">atadenoise (temporalne)</option>
+                    </select>
+                  </label>
+                  <label class="stack">
+                    <span>Grading</span>
+                    <select id="opt-remaster-grade">
+                      <option value="off" selected>Wyłączony</option>
+                      <option value="archival">Archiwalny</option>
+                      <option value="warm">Ciepły</option>
+                      <option value="neutral">Neutralny</option>
+                    </select>
+                  </label>
+                  <label class="check"><input type="checkbox" id="opt-remaster-deflicker" /> Deflicker</label>
+                  <label class="check"><input type="checkbox" id="opt-deoldify" /> DeOldify koloryzacja (tylko PC Agent)</label>
+                  <label class="stack">
                     <span data-i18n="vfx.stabLab">Stabilizacja</span>
                     <select id="opt-stabilize">
                       <option value="off" selected data-i18n="vfx.stabOff">Wyłączona</option>
