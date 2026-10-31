@@ -2756,6 +2756,144 @@ app.get("/api/studio/jobs/:id/download", (req, res) => {
   sendOwnedFile(req, res, job.outputPath, name);
 });
 
+/* ---------- Social publish (user-pasted API keys/tokens) ---------- */
+const socialPublish = require("./lib/social-publish");
+const os = require("os");
+const socialUpload = multer({
+  dest: path.join(os.tmpdir(), "clipforge-social"),
+  limits: { fileSize: 500 * 1024 * 1024 },
+});
+function socialUid(req, res) {
+  const uid = studioUserId(req);
+  if (!uid) res.status(401).json({ error: "Zaloguj się" });
+  return uid;
+}
+app.get("/api/studio/social/accounts", auth.requireAuthIfEnabled, (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  try {
+    res.json({ accounts: socialPublish.listAccounts(uid) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.put("/api/studio/social/accounts/:platform", auth.requireAuthIfEnabled, express.json({ limit: "64kb" }), (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  try {
+    res.json({ account: socialPublish.upsertAccount(uid, req.params.platform, req.body?.fields || req.body || {}) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+app.delete("/api/studio/social/accounts/:platform", auth.requireAuthIfEnabled, (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  try {
+    res.json({ ok: socialPublish.deleteAccount(uid, req.params.platform) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/studio/social/accounts/:platform/test", auth.requireAuthIfEnabled, async (req, res) => {
+  const uid = socialUid(req, res);
+  if (!uid) return;
+  try {
+    res.json(await socialPublish.testAccount(uid, req.params.platform));
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+app.post(
+  "/api/studio/social/publish",
+  auth.requireAuthIfEnabled,
+  socialUpload.fields([{ name: "thumb", maxCount: 1 }, { name: "video", maxCount: 1 }]),
+  async (req, res) => {
+    const temps = [];
+    const files = req.files || {};
+    for (const k of Object.keys(files)) for (const f of files[k]) temps.push(f.path);
+    try {
+      const uid = socialUid(req, res);
+      if (!uid) return;
+      const b = req.body || {};
+      let platforms = b.platforms;
+      if (typeof platforms === "string") {
+        try {
+          platforms = JSON.parse(platforms);
+        } catch {
+          platforms = platforms.split(",");
+        }
+      }
+      platforms = (Array.isArray(platforms) ? platforms : []).map((x) => String(x).trim()).filter(Boolean);
+      if (!platforms.length) return res.status(400).json({ error: "Wybierz co najmniej jedno konto" });
+
+      let videoPath = null;
+      if (files.video?.[0]) {
+        const v = files.video[0];
+        videoPath = v.path + ".mp4";
+        fs.renameSync(v.path, videoPath);
+        temps.push(videoPath);
+      } else if (b.jobId) {
+        const job = studioJobs.getJob(String(b.jobId));
+        if (!job) return res.status(404).json({ error: "Job not found" });
+        if (!studioJobs.ownsJob(job, uid)) return res.status(403).json({ error: "Brak dostępu do tego joba" });
+        if (job.status !== "done" || !job.outputPath || !fs.existsSync(job.outputPath))
+          return res.status(404).json({ error: "Brak gotowego pliku na serwerze (wynik z PC agenta jest tylko lokalnie — dodaj plik ręcznie)" });
+        videoPath = job.outputPath;
+        if (b.profile && b.profile !== "app") {
+          try {
+            const { cachePathFor, PROFILES } = require("./lib/export-codecs");
+            const pm = PROFILES[b.profile];
+            const cached = pm && cachePathFor(job.outputPath, pm.id || b.profile, pm.ext || ".mp4");
+            if (cached && fs.existsSync(cached) && /\.mp4$/i.test(cached)) videoPath = cached;
+          } catch {
+            /* use base output */
+          }
+        }
+      } else {
+        return res.status(400).json({ error: "Podaj jobId albo plik wideo" });
+      }
+
+      let thumbPath = null;
+      let thumbUrl = /^https?:\/\//i.test(b.thumbUrl || "") ? String(b.thumbUrl) : null;
+      if (files.thumb?.[0]) {
+        const t = files.thumb[0];
+        thumbPath = t.path + (/png/i.test(t.mimetype) ? ".png" : ".jpg");
+        fs.renameSync(t.path, thumbPath);
+        temps.push(thumbPath);
+      } else if (thumbUrl) {
+        try {
+          const r = await fetch(thumbUrl);
+          if (r.ok) {
+            const buf = Buffer.from(await r.arrayBuffer());
+            if (buf.length < 10 * 1024 * 1024) {
+              thumbPath = path.join(os.tmpdir(), `cf_thumb_${Date.now()}${/png/i.test(r.headers.get("content-type") || "") ? ".png" : ".jpg"}`);
+              fs.writeFileSync(thumbPath, buf);
+              temps.push(thumbPath);
+            }
+          }
+        } catch {
+          /* thumb optional */
+        }
+      }
+      const out = await socialPublish.publish({
+        userId: uid,
+        platforms,
+        videoPath,
+        title: String(b.title || "").slice(0, 300),
+        description: String(b.description || "").slice(0, 5000),
+        thumbPath,
+        thumbUrl,
+      });
+      res.json(out);
+    } catch (e) {
+      if (!res.headersSent) res.status(500).json({ error: e.message || "publish failed" });
+    } finally {
+      for (const t of temps) fs.promises.unlink(t).catch(() => {});
+    }
+  }
+);
+
 /**
  * Available codec export profiles for result panel (H.264 High / HEVC / AAC).
  * Fast + never blocks (encoder list is cached in export-codecs).

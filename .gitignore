@@ -30,3 +30,4 @@ data/auth/agent-tokens.json
 data/auth/sessions/
 data/auth/outbox/
 *.log
+data/auth/social-accounts.json
