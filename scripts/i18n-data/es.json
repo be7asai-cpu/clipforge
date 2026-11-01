@@ -427,5 +427,13 @@
   "narrator.extractOkTr": "Exact translation in the box — edit if needed, then Start.",
   "narrator.extractMetaTr": "translated",
   "narrator.extractMetaOrig": "STT original",
-  "narrator.extractTrWarn": "translate warning"
+  "narrator.extractTrWarn": "translate warning",
+  "feat.apikey.cardTitle": "5 · API key",
+  "feat.apikey.cardDesc": "Social · claves · publicar",
+  "feat.apikey.title": "5 · API key",
+  "feat.apikey.html": "<p><strong>Conecta tus redes y publica desde el Studio.</strong></p><ul><li><strong>🔑 Conectar cuentas / Claves API</strong> — pega claves o tokens.</li><li><strong>Seguridad</strong> — cifradas en el servidor; solo se ven los 4 últimos caracteres.</li><li><strong>Guía: cómo obtener claves</strong> — ayuda desplegable.</li><li><strong>Publicar y programar</strong> desde el Studio.</li></ul><p class='feature-cta'>→ Panel de resultado · Redes sociales · Claves API</p>",
+  "feat.color.cardTitle": "6 · Colorear",
+  "feat.color.cardDesc": "DeOldify · cine antiguo B/N",
+  "feat.color.title": "6 · Colorear",
+  "feat.color.html": "<p><strong>Da color a películas antiguas en blanco y negro</strong> — DeOldify (modelo de vídeo).</p><ul><li><strong>Casilla «DeOldify»</strong> en opciones de remaster.</li><li><strong>Requisitos</strong> — <code>ColorizeVideo_gen.pth</code> + Python en PC Agent (o <code>DEOLDIFY_DIR</code>).</li><li><strong>Ruta</strong> — limpieza → estabilización → grading → DeOldify.</li><li><strong>¿Sin modelos?</strong> — el trabajo sigue sin color («DeOldify omitido»).</li></ul><p class='feature-cta'>→ Columna 1 · opciones remaster · DeOldify</p>"
 }

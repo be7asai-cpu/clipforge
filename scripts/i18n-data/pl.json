@@ -618,5 +618,13 @@
   "st.pending": "oczekuje",
   "st.running": "wysyłanie",
   "st.done": "wysłano",
-  "st.failed": "błąd"
+  "st.failed": "błąd",
+  "feat.apikey.cardTitle": "5 · API key",
+  "feat.apikey.cardDesc": "Social · klucze · publikacja",
+  "feat.apikey.title": "5 · API key",
+  "feat.apikey.html": "<p><strong>Połącz swoje konta social media i publikuj prosto ze Studia</strong> — bez kopiowania plików między aplikacjami.</p><ul><li><strong>🔑 Połącz konta / Klucze API</strong> — wklej klucze lub tokeny dla wybranych platform.</li><li><strong>Bezpieczeństwo</strong> — klucze są szyfrowane po stronie serwera; w panelu widać tylko 4 ostatnie znaki.</li><li><strong>Instrukcja: jak zdobyć klucze</strong> — rozwijana pomoc krok po kroku dla każdej platformy.</li><li><strong>Publikacja i harmonogram</strong> — gotowy film opublikujesz od razu albo zaplanujesz z poziomu Studia.</li></ul><p class='feature-cta'>→ Panel wyniku · Social media · 🔑 Połącz konta / Klucze API</p>",
+  "feat.color.cardTitle": "6 · Koloryzacja",
+  "feat.color.cardDesc": "DeOldify · stare filmy B/W",
+  "feat.color.title": "6 · Koloryzacja",
+  "feat.color.html": "<p><strong>Ożyw stare czarno-białe filmy</strong> — DeOldify koloryzuje klatki B/W modelem wideo (stabilne kolory między klatkami).</p><ul><li><strong>Checkbox „DeOldify koloryzacja”</strong> — włącz w opcjach remasteru.</li><li><strong>Wymagania</strong> — modele <code>ColorizeVideo_gen.pth</code> + Python na PC Agent (lub ścieżka <code>DEOLDIFY_DIR</code>).</li><li><strong>Ścieżka remasteru</strong> — czyszczenie → stabilizacja → grading → DeOldify.</li><li><strong>Brak modeli?</strong> — job leci dalej bez koloru (w logu: „DeOldify pominięty”).</li></ul><p class='feature-cta'>→ Kolumna 1 · opcje remaster · DeOldify</p>"
 }

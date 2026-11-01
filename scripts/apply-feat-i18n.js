@@ -227,6 +227,35 @@ const more = {
   },
 };
 
+// apikey + color cards (extra langs)
+const moreCards = {
+  "de": {
+    "feat.apikey.cardDesc": "Social · Schlüssel · Veröffentlichen",
+    "feat.color.cardTitle": "6 · Kolorierung",
+    "feat.color.title": "6 · Kolorierung",
+    "feat.color.cardDesc": "DeOldify · alte S/W-Filme",
+    "feat.apikey.html": "<p><strong>Social-Konten verbinden und direkt aus dem Studio veröffentlichen.</strong></p><ul><li><strong>🔑 Konten verbinden / API-Schlüssel</strong> — Schlüssel oder Tokens einfügen.</li><li><strong>Sicherheit</strong> — serverseitig verschlüsselt; nur die letzten 4 Zeichen sichtbar.</li><li><strong>Anleitung: Schlüssel besorgen</strong> — aufklappbare Hilfe.</li><li><strong>Veröffentlichen & planen</strong> — direkt aus dem Studio.</li></ul><p class='feature-cta'>→ Ergebnis-Panel · Social Media · API-Schlüssel</p>",
+    "feat.color.html": "<p><strong>Alte Schwarzweißfilme kolorieren</strong> — DeOldify (Videomodell).</p><ul><li><strong>Checkbox „DeOldify“</strong> in den Remaster-Optionen.</li><li><strong>Voraussetzungen</strong> — <code>ColorizeVideo_gen.pth</code> + Python auf dem PC Agent (oder <code>DEOLDIFY_DIR</code>).</li><li><strong>Ablauf</strong> — Reinigen → Stabilisieren → Grading → DeOldify.</li><li><strong>Keine Modelle?</strong> — Job läuft ohne Farbe weiter („DeOldify übersprungen“).</li></ul><p class='feature-cta'>→ Spalte 1 · Remaster-Optionen · DeOldify</p>"
+  },
+  "es": {
+    "feat.apikey.cardDesc": "Social · claves · publicar",
+    "feat.color.cardTitle": "6 · Colorear",
+    "feat.color.title": "6 · Colorear",
+    "feat.color.cardDesc": "DeOldify · cine antiguo B/N",
+    "feat.apikey.html": "<p><strong>Conecta tus redes y publica desde el Studio.</strong></p><ul><li><strong>🔑 Conectar cuentas / Claves API</strong> — pega claves o tokens.</li><li><strong>Seguridad</strong> — cifradas en el servidor; solo se ven los 4 últimos caracteres.</li><li><strong>Guía: cómo obtener claves</strong> — ayuda desplegable.</li><li><strong>Publicar y programar</strong> desde el Studio.</li></ul><p class='feature-cta'>→ Panel de resultado · Redes sociales · Claves API</p>",
+    "feat.color.html": "<p><strong>Da color a películas antiguas en blanco y negro</strong> — DeOldify (modelo de vídeo).</p><ul><li><strong>Casilla «DeOldify»</strong> en opciones de remaster.</li><li><strong>Requisitos</strong> — <code>ColorizeVideo_gen.pth</code> + Python en PC Agent (o <code>DEOLDIFY_DIR</code>).</li><li><strong>Ruta</strong> — limpieza → estabilización → grading → DeOldify.</li><li><strong>¿Sin modelos?</strong> — el trabajo sigue sin color («DeOldify omitido»).</li></ul><p class='feature-cta'>→ Columna 1 · opciones remaster · DeOldify</p>"
+  },
+  "fr": {
+    "feat.apikey.cardDesc": "Social · clés · publication",
+    "feat.color.cardTitle": "6 · Colorisation",
+    "feat.color.title": "6 · Colorisation",
+    "feat.color.cardDesc": "DeOldify · vieux films N&B",
+    "feat.apikey.html": "<p><strong>Connectez vos réseaux et publiez depuis le Studio.</strong></p><ul><li><strong>🔑 Connecter les comptes / Clés API</strong> — collez clés ou jetons.</li><li><strong>Sécurité</strong> — chiffrées côté serveur ; seuls les 4 derniers caractères s’affichent.</li><li><strong>Guide : obtenir les clés</strong> — aide dépliable.</li><li><strong>Publier & planifier</strong> depuis le Studio.</li></ul><p class='feature-cta'>→ Panneau résultat · Réseaux sociaux · Clés API</p>",
+    "feat.color.html": "<p><strong>Colorisez les vieux films noir et blanc</strong> — DeOldify (modèle vidéo).</p><ul><li><strong>Case « DeOldify »</strong> dans les options de remaster.</li><li><strong>Prérequis</strong> — <code>ColorizeVideo_gen.pth</code> + Python sur le PC Agent (ou <code>DEOLDIFY_DIR</code>).</li><li><strong>Chaîne</strong> — nettoyage → stabilisation → étalonnage → DeOldify.</li><li><strong>Modèles absents ?</strong> — le job continue sans couleur (« DeOldify ignoré »).</li></ul><p class='feature-cta'>→ Colonne 1 · options remaster · DeOldify</p>"
+  }
+};
+for (const [k, v] of Object.entries(moreCards)) more[k] = { ...(more[k] || {}), ...v };
+
 function load(name) {
   return JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
 }

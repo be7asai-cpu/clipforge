@@ -427,5 +427,13 @@
   "narrator.extractOkTr": "Exact translation in the box — edit if needed, then Start.",
   "narrator.extractMetaTr": "translated",
   "narrator.extractMetaOrig": "STT original",
-  "narrator.extractTrWarn": "translate warning"
+  "narrator.extractTrWarn": "translate warning",
+  "feat.apikey.cardTitle": "5 · API key",
+  "feat.apikey.cardDesc": "Social · keys · publish",
+  "feat.apikey.title": "5 · API key",
+  "feat.apikey.html": "<p><strong>Connect your social accounts and publish straight from Studio</strong> — no shuffling files between apps.</p><ul><li><strong>🔑 Connect accounts / API keys</strong> — paste keys or tokens for the platforms you use.</li><li><strong>Security</strong> — keys are encrypted server-side; only the last 4 characters are shown.</li><li><strong>Guide: how to get keys</strong> — expandable step-by-step help for each platform.</li><li><strong>Publish & schedule</strong> — post the finished video now or schedule it from Studio.</li></ul><p class='feature-cta'>→ Result panel · Social media · 🔑 Connect accounts / API keys</p>",
+  "feat.color.cardTitle": "6 · Colorize",
+  "feat.color.cardDesc": "DeOldify · old B/W film",
+  "feat.color.title": "6 · Colorize",
+  "feat.color.html": "<p><strong>Bring old black-and-white footage to life</strong> — DeOldify colorizes B/W frames with its video model (stable colors across frames).</p><ul><li><strong>“DeOldify colorize” checkbox</strong> — enable it in remaster options.</li><li><strong>Requirements</strong> — <code>ColorizeVideo_gen.pth</code> models + Python on PC Agent (or <code>DEOLDIFY_DIR</code>).</li><li><strong>Remaster path</strong> — clean → stabilize → grade → DeOldify.</li><li><strong>Models missing?</strong> — the job continues without color (log: “DeOldify skipped”).</li></ul><p class='feature-cta'>→ Column 1 · remaster options · DeOldify</p>"
 }

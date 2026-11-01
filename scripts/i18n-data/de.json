@@ -427,5 +427,13 @@
   "narrator.extractOkTr": "Exact translation in the box — edit if needed, then Start.",
   "narrator.extractMetaTr": "translated",
   "narrator.extractMetaOrig": "STT original",
-  "narrator.extractTrWarn": "translate warning"
+  "narrator.extractTrWarn": "translate warning",
+  "feat.apikey.cardTitle": "5 · API key",
+  "feat.apikey.cardDesc": "Social · Schlüssel · Veröffentlichen",
+  "feat.apikey.title": "5 · API key",
+  "feat.apikey.html": "<p><strong>Social-Konten verbinden und direkt aus dem Studio veröffentlichen.</strong></p><ul><li><strong>🔑 Konten verbinden / API-Schlüssel</strong> — Schlüssel oder Tokens einfügen.</li><li><strong>Sicherheit</strong> — serverseitig verschlüsselt; nur die letzten 4 Zeichen sichtbar.</li><li><strong>Anleitung: Schlüssel besorgen</strong> — aufklappbare Hilfe.</li><li><strong>Veröffentlichen & planen</strong> — direkt aus dem Studio.</li></ul><p class='feature-cta'>→ Ergebnis-Panel · Social Media · API-Schlüssel</p>",
+  "feat.color.cardTitle": "6 · Kolorierung",
+  "feat.color.cardDesc": "DeOldify · alte S/W-Filme",
+  "feat.color.title": "6 · Kolorierung",
+  "feat.color.html": "<p><strong>Alte Schwarzweißfilme kolorieren</strong> — DeOldify (Videomodell).</p><ul><li><strong>Checkbox „DeOldify“</strong> in den Remaster-Optionen.</li><li><strong>Voraussetzungen</strong> — <code>ColorizeVideo_gen.pth</code> + Python auf dem PC Agent (oder <code>DEOLDIFY_DIR</code>).</li><li><strong>Ablauf</strong> — Reinigen → Stabilisieren → Grading → DeOldify.</li><li><strong>Keine Modelle?</strong> — Job läuft ohne Farbe weiter („DeOldify übersprungen“).</li></ul><p class='feature-cta'>→ Spalte 1 · Remaster-Optionen · DeOldify</p>"
 }
