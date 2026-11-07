@@ -34,6 +34,7 @@ const CLOUD = (
   "https://clipforge-45ti.onrender.com"
 ).replace(/\/$/, "");
 
+const AGENT_BUILD = "setup11";
 const LABEL = process.env.CLIPFORGE_PC_LABEL || "Mój PC";
 const POLL_MS = Number(process.env.CLIPFORGE_AGENT_POLL_MS) || 2500;
 const TOKEN_FILE = path.join(ROOT, "data", "auth", "pc-agent.token");
@@ -2723,7 +2724,22 @@ async function runJob(job) {
   }
 }
 
+function loadAgentConfigEnv() {
+  try {
+    const { readAgentConfig } = require(path.join(ROOT, "lib", "remaster.js"));
+    const cfg = readAgentConfig();
+    for (const k of ["DEOLDIFY_DIR", "DEOLDIFY_PYTHON"]) {
+      if (!process.env[k] && cfg[k]) process.env[k] = String(cfg[k]);
+    }
+    if (process.env.DEOLDIFY_DIR) log("DeOldify:", process.env.DEOLDIFY_DIR);
+  } catch (e) {
+    log("agent-config:", e.message || e);
+  }
+}
+
 async function main() {
+  log("Build:", AGENT_BUILD);
+  loadAgentConfigEnv();
   log("Cloud:", CLOUD);
   log("Label:", LABEL);
   log("UI zostaje w przeglądarce na adresie chmury — tu liczy Twój PC.");

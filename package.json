@@ -21,7 +21,8 @@
     "hd": "node scripts/second-life-hd.js --all",
     "hd:fast": "node scripts/second-life-hd.js --all --mode fast",
     "hd:one": "node scripts/second-life-hd.js --mode ai",
-    "studio": "node server.js"
+    "studio": "node server.js",
+    "test": "node --test test"
   },
   "engines": {
     "node": ">=18"

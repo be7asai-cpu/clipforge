@@ -19,6 +19,19 @@
 
 Później (opcjonalnie): strona w sieci + lokalny worker; na razie **tylko lokalnie**.
 
+## PC Agent — DeOldify (koloryzacja)
+
+Opcja **DeOldify koloryzacja (tylko PC Agent)** koloruje film na komputerze z agentem. Po wdrożeniu tej zmiany na stronę, na PC trzeba **jeszcze raz** pobrać instalator (stary agent nie ma skryptu ani Pythona DeOldify):
+
+1. Zaloguj się w Studio i pobierz świeży plik **PC** (`pc-setup.cmd`, setup11). Uruchom go i nie zamykaj okna.
+2. Instalator sam stawia Python 3.10, środowisko i wagi (~874 MB) w `%LOCALAPPDATA%\ClipForge-Agent-data\deoldify`. Ten folder zostaje po reinstalacji agenta.
+3. Samą koloryzację można powtórzyć bez całego agenta: `%LOCALAPPDATA%\ClipForge-Agent\SETUP-DEOLDIFY.bat`. Log: `%TEMP%\clipforge-deoldify-setup.log`.
+4. Karta NVIDIA dostaje koła CUDA 11.3; bez `nvidia-smi` instalują się koła CPU. Potem włącz checkbox DeOldify i puść job.
+
+Jeśli DeOldify jest zaznaczone, a instalacja nie jest gotowa, job staje z opisem tych dwóch poleceń — nie kończy się po cichu bez koloru.
+
+Szczegóły pinów (commit DeOldify, rozmiar `ColorizeVideo_gen.pth` = 874066230): [`docs/LAST_CENTURY_PIPELINE.md`](./docs/LAST_CENTURY_PIPELINE.md).
+
 Portal ClipWave (stary katalog) leży osobno: `Projects/clipwave` (port 3850) — nie jest częścią tej strony.
 
 ## Quick start

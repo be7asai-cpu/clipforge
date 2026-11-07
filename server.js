@@ -667,7 +667,7 @@ $log = Join-Path $env:TEMP 'clipforge-agent-setup.log'
 function L($m) { $t = (Get-Date).ToString('s') + ' ' + $m; Add-Content -Path $log -Value $t; Write-Host $t }
 
 try {
-  L '=== ClipForge PC Agent (setup9-cloud-only) ==='
+  L '=== ClipForge PC Agent (setup11-deoldify) ==='
   L ("PS version: " + $PSVersionTable.PSVersion)
   L ("User: " + $env:USERNAME + "  PC: " + $env:COMPUTERNAME)
   try {
@@ -963,8 +963,21 @@ get(url, 8)
   }
   L ("ZIP z chmury OK: " + (Get-Item $zip).Length + " B (sprawdzony)")
 
-  # Wipe old code; keep only data/ (token, local work folders)
+  # Wipe old code; keep data/ (token) and any manual DeOldify tree.
+  # The supported install lives in %LOCALAPPDATA%\\ClipForge-Agent-data and is never inside this folder.
+  $cfPreserve = Join-Path $env:TEMP ('cf-preserve-deoldify-' + [guid]::NewGuid().ToString('n').Substring(0,8))
+  $cfStashed = @()
   if (Test-Path $agentDir) {
+    foreach ($rel in @('tools\\DeOldify', 'tools\\venv_deoldify')) {
+      $srcKeep = Join-Path $agentDir $rel
+      if (Test-Path -LiteralPath $srcKeep) {
+        New-Item -ItemType Directory -Path $cfPreserve -Force | Out-Null
+        $leaf = Split-Path -Leaf $srcKeep
+        L ('Zachowuje ' + $srcKeep)
+        Move-Item -LiteralPath $srcKeep -Destination (Join-Path $cfPreserve $leaf) -Force
+        $cfStashed += $leaf
+      }
+    }
     Get-ChildItem $agentDir -Force | Where-Object { $_.Name -ne 'data' } |
       Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
   }
@@ -993,6 +1006,21 @@ get(url, 8)
     throw 'Paczka z chmury uszkodzona (brak scripts/pc-agent.js)'
   }
   L 'Kod agenta Z CHMURY gotowy (zero sciezek z dysku dev)'
+
+  if ($cfStashed -and $cfStashed.Count -gt 0) {
+    $toolsDest = Join-Path $agentDir 'tools'
+    New-Item -ItemType Directory -Path $toolsDest -Force | Out-Null
+    foreach ($leaf in $cfStashed) {
+      $fromKeep = Join-Path $cfPreserve $leaf
+      $toKeep = Join-Path $toolsDest $leaf
+      if (Test-Path -LiteralPath $fromKeep) {
+        if (Test-Path -LiteralPath $toKeep) { Remove-Item -LiteralPath $toKeep -Recurse -Force -ErrorAction SilentlyContinue }
+        Move-Item -LiteralPath $fromKeep -Destination $toKeep -Force
+        L ('Przywrocono tools\\' + $leaf)
+      }
+    }
+    Remove-Item -LiteralPath $cfPreserve -Recurse -Force -ErrorAction SilentlyContinue
+  }
 
   # --- Real-ESRGAN (AI upscale) for this PC ---
   $esrganExe = Join-Path $agentDir 'tools\\realesrgan\\realesrgan-ncnn-vulkan.exe'
@@ -1176,6 +1204,32 @@ i.on("error",e=>{console.error(e); process.exit(1);});
     }
   }
 
+  # --- DeOldify (koloryzacja). Idempotent. Failure does not block the agent. ---
+  $deoldifyPs1 = Join-Path $agentDir 'scripts\\setup-deoldify.ps1'
+  if (Test-Path -LiteralPath $deoldifyPs1) {
+    L 'DeOldify: Python 3.10 + venv + wagi (pomija kroki juz gotowe)...'
+    $psHost = Join-Path $PSHOME 'powershell.exe'
+    & $psHost -NoProfile -ExecutionPolicy Bypass -File $deoldifyPs1
+    if ($LASTEXITCODE -ne 0) {
+      L ('[OSTRZEZENIE] DeOldify setup nieudany. Agent wstanie. Koloryzacja zadziala po SETUP-DEOLDIFY.bat. Log: ' + (Join-Path $env:TEMP 'clipforge-deoldify-setup.log'))
+    } else {
+      L 'DeOldify setup OK'
+    }
+  } else {
+    L '[OSTRZEZENIE] Brak scripts\\setup-deoldify.ps1 w paczce — pobierz swiezy agent.'
+  }
+  $cfgPath = Join-Path $agentDir 'data\\agent-config.json'
+  if (Test-Path -LiteralPath $cfgPath) {
+    try {
+      $cfgObj = Get-Content -LiteralPath $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+      if ($cfgObj.DEOLDIFY_DIR) { $env:DEOLDIFY_DIR = [string]$cfgObj.DEOLDIFY_DIR }
+      if ($cfgObj.DEOLDIFY_PYTHON) { $env:DEOLDIFY_PYTHON = [string]$cfgObj.DEOLDIFY_PYTHON }
+      L ('DeOldify dir: ' + $env:DEOLDIFY_DIR)
+    } catch {
+      L ('agent-config: ' + $_)
+    }
+  }
+
   # RUN-AGENT.bat — only this PC + cloud URL (no other user paths)
   $runBat = Join-Path $agentDir 'RUN-AGENT.bat'
   $batLines = @(
@@ -1185,6 +1239,7 @@ i.on("error",e=>{console.error(e); process.exit(1);});
     ('set "CLIPFORGE_CLOUD_URL=' + $cloud + '"'),
     ('set "CLIPFORGE_PC_LABEL=' + $label + '"'),
     'if exist "data\\auth\\pc-agent.token" set /p CLIPFORGE_AGENT_TOKEN=<"data\\auth\\pc-agent.token"',
+    'if exist "data\\deoldify.env.cmd" call "data\\deoldify.env.cmd"',
     'echo ClipForge PC Agent - NIE ZAMYKAJ',
     ('echo Strona: ' + $cloud + '/studio.html'),
     'echo Zaloguj sie na TO SAMO konto co przy ⬇ PC.',
@@ -1208,6 +1263,8 @@ i.on("error",e=>{console.error(e); process.exit(1);});
     '4. Chip: PC ON',
     '',
     'Kazdy uzytkownik = wlasne konto + wlasny PC agent.',
+    'DeOldify: SETUP-DEOLDIFY.bat (Python 3.10 + wagi ~874 MB). Po aktualizacji strony odpal ten setup ponownie.',
+    ('DeOldify dir: ' + (Join-Path $env:LOCALAPPDATA 'ClipForge-Agent-data\\deoldify')),
     'Nie dawaj .cmd znajomemu (ma TWOJ token).',
     ('Log: ' + $log)
   )
@@ -1382,7 +1439,7 @@ function sendPcSetupCmd(req, res) {
     "set \"CF_CMD=%~f0\"",
     "echo.",
     "echo  ========================================",
-    "echo   ClipForge PC Agent  (setup10)",
+    "echo   ClipForge PC Agent  (setup11)",
     "echo  ========================================",
     "echo.",
     "echo  Plik: %~f0",

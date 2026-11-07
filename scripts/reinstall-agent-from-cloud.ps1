@@ -44,6 +44,24 @@ Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
   }
 Start-Sleep -Seconds 1
 
+# DeOldify weights/venv live in ClipForge-Agent-data (sibling of the agent dir) and are not deleted.
+# Also keep a manual tools\DeOldify or tools\venv_deoldify if one was installed inside the agent folder.
+$dataRoot = Join-Path $env:LOCALAPPDATA "ClipForge-Agent-data"
+Write-Host ("Zachowane (poza folderem agenta): " + $dataRoot)
+
+$stash = Join-Path $env:TEMP ("cf-keep-deoldify-" + [guid]::NewGuid().ToString("n"))
+$stashed = @()
+foreach ($rel in @("tools\DeOldify", "tools\venv_deoldify")) {
+  $src = Join-Path $agentDir $rel
+  if (Test-Path -LiteralPath $src) {
+    New-Item -ItemType Directory -Path $stash -Force | Out-Null
+    $leaf = Split-Path -Leaf $src
+    Write-Host ("Zachowuje " + $src)
+    Move-Item -LiteralPath $src -Destination (Join-Path $stash $leaf) -Force
+    $stashed += $leaf
+  }
+}
+
 # wipe code, keep data
 if (Test-Path -LiteralPath $agentDir) {
   Get-ChildItem -LiteralPath $agentDir -Force | Where-Object { $_.Name -ne "data" } |
@@ -102,8 +120,31 @@ foreach ($name in @("package.json", "package-lock.json", "lib", "scripts")) {
     Write-Host ("Copied " + $name)
   }
 }
+$setupBat = Join-Path $srcRoot "SETUP-DEOLDIFY.bat"
+if (Test-Path -LiteralPath $setupBat) {
+  Copy-Item -LiteralPath $setupBat -Destination (Join-Path $agentDir "SETUP-DEOLDIFY.bat") -Force
+}
+$setupBat2 = Join-Path $srcRoot "scripts\SETUP-DEOLDIFY.bat"
+if (Test-Path -LiteralPath $setupBat2) {
+  Copy-Item -LiteralPath $setupBat2 -Destination (Join-Path $agentDir "SETUP-DEOLDIFY.bat") -Force
+}
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 [IO.File]::WriteAllText($tokenFile, $token)
+
+if ($stashed.Count -gt 0) {
+  $toolsDest = Join-Path $agentDir "tools"
+  New-Item -ItemType Directory -Path $toolsDest -Force | Out-Null
+  foreach ($leaf in $stashed) {
+    $from = Join-Path $stash $leaf
+    $dest = Join-Path $toolsDest $leaf
+    if (Test-Path -LiteralPath $from) {
+      if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue }
+      Move-Item -LiteralPath $from -Destination $dest -Force
+      Write-Host ("Przywrocono " + $dest)
+    }
+  }
+  Remove-Item -LiteralPath $stash -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host "npm install (may take a few minutes)..."
 Push-Location $agentDir
@@ -118,6 +159,19 @@ $ff = Join-Path $agentDir "node_modules\ffmpeg-static\ffmpeg.exe"
 if (-not (Test-Path -LiteralPath $ff)) { throw "ffmpeg-static missing" }
 Write-Host ("FFmpeg OK: " + $ff)
 
+$deoldify = Join-Path $agentDir "scripts\setup-deoldify.ps1"
+if (Test-Path -LiteralPath $deoldify) {
+  Write-Host "DeOldify setup (idempotent, moze pobrac ~874 MB wag)..."
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $deoldify
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "[OSTRZEZENIE] DeOldify setup nieudany. Agent i tak startuje. Odpal SETUP-DEOLDIFY.bat. Log: $env:TEMP\clipforge-deoldify-setup.log"
+  } else {
+    Write-Host "DeOldify setup OK"
+  }
+} else {
+  Write-Host "[OSTRZEZENIE] Brak scripts\setup-deoldify.ps1 w paczce z chmury."
+}
+
 $batPath = Join-Path $agentDir "RUN-AGENT.bat"
 $bat = @"
 @echo off
@@ -128,6 +182,7 @@ if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%
 set CLIPFORGE_CLOUD_URL=https://clipforge-45ti.onrender.com
 set /p CLIPFORGE_AGENT_TOKEN=<data\auth\pc-agent.token
 set CLIPFORGE_PC_LABEL=Moj PC
+if exist "data\deoldify.env.cmd" call "data\deoldify.env.cmd"
 echo Cloud: %CLIPFORGE_CLOUD_URL%
 echo.
 node scripts\pc-agent.js
