@@ -435,5 +435,5 @@
   "feat.color.cardTitle": "6 · Colorear",
   "feat.color.cardDesc": "DeOldify · cine antiguo B/N",
   "feat.color.title": "6 · Colorear",
-  "feat.color.html": "<p><strong>Da color a películas antiguas en blanco y negro</strong> — DeOldify (modelo de vídeo).</p><ul><li><strong>Casilla «DeOldify»</strong> en opciones de remaster.</li><li><strong>Requisitos</strong> — <code>ColorizeVideo_gen.pth</code> + Python en PC Agent (o <code>DEOLDIFY_DIR</code>).</li><li><strong>Ruta</strong> — limpieza → estabilización → grading → DeOldify.</li><li><strong>¿Sin modelos?</strong> — el trabajo sigue sin color («DeOldify omitido»).</li></ul><p class='feature-cta'>→ Columna 1 · opciones remaster · DeOldify</p>"
+  "feat.color.html": "<p><strong>Da color a películas antiguas en blanco y negro</strong> — DeOldify (modelo de vídeo).</p><ul><li><strong>Casilla «DeOldify»</strong> en opciones de remaster.</li><li><strong>Requisitos</strong> — <code>ColorizeVideo_gen.pth</code> + Python en PC Agent (o <code>DEOLDIFY_DIR</code>).</li><li><strong>Ruta</strong> — limpieza → estabilización → grading → DeOldify.</li><li><strong>¿Sin instalación?</strong> — el trabajo se detiene con un log claro. Vuelve a ejecutar pc-setup.cmd o SETUP-DEOLDIFY.bat (Python 3.10 + pesos).</li></ul><p class='feature-cta'>→ Columna 1 · opciones remaster · DeOldify</p>"
 }
